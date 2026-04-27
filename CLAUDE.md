@@ -1,10 +1,10 @@
 @AGENTS.md
 
-# LaunchDeck
+# LaunchPad
 
 ## What This Is
 
-LaunchDeck is Rejig.ai's unified customer onboarding system. Rejig is a B2B SaaS platform for real estate agents and brokerages. LaunchDeck replaces 8+ disconnected tools (HubSpot, Stripe, Google Forms/Sheets, Shortcut, Calendly, email threads) with a single onboarding pipeline.
+LaunchPad is Rejig.ai's unified customer onboarding system. Rejig is a B2B SaaS platform for real estate agents and brokerages. LaunchPad replaces 8+ disconnected tools (HubSpot, Stripe, Google Forms/Sheets, Shortcut, Calendly, email threads) with a single onboarding pipeline.
 
 Two customer types:
 - **D2C** (SMB agents): full flow with intake forms, design approval, account setup, onboarding call, check-ins

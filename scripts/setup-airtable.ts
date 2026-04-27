@@ -60,7 +60,7 @@ async function batchCreate(table: string, records: Array<{ fields: Record<string
 }
 
 async function main() {
-  console.log('\n=== LaunchDeck Airtable Setup ===\n');
+  console.log('\n=== LaunchPad Airtable Setup ===\n');
 
   // 1. Create Customers table
   const customers = await createTable('Customers', [

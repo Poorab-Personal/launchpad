@@ -128,7 +128,7 @@ function link(name: string, tableId: string) {
 // ─── Main ───────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('\n=== LaunchDeck Production Schema Setup ===\n');
+  console.log('\n=== LaunchPad Production Schema Setup ===\n');
 
   // 1. Create tables (order matters for linked records)
   console.log('Step 1: Creating tables...');

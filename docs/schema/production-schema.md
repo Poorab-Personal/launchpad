@@ -1,4 +1,4 @@
-# LaunchDeck — Production Airtable Schema
+# LaunchPad — Production Airtable Schema
 
 ## Data Model
 

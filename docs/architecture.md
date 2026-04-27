@@ -1,4 +1,4 @@
-# LaunchDeck Architecture
+# LaunchPad Architecture
 
 ## System Overview
 

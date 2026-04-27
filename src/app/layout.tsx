@@ -21,7 +21,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LaunchDeck — Rejig.ai",
+  title: "LaunchPad — Rejig.ai",
   description: "Your customer onboarding portal",
 };
 
