@@ -38,6 +38,16 @@ const fieldMap: Record<string, string> = {
   otherEmails: 'Other Emails',
   feedbackRating: 'Feedback Rating',
   feedbackComments: 'Feedback Comments',
+  hubspotContactUrl: 'HubSpot Contact URL',
+  hubspotDealUrl: 'HubSpot Deal URL',
+  dealValue: 'Deal Value',
+  dealCloseDate: 'Deal Close Date',
+  salesRep: 'Sales Rep',
+  leadSource: 'Lead Source',
+  subscriptionStatus: 'Subscription Status',
+  billingCycle: 'Billing Cycle',
+  mrr: 'MRR',
+  renewalDate: 'Renewal Date',
 };
 
 export async function PATCH(
