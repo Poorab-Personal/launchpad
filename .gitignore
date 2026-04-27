@@ -1,5 +1,9 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# uploads (PoC local storage — production uses S3/R2)
+/public/uploads/*
+!/public/uploads/.gitkeep
+
 # dependencies
 /node_modules
 /.pnp

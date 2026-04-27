@@ -338,15 +338,54 @@ export default function FormTask({
     setError(null);
 
     try {
-      // Build payload — only non-empty fields
-      const payload: Record<string, string> = {};
+      // 1. Upload files if any
+      const fileUrls: Record<string, Array<{ url: string; filename: string }>> = {};
+
+      const filesToUpload: Array<{ field: string; file: File }> = [];
+      if (files.agentPhoto) filesToUpload.push({ field: 'agentPhoto', file: files.agentPhoto });
+      if (files.businessLogo) filesToUpload.push({ field: 'businessLogo', file: files.businessLogo });
+      for (const f of files.otherAssets) filesToUpload.push({ field: 'otherAssets', file: f });
+
+      if (filesToUpload.length > 0) {
+        const formData = new FormData();
+        for (const { file } of filesToUpload) {
+          formData.append('files', file);
+        }
+
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+        if (!uploadRes.ok) throw new Error('Failed to upload files');
+        const uploadData = await uploadRes.json();
+
+        // Map uploaded files back to their fields
+        let uploadIdx = 0;
+        if (files.agentPhoto) {
+          fileUrls.agentPhoto = [uploadData.files[uploadIdx]];
+          uploadIdx++;
+        }
+        if (files.businessLogo) {
+          fileUrls.businessLogo = [uploadData.files[uploadIdx]];
+          uploadIdx++;
+        }
+        if (files.otherAssets.length > 0) {
+          fileUrls.otherAssets = uploadData.files.slice(uploadIdx);
+        }
+      }
+
+      // 2. Build payload — only non-empty text fields
+      const payload: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(form)) {
         if (value.trim()) {
           payload[key] = value.trim();
         }
       }
 
-      // PATCH customer with form data
+      // TODO (production): Write public S3 URLs to Airtable attachment fields:
+      // if (fileUrls.agentPhoto) payload.agentPhoto = fileUrls.agentPhoto;
+      // if (fileUrls.businessLogo) payload.businessLogo = fileUrls.businessLogo;
+      // if (fileUrls.otherAssets) payload.otherAssets = fileUrls.otherAssets;
+      // For now, files are stored locally and viewable in the portal.
+
+      // 3. PATCH customer with form data
       const custRes = await fetch(`/api/customers/${customerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
