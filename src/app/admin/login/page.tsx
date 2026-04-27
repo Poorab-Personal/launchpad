@@ -31,6 +31,13 @@ export default function AdminLoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F7F4EB]">
       <div className="w-full max-w-sm">
+        <div className="flex justify-center mb-6">
+          <img
+            src="https://rejig.ai/wp-content/themes/rejigchild/assets/images/rejig-logo-1.png"
+            alt="Rejig.ai"
+            className="h-8"
+          />
+        </div>
         <div className="rounded-lg border border-[#E0DEE4] bg-white p-8 shadow-[0px_4px_12px_#1B2E3514]">
           <h1 className="text-xl font-bold text-[#1B2E35] mb-1">LaunchPad Admin</h1>
           <p className="text-sm text-[#1B2E35]/60 mb-6">Enter password to continue</p>
