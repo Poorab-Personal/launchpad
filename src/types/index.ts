@@ -152,6 +152,7 @@ export interface TeamMember {
   name: string;
   email: string;
   slackHandle: string;
+  calendlyUrl: string;
   role: TeamRole;
   active: boolean;
   createdAt: string;
@@ -168,6 +169,7 @@ export interface Brokerage {
   rosterApiKey: string;
   rosterRefreshInterval: string;
   lastRosterSync: string;
+  defaultCalendlyUrl: string;
   billingContact: string;
   notes: string;
   active: boolean;

@@ -36,6 +36,8 @@ const fieldMap: Record<string, string> = {
   reminderCount: 'Reminder Count',
   designRevisionCount: 'Design Revision Count',
   otherEmails: 'Other Emails',
+  feedbackRating: 'Feedback Rating',
+  feedbackComments: 'Feedback Comments',
 };
 
 export async function PATCH(

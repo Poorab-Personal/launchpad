@@ -269,6 +269,106 @@ export default function FormTask({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── Feedback Form (simple rating + comments) ──
+  const isFeedbackForm = task.taskName.toLowerCase().includes('feedback');
+  const [rating, setRating] = useState(0);
+  const [comments, setComments] = useState('');
+
+  if (isFeedbackForm) {
+    async function handleFeedbackSubmit() {
+      if (rating === 0) return;
+      setSubmitting(true);
+      setError(null);
+      try {
+        await fetch(`/api/customers/${customerId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            feedbackRating: rating,
+            ...(comments.trim() ? { feedbackComments: comments.trim() } : {}),
+          }),
+        });
+        await fetch(`/api/tasks/${task.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'Completed' }),
+        });
+        onComplete();
+      } catch {
+        setError('Something went wrong. Please try again.');
+      } finally {
+        setSubmitting(false);
+      }
+    }
+
+    return (
+      <div className="space-y-6">
+        {task.instructions && (
+          <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+        )}
+
+        {/* Star rating */}
+        <div>
+          <p className="text-sm font-semibold text-[#1B2E35]/87 mb-2">How was your onboarding experience?</p>
+          <div className="flex gap-1">
+            {[1, 2, 3, 4, 5].map((star) => (
+              <button
+                key={star}
+                type="button"
+                onClick={() => setRating(star)}
+                className="p-1 transition-transform hover:scale-110"
+              >
+                <svg
+                  className={`h-8 w-8 ${star <= rating ? 'text-[#DABA21] fill-[#DABA21]' : 'text-[#E0DEE4] hover:text-[#DABA21]/50'}`}
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+                </svg>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Comments */}
+        <div>
+          <label className="block text-sm font-semibold text-[#1B2E35]/87 mb-1">
+            Any comments? <span className="font-normal text-[#1B2E35]/40">(optional)</span>
+          </label>
+          <textarea
+            value={comments}
+            onChange={(e) => setComments(e.target.value)}
+            placeholder="Tell us what went well or what could be improved..."
+            rows={4}
+            className="w-full rounded-lg border border-[#E0DEE4] bg-white px-3 py-2 text-sm text-[#1B2E35] placeholder:text-[#1B2E35]/40 focus:border-[#6C4AB6] focus:outline-none focus:ring-2 focus:ring-[#6C4AB6]/20"
+          />
+        </div>
+
+        {error && (
+          <div className="rounded-lg border border-[#EC531A]/30 bg-[#EC531A]/5 px-4 py-3 text-sm text-[#EC531A]">
+            {error}
+          </div>
+        )}
+
+        <button
+          onClick={handleFeedbackSubmit}
+          disabled={submitting || rating === 0}
+          className="inline-flex items-center gap-2 rounded-full bg-[#05C68E] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#04946A] disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {submitting ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Submitting…
+            </>
+          ) : (
+            'Submit Feedback'
+          )}
+        </button>
+      </div>
+    );
+  }
+
   // ── Helpers ──
 
   const update = useCallback((field: keyof FormData, value: string) => {

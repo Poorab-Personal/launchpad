@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Task } from '@/types';
+
 export default function EmbedTask({
   task,
   onComplete,
@@ -12,6 +13,45 @@ export default function EmbedTask({
   const [loading, setLoading] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
   const [iframeError, setIframeError] = useState(false);
+  const [booked, setBooked] = useState(false);
+
+  const isVideo =
+    task.taskName.toLowerCase().includes('video') ||
+    task.taskName.toLowerCase().includes('watch');
+
+  const isCalendly = task.embedUrl?.includes('calendly.com') ?? false;
+
+  // Listen for Calendly's postMessage event when booking completes
+  useEffect(() => {
+    if (!isCalendly) return;
+
+    function handleMessage(event: MessageEvent) {
+      // Calendly fires this event when a booking is confirmed
+      if (event.data?.event === 'calendly.event_scheduled') {
+        handleCalendlyBooked();
+      }
+    }
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCalendly]);
+
+  async function handleCalendlyBooked() {
+    setBooked(true);
+    setLoading(true);
+    try {
+      await fetch(`/api/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Completed' }),
+      });
+      // Small delay to let user see the confirmation, then refresh
+      setTimeout(() => onComplete(), 2000);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleComplete() {
     setLoading(true);
@@ -27,9 +67,21 @@ export default function EmbedTask({
     }
   }
 
-  const isVideo =
-    task.taskName.toLowerCase().includes('video') ||
-    task.taskName.toLowerCase().includes('watch');
+  // Booking confirmed state
+  if (booked) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 rounded-lg bg-[#05C68E]/10 border border-[#05C68E]/20 px-5 py-4">
+          <svg className="h-5 w-5 text-[#05C68E] shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+          </svg>
+          <span className="text-sm font-medium text-[#1B2E35]">
+            Booking confirmed! We&apos;ll send you a confirmation email with the details.
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -50,7 +102,7 @@ export default function EmbedTask({
           ) : (
             <iframe
               src={task.embedUrl}
-              className="h-[700px] w-full border-0"
+              className={`w-full border-0 ${isCalendly ? 'h-[800px]' : 'h-[700px]'}`}
               allow="camera; microphone; fullscreen"
               loading="lazy"
               onLoad={() => setIframeLoading(false)}
@@ -68,22 +120,26 @@ export default function EmbedTask({
           </p>
         </div>
       )}
-      <button
-        onClick={handleComplete}
-        disabled={loading}
-        className="inline-flex items-center gap-2 rounded-full bg-[#05C68E] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#04946A] disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {loading ? (
-          <>
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            Completing…
-          </>
-        ) : isVideo ? (
-          "I've Watched This"
-        ) : (
-          'Mark Complete'
-        )}
-      </button>
+
+      {/* Only show Mark Complete for non-Calendly tasks (videos, etc.) */}
+      {!isCalendly && (
+        <button
+          onClick={handleComplete}
+          disabled={loading}
+          className="inline-flex items-center gap-2 rounded-full bg-[#05C68E] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#04946A] disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Completing…
+            </>
+          ) : isVideo ? (
+            "I've Watched This"
+          ) : (
+            'Mark Complete'
+          )}
+        </button>
+      )}
     </div>
   );
 }
