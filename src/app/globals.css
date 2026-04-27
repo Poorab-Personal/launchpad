@@ -1,26 +1,34 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #F7F4EB;
+  --foreground: #1B2E35;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-open-sans);
   --font-mono: var(--font-geist-mono);
-}
+  --font-heading: var(--font-outfit);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Rejig brand colors */
+  --color-rejig-purple: #6C4AB6;
+  --color-rejig-teal: #05C68E;
+  --color-rejig-dark: #1B2E35;
+  --color-rejig-gold: #DABA21;
+  --color-rejig-error: #EC531A;
+  --color-rejig-cream: #F7F4EB;
+  --color-rejig-border: #E0DEE4;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-open-sans), 'Open Sans', sans-serif;
+}
+
+/* Apply Outfit font to headings */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-outfit), 'Outfit', sans-serif;
 }
