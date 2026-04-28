@@ -39,6 +39,12 @@ export default function AddCustomerForm({ workflows }: { workflows: Workflow[] }
     if (businessName) data.businessName = businessName;
     if (website) data.website = website;
 
+    // Add-on flags
+    const hasVoice = form.get('hasVoice') === 'on';
+    const hasAvatar = form.get('hasAvatar') === 'on';
+    if (hasVoice) (data as Record<string, unknown>).hasVoice = true;
+    if (hasAvatar) (data as Record<string, unknown>).hasAvatar = true;
+
     const res = await fetch('/api/customers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -134,6 +140,16 @@ export default function AddCustomerForm({ workflows }: { workflows: Workflow[] }
               className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
               placeholder="https://example.com"
             />
+          </div>
+          <div className="col-span-2 flex gap-6">
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" name="hasVoice" className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500" />
+              Has Voice Add-On
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" name="hasAvatar" className="rounded border-gray-600 bg-gray-800 text-blue-500 focus:ring-blue-500" />
+              Has Avatar Add-On
+            </label>
           </div>
         </div>
         <div className="flex items-center gap-3">

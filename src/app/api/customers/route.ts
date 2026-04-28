@@ -3,7 +3,7 @@ import { createRecord } from '@/lib/airtable-client';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { name, type, channel, email, businessName, businessAddress, website, phone } = body as {
+  const { name, type, channel, email, businessName, businessAddress, website, phone, hasVoice, hasAvatar } = body as {
     name: string;
     type: string;
     channel: string;
@@ -12,6 +12,8 @@ export async function POST(request: NextRequest) {
     businessAddress?: string;
     website?: string;
     phone?: string;
+    hasVoice?: boolean;
+    hasAvatar?: boolean;
   };
 
   if (!name || !type || !channel || !email) {
@@ -32,6 +34,8 @@ export async function POST(request: NextRequest) {
   if (businessAddress) customerFields['Business Address'] = businessAddress;
   if (website) customerFields['Website'] = website;
   if (phone) customerFields['Phone'] = phone;
+  if (hasVoice) customerFields['Has Voice'] = true;
+  if (hasAvatar) customerFields['Has Avatar'] = true;
 
   const customerRecord = await createRecord('Customers', customerFields);
 

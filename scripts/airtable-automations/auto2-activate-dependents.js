@@ -4,31 +4,43 @@
 // Input variables (configured in Airtable automation UI):
 //   - taskRecordId:     Record ID of the completed task
 //   - taskName:         Task Name of the completed task
-//   - customerRecordId: Record ID of the linked customer (from Customer field)
+//   - customerRecordId: Record ID of the linked customer (from Customer field, Display → ID)
 //   - taskStage:        Stage of the completed task
 //   - taskProduct:      Product of the completed task (Core, Voice, or Avatar)
 
 const config = input.config();
-const { taskRecordId, taskName, customerRecordId, taskStage, taskProduct } = config;
+const { taskRecordId, taskName, customerRecordId: rawCustomerId, taskStage, taskProduct } = config;
+
+// Handle customerRecordId as array (Airtable linked record input returns array)
+const customerRecordId = Array.isArray(rawCustomerId) ? rawCustomerId[0] : rawCustomerId;
 
 // Default to Core if Product is empty (backwards compat with pre-Product tasks)
 const product = taskProduct || 'Core';
 
+if (!taskRecordId || !customerRecordId) {
+    throw new Error('Missing taskRecordId or customerRecordId.');
+}
+
 console.log(`Task completed: "${taskName}" [${product}] in stage "${taskStage}"`);
+console.log(`Customer: ${customerRecordId}`);
 
 // ── 1. Get all tasks for this customer, scoped by Product ───────────────
 
 const tasksTable = base.getTable('Tasks');
-const tasksQuery = await tasksTable.selectRecordsAsync({
-    fields: ['Task Name', 'Customer', 'Stage', 'Stage Order', 'Status', 'Depends On', 'Task Order', 'Has Team Review', 'Product'],
-});
+const tasksQuery = await tasksTable.selectRecordsAsync();
 
+// Match using JSON.stringify to avoid type comparison issues with linked records
+const custId = String(customerRecordId).trim();
 const customerTasks = tasksQuery.records.filter(r => {
     const linked = r.getCellValue('Customer');
-    return linked && linked.some(c => c.id === customerRecordId);
+    return linked && JSON.stringify(linked).includes(custId);
 });
 
 console.log(`Found ${customerTasks.length} total tasks for this customer`);
+
+if (customerTasks.length === 0) {
+    throw new Error(`No tasks found for customer ${custId}. Check automation input config.`);
+}
 
 // Filter to only tasks with the same Product for dependency checking
 const sameProductTasks = customerTasks.filter(r => {
@@ -48,6 +60,16 @@ for (const t of sameProductTasks) {
 
 // ── 2. Activate dependent tasks (scoped by Product) ─────────────────────
 
+// Helper: log event safely — don't let logging failures abort the main workflow
+const eventsTable = base.getTable('Events');
+async function logEvent(fields) {
+    try {
+        await eventsTable.createRecordAsync(fields);
+    } catch (e) {
+        console.log(`Event log failed: ${e.message}`);
+    }
+}
+
 let activatedCount = 0;
 for (const task of sameProductTasks) {
     if (task.getCellValueAsString('Status') !== 'Draft') continue;
@@ -55,24 +77,32 @@ for (const task of sameProductTasks) {
     const dependsOnRaw = task.getCellValueAsString('Depends On');
     if (!dependsOnRaw) continue;
 
-    // Split by comma, trim each, check ALL are completed (within same Product)
-    const deps = dependsOnRaw.split(',').map(d => d.trim());
+    // Split by comma, trim each, filter empty, check ALL are completed (within same Product)
+    const deps = dependsOnRaw.split(',').map(d => d.trim()).filter(d => d.length > 0);
+    if (deps.length === 0) continue;
+
     const allMet = deps.every(dep => completedNames.has(dep));
 
     if (allMet) {
+        // Re-fetch to prevent race condition
+        const freshQuery = await tasksTable.selectRecordsAsync();
+        const freshTask = freshQuery.records.find(r => r.id === task.id);
+        if (!freshTask || freshTask.getCellValueAsString('Status') !== 'Draft') {
+            console.log(`  Skipped "${task.getCellValueAsString('Task Name')}" — already activated`);
+            continue;
+        }
+
         await tasksTable.updateRecordAsync(task.id, {
             'Status': { name: 'Active' },
         });
         activatedCount++;
         console.log(`  Activated: "${task.getCellValueAsString('Task Name')}" (deps met: ${dependsOnRaw})`);
 
-        // Log event
-        const eventsTable = base.getTable('Events');
-        await eventsTable.createRecordAsync({
+        await logEvent({
             'Customer': [{ id: customerRecordId }],
             'Event Type': { name: 'Task Activated' },
             'Actor Type': { name: 'System' },
-            'Details': `Task "${task.getCellValueAsString('Task Name')}" [${product}] activated (dependencies met: ${dependsOnRaw}).`,
+            'Details': `Task "${task.getCellValueAsString('Task Name')}" [${product}] activated.`,
             'Related Task': [{ id: task.id }],
         });
     }
@@ -95,8 +125,7 @@ if (taskName === 'Send Credentials') {
 
 // ── 4. Log Task Completed event ─────────────────────────────────────────
 
-const eventsTable = base.getTable('Events');
-await eventsTable.createRecordAsync({
+await logEvent({
     'Customer': [{ id: customerRecordId }],
     'Event Type': { name: 'Task Completed' },
     'Actor Type': { name: 'System' },
@@ -107,12 +136,10 @@ await eventsTable.createRecordAsync({
 // ── 5. Check if all tasks in current stage are completed (same Product) ─
 
 // Re-fetch to get fresh statuses after activations
-const refreshedQuery = await tasksTable.selectRecordsAsync({
-    fields: ['Task Name', 'Customer', 'Stage', 'Stage Order', 'Status', 'Depends On', 'Product'],
-});
+const refreshedQuery = await tasksTable.selectRecordsAsync();
 const refreshedTasks = refreshedQuery.records.filter(r => {
     const linked = r.getCellValue('Customer');
-    return linked && linked.some(c => c.id === customerRecordId);
+    return linked && JSON.stringify(linked).includes(custId);
 });
 
 // Filter refreshed tasks to same Product
@@ -143,9 +170,12 @@ if (!allStageCompleted) {
         stageField = 'Avatar Stage';
     } else {
         // Core — use {Type}-{Channel} pattern
-        const customer = (await customersTable.selectRecordsAsync({
-            fields: ['Type', 'Channel'],
-        })).records.find(r => r.id === customerRecordId);
+        const customerQuery = await customersTable.selectRecordsAsync();
+        const customer = customerQuery.records.find(r => r.id === customerRecordId);
+
+        if (!customer) {
+            throw new Error(`Customer ${customerRecordId} not found.`);
+        }
 
         const custType = customer.getCellValueAsString('Type');
         const custChannel = customer.getCellValueAsString('Channel');
@@ -156,9 +186,7 @@ if (!allStageCompleted) {
     console.log(`Looking up stages for workflow key "${workflowKey}", updating "${stageField}"`);
 
     const templatesTable = base.getTable('Workflow Templates');
-    const templatesQuery = await templatesTable.selectRecordsAsync({
-        fields: ['Workflow Key', 'Stage', 'Stage Order'],
-    });
+    const templatesQuery = await templatesTable.selectRecordsAsync();
     const templates = templatesQuery.records.filter(
         r => r.getCellValueAsString('Workflow Key') === workflowKey
     );
@@ -197,7 +225,7 @@ if (!allStageCompleted) {
         await customersTable.updateRecordAsync(customerRecordId, stageUpdate);
 
         // Log stage change event
-        await eventsTable.createRecordAsync({
+        await logEvent({
             'Customer': [{ id: customerRecordId }],
             'Event Type': { name: 'Stage Changed' },
             'Actor Type': { name: 'System' },
@@ -222,8 +250,8 @@ if (!allStageCompleted) {
             if (!dependsOn) {
                 canActivate = true;
             } else {
-                const deps = dependsOn.split(',').map(d => d.trim());
-                canActivate = deps.every(dep => allCompletedNames.has(dep));
+                const deps = dependsOn.split(',').map(d => d.trim()).filter(d => d.length > 0);
+                canActivate = deps.length === 0 || deps.every(dep => allCompletedNames.has(dep));
             }
 
             if (canActivate) {

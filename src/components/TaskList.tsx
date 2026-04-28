@@ -307,27 +307,6 @@ export default function TaskList({
         </ol>
       </nav>
 
-      {/* Add-on jump links */}
-      {hasAddOns && (
-        <div className="flex gap-2 mt-3">
-          {showVoice && (
-            <a
-              href="#voice-addon"
-              className="inline-flex items-center gap-1 rounded-full border border-[#E0DEE4] bg-white px-3 py-1 text-[11px] font-medium text-[#6C4AB6] hover:bg-[#6C4AB6]/5 transition-colors"
-            >
-              🎙️ Voice Setup
-            </a>
-          )}
-          {showAvatar && (
-            <a
-              href="#avatar-addon"
-              className="inline-flex items-center gap-1 rounded-full border border-[#E0DEE4] bg-white px-3 py-1 text-[11px] font-medium text-[#6C4AB6] hover:bg-[#6C4AB6]/5 transition-colors"
-            >
-              📹 Avatar Setup
-            </a>
-          )}
-        </div>
-      )}
       </div>
 
       {/* Current stage content ONLY */}
