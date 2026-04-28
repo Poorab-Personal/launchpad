@@ -438,37 +438,26 @@ export default function FormTask({
     setError(null);
 
     try {
-      // 1. Upload files if any
-      const fileUrls: Record<string, Array<{ url: string; filename: string }>> = {};
-
-      const filesToUpload: Array<{ field: string; file: File }> = [];
-      if (files.agentPhoto) filesToUpload.push({ field: 'agentPhoto', file: files.agentPhoto });
-      if (files.businessLogo) filesToUpload.push({ field: 'businessLogo', file: files.businessLogo });
-      for (const f of files.otherAssets) filesToUpload.push({ field: 'otherAssets', file: f });
-
-      if (filesToUpload.length > 0) {
-        const formData = new FormData();
-        for (const { file } of filesToUpload) {
-          formData.append('files', file);
+      // 1. Upload files individually to Airtable via Vercel Blob
+      const uploadFile = async (file: File, fieldName: string) => {
+        if (file.size > 3_500_000) {
+          throw new Error(`"${file.name}" is too large (${(file.size / 1_000_000).toFixed(1)}MB). Maximum is 3.5MB.`);
         }
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('customerId', customerId);
+        fd.append('fieldName', fieldName);
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.error || `Failed to upload ${file.name}`);
+        }
+      };
 
-        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
-        if (!uploadRes.ok) throw new Error('Failed to upload files');
-        const uploadData = await uploadRes.json();
-
-        // Map uploaded files back to their fields
-        let uploadIdx = 0;
-        if (files.agentPhoto) {
-          fileUrls.agentPhoto = [uploadData.files[uploadIdx]];
-          uploadIdx++;
-        }
-        if (files.businessLogo) {
-          fileUrls.businessLogo = [uploadData.files[uploadIdx]];
-          uploadIdx++;
-        }
-        if (files.otherAssets.length > 0) {
-          fileUrls.otherAssets = uploadData.files.slice(uploadIdx);
-        }
+      if (files.agentPhoto) await uploadFile(files.agentPhoto, 'Agent Photo');
+      if (files.businessLogo) await uploadFile(files.businessLogo, 'Business Logo');
+      for (const asset of files.otherAssets) {
+        await uploadFile(asset, 'Other Assets');
       }
 
       // 2. Build payload — only non-empty text fields
@@ -479,13 +468,7 @@ export default function FormTask({
         }
       }
 
-      // TODO (production): Write public S3 URLs to Airtable attachment fields:
-      // if (fileUrls.agentPhoto) payload.agentPhoto = fileUrls.agentPhoto;
-      // if (fileUrls.businessLogo) payload.businessLogo = fileUrls.businessLogo;
-      // if (fileUrls.otherAssets) payload.otherAssets = fileUrls.otherAssets;
-      // For now, files are stored locally and viewable in the portal.
-
-      // 3. PATCH customer with form data
+      // 3. PATCH customer with form data (files already written by upload route)
       const custRes = await fetch(`/api/customers/${customerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

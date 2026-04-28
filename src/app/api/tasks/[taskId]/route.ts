@@ -7,18 +7,19 @@ export async function PATCH(
 ) {
   const { taskId } = await params;
   const body = await request.json();
-  const { status } = body as { status: string };
+  const { status, notes } = body as { status: string; notes?: string };
 
   if (!status) {
     return Response.json({ error: 'Missing required field: status' }, { status: 400 });
   }
 
-  // Just update the status — Airtable automations handle everything else:
-  // Auto 2: dependency activation + stage advancement
-  // Auto 3: In Review interception (if re-enabled)
+  // Update status + optional notes (used for share links on upload tasks)
   const updatedFields: Record<string, unknown> = { Status: status };
   if (status === 'Completed') {
     updatedFields['Completed At'] = new Date().toISOString();
+  }
+  if (notes !== undefined) {
+    updatedFields['Notes'] = notes;
   }
 
   const record = await updateRecord('Tasks', taskId, updatedFields);

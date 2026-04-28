@@ -86,6 +86,14 @@ export default function TaskList({
     (t) => t.status === 'Active' || t.status === 'Draft',
   );
 
+  // Progress calculations (stage-based, not task-count — avoids exposing internal task counts)
+  const currentStageNum = progressStages.indexOf(currentStage);
+  const completedStagesCount = currentStageNum >= 0 ? currentStageNum : progressStages.length;
+  const progressPercent = progressStages.length > 0
+    ? Math.round((completedStagesCount / progressStages.length) * 100)
+    : 0;
+  const completedInStage = currentStageTasks.filter((t) => t.status === 'Completed').length;
+
   function handleTaskComplete(taskId: string) {
     setTasks((prev) =>
       prev.map((t) =>
@@ -198,13 +206,16 @@ export default function TaskList({
                     return (
                       <div
                         key={task.id}
-                        className="flex items-center gap-3 rounded-lg border border-[#E0DEE4] bg-[#05C68E]/5 px-4 py-2.5"
+                        className="flex items-center gap-3 rounded-lg border border-[#05C68E]/20 bg-[#05C68E]/10 px-4 py-2.5"
                       >
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/15">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/20">
                           <CheckIcon className="h-3 w-3 text-[#05C68E]" />
                         </span>
-                        <span className="text-xs text-[#1B2E35]/60 line-through">
+                        <span className="flex-1 text-xs text-[#1B2E35]/70">
                           {task.taskName}
+                        </span>
+                        <span className="text-[10px] font-medium text-[#05C68E] shrink-0 uppercase tracking-wide">
+                          Done
                         </span>
                       </div>
                     );
@@ -214,7 +225,7 @@ export default function TaskList({
                     return (
                       <div
                         key={task.id}
-                        className="rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] p-4"
+                        className="rounded-lg border border-[#E0DEE4] bg-white p-4"
                       >
                         <h4 className="mb-2 text-sm font-semibold text-[#1B2E35]">
                           {task.taskName}
@@ -307,25 +318,52 @@ export default function TaskList({
         </ol>
       </nav>
 
+        {/* Stage progress bar */}
+        <div className="mt-3 flex items-center gap-3">
+          <div className="flex-1 h-1.5 rounded-full bg-[#E0DEE4]">
+            <div
+              className="h-1.5 rounded-full bg-[#05C68E] transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          <span className="text-xs font-medium text-[#1B2E35]/54 shrink-0">
+            Stage {(currentStageNum >= 0 ? currentStageNum : progressStages.length) + 1} of {progressStages.length}
+          </span>
+        </div>
       </div>
 
       {/* Current stage content ONLY */}
       <div>
-        <h2 className="mb-4 text-lg font-semibold text-[#1B2E35]">{currentStage}</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-[#1B2E35]">{currentStage}</h2>
+          {currentStageTasks.length > 1 && (
+            <span className="text-xs font-medium text-[#1B2E35]/40">
+              {completedInStage} of {currentStageTasks.length} complete
+            </span>
+          )}
+        </div>
 
         {/* If no visible tasks in current stage (e.g., Onboarding Call — team only) */}
         {currentStageTasks.length === 0 && (
-          <div className="rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35]">
-            {customer.callDate
-              ? `Your onboarding call is scheduled for ${new Date(customer.callDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`
-              : "Our team is working on the next step. We'll notify you when something needs your attention."}
+          <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514]">
+            <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <span>
+              {customer.callDate
+                ? `Your onboarding call is scheduled for ${new Date(customer.callDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+                : "Our team is working on the next step. We'll notify you when something needs your attention."}
+            </span>
           </div>
         )}
 
         {/* If all visible tasks are completed and team is working (waiting state) */}
         {currentStageTasks.length > 0 && !hasActiveTasks && (
-          <div className="rounded-lg border-l-4 border-l-[#DABA21] bg-[#F7F4EB] px-5 py-4 text-sm text-[#1B2E35]/74 mb-4">
-            Our team is working on the next step. We&apos;ll email you when something needs your attention.
+          <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35]/74 mb-4 shadow-[0px_4px_12px_#1B2E3514]">
+            <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            <span>Our team is working on the next step. We&apos;ll email you when something needs your attention.</span>
           </div>
         )}
 
@@ -335,13 +373,16 @@ export default function TaskList({
               return (
                 <div
                   key={task.id}
-                  className="flex items-center gap-3 rounded-lg border border-[#E0DEE4] bg-[#05C68E]/5 px-5 py-3.5"
+                  className="flex items-center gap-3 rounded-lg border border-[#05C68E]/20 bg-[#05C68E]/10 px-5 py-3.5"
                 >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/15">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/20">
                     <CheckIcon className="h-3.5 w-3.5 text-[#05C68E]" />
                   </span>
-                  <span className="text-sm text-[#1B2E35]/60 line-through">
+                  <span className="flex-1 text-sm text-[#1B2E35]/70">
                     {task.taskName}
+                  </span>
+                  <span className="text-[10px] font-medium text-[#05C68E] shrink-0 uppercase tracking-wide">
+                    Completed
                   </span>
                 </div>
               );
@@ -351,11 +392,16 @@ export default function TaskList({
               return (
                 <div
                   key={task.id}
-                  className="rounded-lg border border-[#E0DEE4] bg-white p-5 shadow-[0px_4px_12px_#1B2E3514]"
+                  className="rounded-lg border border-[#E0DEE4] border-l-4 border-l-[#6C4AB6] bg-white p-5 shadow-[0px_4px_12px_#1B2E3514]"
                 >
-                  <h3 className="mb-3 text-base font-semibold text-[#1B2E35]">
-                    {task.taskName}
-                  </h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-base font-semibold text-[#1B2E35]">
+                      {task.taskName}
+                    </h3>
+                    <span className="inline-flex items-center rounded-full bg-[#6C4AB6]/10 px-2.5 py-0.5 text-[10px] font-medium text-[#6C4AB6] shrink-0 ml-3">
+                      Action Required
+                    </span>
+                  </div>
                   <TaskRenderer
                     task={task}
                     customerId={customerId}
@@ -403,7 +449,7 @@ export default function TaskList({
               renderAddonCard(
                 'voice-addon',
                 'AI Voice Setup',
-                'Record your voice so we can set up your AI voice agent. Download the script, record yourself reading it, and upload your recordings.',
+                'Record your voice so we can set up your AI voice agent.',
                 <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
                 </svg>,
@@ -415,7 +461,7 @@ export default function TaskList({
               renderAddonCard(
                 'avatar-addon',
                 'AI Avatar Setup',
-                'Record a short video so we can create your AI avatar. Download the guide for tips on lighting, framing, and what to say.',
+                'Record a short video so we can create your AI avatar.',
                 <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
                 </svg>,

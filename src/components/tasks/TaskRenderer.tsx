@@ -22,7 +22,7 @@ export default function TaskRenderer({
     case 'Form':
       return <FormTask task={task} onComplete={onComplete} customerId={customerId} customer={customer} />;
     case 'File Upload':
-      return <FileUploadTask task={task} onComplete={onComplete} />;
+      return <FileUploadTask task={task} customerId={customerId} onComplete={onComplete} />;
     case 'Embed':
       return <EmbedTask task={task} onComplete={onComplete} />;
     case 'Proof':

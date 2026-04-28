@@ -23,7 +23,7 @@ export default function CustomerFilters() {
       <select
         value={searchParams.get('type') ?? ''}
         onChange={(e) => handleChange('type', e.target.value)}
-        className="rounded border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-200"
+        className="rounded-lg border border-[#E0DEE4] bg-white px-3 py-1.5 text-sm text-[#1B2E35] focus:border-[#6C4AB6] focus:outline-none focus:ring-2 focus:ring-[#6C4AB6]/20"
       >
         <option value="">All Types</option>
         {TYPES.map((t) => (
