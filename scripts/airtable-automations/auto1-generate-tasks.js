@@ -169,11 +169,33 @@ const stageUpdates = {
 };
 
 // ── 5. Generate add-on tasks (Voice / Avatar) ──────────────────────────
+// Avatar is a superset of Voice — if customer has Avatar, skip Voice tasks
+// (Avatar flow includes voice clone creation from the video audio)
 
 let voiceCount = 0;
 let avatarCount = 0;
 
-if (hasVoice) {
+if (hasAvatar) {
+    // Avatar includes voice — generate Avatar tasks only
+    const avatarTemplates = templatesQuery.records
+        .filter(r => r.getCellValueAsString('Workflow Key') === 'Addon-Avatar')
+        .sort((a, b) => {
+            const soA = Number(a.getCellValue('Stage Order')) || 0;
+            const soB = Number(b.getCellValue('Stage Order')) || 0;
+            if (soA !== soB) return soA - soB;
+            return (Number(a.getCellValue('Task Order')) || 0) - (Number(b.getCellValue('Task Order')) || 0);
+        });
+
+    if (avatarTemplates.length > 0) {
+        avatarCount = await createTasksFromTemplates(avatarTemplates, 'Avatar');
+        const firstAvatarStage = avatarTemplates[0].getCellValueAsString('Stage');
+        stageUpdates['Avatar Stage'] = firstAvatarStage;
+        console.log(`Avatar: ${avatarCount} tasks created, initial stage "${firstAvatarStage}" (includes voice clone)`);
+    } else {
+        console.log('Warning: Has Avatar = true but no Addon-Avatar templates found');
+    }
+} else if (hasVoice) {
+    // Voice only (no Avatar) — generate Voice tasks
     const voiceTemplates = templatesQuery.records
         .filter(r => r.getCellValueAsString('Workflow Key') === 'Addon-Voice')
         .sort((a, b) => {
@@ -190,26 +212,6 @@ if (hasVoice) {
         console.log(`Voice: ${voiceCount} tasks created, initial stage "${firstVoiceStage}"`);
     } else {
         console.log('Warning: Has Voice = true but no Addon-Voice templates found');
-    }
-}
-
-if (hasAvatar) {
-    const avatarTemplates = templatesQuery.records
-        .filter(r => r.getCellValueAsString('Workflow Key') === 'Addon-Avatar')
-        .sort((a, b) => {
-            const soA = Number(a.getCellValue('Stage Order')) || 0;
-            const soB = Number(b.getCellValue('Stage Order')) || 0;
-            if (soA !== soB) return soA - soB;
-            return (Number(a.getCellValue('Task Order')) || 0) - (Number(b.getCellValue('Task Order')) || 0);
-        });
-
-    if (avatarTemplates.length > 0) {
-        avatarCount = await createTasksFromTemplates(avatarTemplates, 'Avatar');
-        const firstAvatarStage = avatarTemplates[0].getCellValueAsString('Stage');
-        stageUpdates['Avatar Stage'] = firstAvatarStage;
-        console.log(`Avatar: ${avatarCount} tasks created, initial stage "${firstAvatarStage}"`);
-    } else {
-        console.log('Warning: Has Avatar = true but no Addon-Avatar templates found');
     }
 }
 

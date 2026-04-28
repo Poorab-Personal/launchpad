@@ -448,8 +448,8 @@ export default function TaskList({
             {showVoice &&
               renderAddonCard(
                 'voice-addon',
-                'AI Voice Setup',
-                'Record your voice so we can set up your AI voice agent.',
+                'AI Voice',
+                'Download the script, record your voice, and upload. We\u2019ll create your AI voice clone.',
                 <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
                 </svg>,
@@ -460,8 +460,8 @@ export default function TaskList({
             {showAvatar &&
               renderAddonCard(
                 'avatar-addon',
-                'AI Avatar Setup',
-                'Record a short video so we can create your AI avatar.',
+                'AI Avatar',
+                'Record your video and upload. We\u2019ll create your AI avatar and voice clone.',
                 <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
                 </svg>,
