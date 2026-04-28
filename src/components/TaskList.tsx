@@ -215,6 +215,87 @@ export default function TaskList({
           })}
         </div>
       </div>
+
+      {/* ── Add-Ons Section (MOCK — hardcoded for UX review) ──────────── */}
+      {/* TODO: Remove this mock and drive from task data once UX is approved */}
+      <div className="border-t border-[#E0DEE4] pt-8">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-[#1B2E35]">Your Add-Ons</h2>
+          <span className="text-xs font-medium text-[#1B2E35]/40">0 of 2 complete</span>
+        </div>
+
+        <div className="space-y-4">
+          {/* Voice Add-On */}
+          <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#6C4AB6]/10">
+                <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-[#1B2E35]">AI Voice Setup</h3>
+                <p className="mt-1 text-xs text-[#1B2E35]/60">
+                  Record your voice so we can set up your AI voice agent. Download the script, record yourself reading it, and upload your recordings.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="inline-flex items-center gap-1.5 rounded-full border border-[#E0DEE4] bg-white px-3.5 py-1.5 text-xs font-medium text-[#1B2E35] hover:bg-[#F7F4EB] transition-colors">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                    </svg>
+                    View Script
+                  </button>
+                  <button className="inline-flex items-center gap-1.5 rounded-full bg-[#05C68E] px-3.5 py-1.5 text-xs font-medium text-white hover:bg-[#04946A] transition-colors">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                    </svg>
+                    Upload Recordings
+                  </button>
+                  <span className="inline-flex items-center text-xs text-[#1B2E35]/40">or share a Drive link</span>
+                </div>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-[#DABA21]/10 px-2.5 py-1 text-[10px] font-medium text-[#DABA21]">
+                Pending
+              </span>
+            </div>
+          </div>
+
+          {/* Avatar Add-On */}
+          <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+            <div className="flex items-start gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#6C4AB6]/10">
+                <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-semibold text-[#1B2E35]">AI Avatar Setup</h3>
+                <p className="mt-1 text-xs text-[#1B2E35]/60">
+                  Record a short video so we can create your AI avatar. Download the guide for tips on lighting, framing, and what to say.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="inline-flex items-center gap-1.5 rounded-full border border-[#E0DEE4] bg-white px-3.5 py-1.5 text-xs font-medium text-[#1B2E35] hover:bg-[#F7F4EB] transition-colors">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                    </svg>
+                    View Guide
+                  </button>
+                  <button className="inline-flex items-center gap-1.5 rounded-full bg-[#05C68E] px-3.5 py-1.5 text-xs font-medium text-white hover:bg-[#04946A] transition-colors">
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                    </svg>
+                    Upload Video
+                  </button>
+                  <span className="inline-flex items-center text-xs text-[#1B2E35]/40">or share a Drive link</span>
+                </div>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-[#DABA21]/10 px-2.5 py-1 text-[10px] font-medium text-[#DABA21]">
+                Pending
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
