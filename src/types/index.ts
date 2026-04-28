@@ -167,6 +167,7 @@ export interface TeamMember {
   calendlyUrl: string;
   role: TeamRole;
   active: boolean;
+  isDefault: boolean;
   createdAt: string;
 }
 

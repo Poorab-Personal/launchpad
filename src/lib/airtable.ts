@@ -195,6 +195,7 @@ function mapAirtableToTeamMember(record: AirtableRecord): TeamMember {
     calendlyUrl: (f['Calendly URL'] as string) ?? '',
     role: (selectValue(f['Role']) as TeamMember['role']) || 'Onboarding Ops',
     active: (f['Active'] as boolean) ?? false,
+    isDefault: (f['Default'] as boolean) ?? false,
     createdAt: (f['Created At'] as string) ?? record.createdTime,
   };
 }

@@ -91,14 +91,22 @@ console.log(`Found ${templates.length} templates for ${workflowKey}`);
 
 const teamTable = base.getTable('Team Members');
 const teamQuery = await teamTable.selectRecordsAsync({
-    fields: ['Name', 'Role', 'Active'],
+    fields: ['Name', 'Role', 'Active', 'Default'],
 });
 const activeMembers = teamQuery.records.filter(r => r.getCellValue('Active') === true);
 
 function getMembersByRole(role) {
-    return activeMembers
-        .filter(r => r.getCellValueAsString('Role') === role)
-        .map(r => ({ id: r.id }));
+    // Prefer the Default team member for this role; fall back to any active member
+    const defaultMember = activeMembers.find(
+        r => r.getCellValueAsString('Role') === role && r.getCellValue('Default') === true
+    );
+    if (defaultMember) return [{ id: defaultMember.id }];
+
+    // Fallback: first active member with this role
+    const anyMember = activeMembers.find(r => r.getCellValueAsString('Role') === role);
+    if (anyMember) return [{ id: anyMember.id }];
+
+    return [];
 }
 
 // ── Helper: Create tasks from a list of templates with a given Product ──
