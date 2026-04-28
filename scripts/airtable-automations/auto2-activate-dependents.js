@@ -6,17 +6,21 @@
 //   - taskName:         Task Name of the completed task
 //   - customerRecordId: Record ID of the linked customer (from Customer field)
 //   - taskStage:        Stage of the completed task
+//   - taskProduct:      Product of the completed task (Core, Voice, or Avatar)
 
 const config = input.config();
-const { taskRecordId, taskName, customerRecordId, taskStage } = config;
+const { taskRecordId, taskName, customerRecordId, taskStage, taskProduct } = config;
 
-console.log(`Task completed: "${taskName}" in stage "${taskStage}"`);
+// Default to Core if Product is empty (backwards compat with pre-Product tasks)
+const product = taskProduct || 'Core';
 
-// ── 1. Get all tasks for this customer ──────────────────────────────────
+console.log(`Task completed: "${taskName}" [${product}] in stage "${taskStage}"`);
+
+// ── 1. Get all tasks for this customer, scoped by Product ───────────────
 
 const tasksTable = base.getTable('Tasks');
 const tasksQuery = await tasksTable.selectRecordsAsync({
-    fields: ['Task Name', 'Customer', 'Stage', 'Stage Order', 'Status', 'Depends On', 'Task Order', 'Has Team Review'],
+    fields: ['Task Name', 'Customer', 'Stage', 'Stage Order', 'Status', 'Depends On', 'Task Order', 'Has Team Review', 'Product'],
 });
 
 const customerTasks = tasksQuery.records.filter(r => {
@@ -26,24 +30,32 @@ const customerTasks = tasksQuery.records.filter(r => {
 
 console.log(`Found ${customerTasks.length} total tasks for this customer`);
 
-// Build set of completed task names (including the one just completed)
+// Filter to only tasks with the same Product for dependency checking
+const sameProductTasks = customerTasks.filter(r => {
+    const prod = r.getCellValueAsString('Product');
+    return prod === product || (!prod && product === 'Core');
+});
+
+console.log(`Found ${sameProductTasks.length} ${product} tasks for dependency checking`);
+
+// Build set of completed task names within the same Product
 const completedNames = new Set();
-for (const t of customerTasks) {
+for (const t of sameProductTasks) {
     if (t.id === taskRecordId || t.getCellValueAsString('Status') === 'Completed') {
         completedNames.add(t.getCellValueAsString('Task Name'));
     }
 }
 
-// ── 2. Activate dependent tasks (multi-dependency support) ──────────────
+// ── 2. Activate dependent tasks (scoped by Product) ─────────────────────
 
 let activatedCount = 0;
-for (const task of customerTasks) {
+for (const task of sameProductTasks) {
     if (task.getCellValueAsString('Status') !== 'Draft') continue;
 
     const dependsOnRaw = task.getCellValueAsString('Depends On');
     if (!dependsOnRaw) continue;
 
-    // Split by comma, trim each, check ALL are completed
+    // Split by comma, trim each, check ALL are completed (within same Product)
     const deps = dependsOnRaw.split(',').map(d => d.trim());
     const allMet = deps.every(dep => completedNames.has(dep));
 
@@ -60,13 +72,13 @@ for (const task of customerTasks) {
             'Customer': [{ id: customerRecordId }],
             'Event Type': { name: 'Task Activated' },
             'Actor Type': { name: 'System' },
-            'Details': `Task "${task.getCellValueAsString('Task Name')}" activated (dependencies met: ${dependsOnRaw}).`,
+            'Details': `Task "${task.getCellValueAsString('Task Name')}" [${product}] activated (dependencies met: ${dependsOnRaw}).`,
             'Related Task': [{ id: task.id }],
         });
     }
 }
 
-console.log(`Activated ${activatedCount} dependent tasks`);
+console.log(`Activated ${activatedCount} dependent ${product} tasks`);
 
 // ── 3. Update customer flags for specific task names ────────────────────
 
@@ -88,38 +100,60 @@ await eventsTable.createRecordAsync({
     'Customer': [{ id: customerRecordId }],
     'Event Type': { name: 'Task Completed' },
     'Actor Type': { name: 'System' },
-    'Details': `Task "${taskName}" completed.`,
+    'Details': `Task "${taskName}" [${product}] completed.`,
     'Related Task': [{ id: taskRecordId }],
 });
 
-// ── 5. Check if all tasks in current stage are completed ────────────────
+// ── 5. Check if all tasks in current stage are completed (same Product) ─
 
 // Re-fetch to get fresh statuses after activations
 const refreshedQuery = await tasksTable.selectRecordsAsync({
-    fields: ['Task Name', 'Customer', 'Stage', 'Stage Order', 'Status', 'Depends On'],
+    fields: ['Task Name', 'Customer', 'Stage', 'Stage Order', 'Status', 'Depends On', 'Product'],
 });
 const refreshedTasks = refreshedQuery.records.filter(r => {
     const linked = r.getCellValue('Customer');
     return linked && linked.some(c => c.id === customerRecordId);
 });
 
-const stageTasks = refreshedTasks.filter(r => r.getCellValueAsString('Stage') === taskStage);
+// Filter refreshed tasks to same Product
+const refreshedProductTasks = refreshedTasks.filter(r => {
+    const prod = r.getCellValueAsString('Product');
+    return prod === product || (!prod && product === 'Core');
+});
+
+const stageTasks = refreshedProductTasks.filter(r => r.getCellValueAsString('Stage') === taskStage);
 const allStageCompleted = stageTasks.every(r => r.getCellValueAsString('Status') === 'Completed');
 
-console.log(`Stage "${taskStage}": ${stageTasks.length} tasks, all completed: ${allStageCompleted}`);
+console.log(`Stage "${taskStage}" [${product}]: ${stageTasks.length} tasks, all completed: ${allStageCompleted}`);
 
 if (!allStageCompleted) {
     console.log('Stage not yet complete — done.');
 } else {
-    // ── 6. Advance to next stage ────────────────────────────────────────
+    // ── 6. Advance to next stage (branched by Product) ──────────────────
 
-    const customer = (await customersTable.selectRecordsAsync({
-        fields: ['Type', 'Channel'],
-    })).records.find(r => r.id === customerRecordId);
+    // Determine workflow key and stage field based on Product
+    let workflowKey;
+    let stageField;
 
-    const type = customer.getCellValueAsString('Type');
-    const channel = customer.getCellValueAsString('Channel');
-    const workflowKey = `${type}-${channel}`;
+    if (product === 'Voice') {
+        workflowKey = 'Addon-Voice';
+        stageField = 'Voice Stage';
+    } else if (product === 'Avatar') {
+        workflowKey = 'Addon-Avatar';
+        stageField = 'Avatar Stage';
+    } else {
+        // Core — use {Type}-{Channel} pattern
+        const customer = (await customersTable.selectRecordsAsync({
+            fields: ['Type', 'Channel'],
+        })).records.find(r => r.id === customerRecordId);
+
+        const custType = customer.getCellValueAsString('Type');
+        const custChannel = customer.getCellValueAsString('Channel');
+        workflowKey = `${custType}-${custChannel}`;
+        stageField = 'Current Stage';
+    }
+
+    console.log(`Looking up stages for workflow key "${workflowKey}", updating "${stageField}"`);
 
     const templatesTable = base.getTable('Workflow Templates');
     const templatesQuery = await templatesTable.selectRecordsAsync({
@@ -144,37 +178,41 @@ if (!allStageCompleted) {
         : null;
 
     if (!nextStage) {
-        console.log('No more stages — onboarding complete!');
+        console.log(`No more ${product} stages — ${product === 'Core' ? 'onboarding' : product + ' add-on'} complete!`);
         await customersTable.updateRecordAsync(customerRecordId, {
-            'Current Stage': 'Done',
+            [stageField]: 'Done',
         });
     } else {
         const [nextStageName] = nextStage;
-        console.log(`Advancing to stage: "${nextStageName}"`);
+        console.log(`Advancing ${product} to stage: "${nextStageName}"`);
 
-        await customersTable.updateRecordAsync(customerRecordId, {
-            'Current Stage': nextStageName,
-            'Stage Entered At': new Date(),
-        });
+        const stageUpdate = {
+            [stageField]: nextStageName,
+        };
+        // Only set Stage Entered At for Core (it tracks the main onboarding timeline)
+        if (product === 'Core') {
+            stageUpdate['Stage Entered At'] = new Date().toISOString();
+        }
+
+        await customersTable.updateRecordAsync(customerRecordId, stageUpdate);
 
         // Log stage change event
         await eventsTable.createRecordAsync({
             'Customer': [{ id: customerRecordId }],
             'Event Type': { name: 'Stage Changed' },
             'Actor Type': { name: 'System' },
-            'Details': `Advanced from "${taskStage}" to "${nextStageName}".`,
+            'Details': `[${product}] Advanced from "${taskStage}" to "${nextStageName}".`,
         });
 
-        // Activate eligible tasks in new stage
-        // Rebuild completed names set with all current completions
+        // Activate eligible tasks in new stage (same Product only)
         const allCompletedNames = new Set();
-        for (const t of refreshedTasks) {
+        for (const t of refreshedProductTasks) {
             if (t.getCellValueAsString('Status') === 'Completed') {
                 allCompletedNames.add(t.getCellValueAsString('Task Name'));
             }
         }
 
-        const newStageTasks = refreshedTasks.filter(r => r.getCellValueAsString('Stage') === nextStageName);
+        const newStageTasks = refreshedProductTasks.filter(r => r.getCellValueAsString('Stage') === nextStageName);
         for (const task of newStageTasks) {
             if (task.getCellValueAsString('Status') !== 'Draft') continue;
 
@@ -190,11 +228,11 @@ if (!allStageCompleted) {
 
             if (canActivate) {
                 await tasksTable.updateRecordAsync(task.id, { 'Status': { name: 'Active' } });
-                console.log(`  Activated new-stage task: "${task.getCellValueAsString('Task Name')}"`);
+                console.log(`  Activated new-stage task: "${task.getCellValueAsString('Task Name')}" [${product}]`);
             }
         }
 
-        console.log(`Stage advancement to "${nextStageName}" complete.`);
+        console.log(`${product} stage advancement to "${nextStageName}" complete.`);
     }
 }
 

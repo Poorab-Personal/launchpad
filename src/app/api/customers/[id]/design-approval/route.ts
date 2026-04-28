@@ -59,12 +59,17 @@ export async function POST(
         'Completed At': new Date().toISOString(),
       });
 
-      // Activate dependent tasks (same logic as task completion)
+      // Activate dependent tasks — scoped to Core product only
+      // (design approval is a Core-only flow)
       const customerTasks = allTaskRecords.filter(
         (t) => linkedId(t.fields['Customer']) === customerId,
       );
+      const coreTasks = customerTasks.filter((t) => {
+        const prod = selectVal(t.fields['Product']);
+        return prod === 'Core' || !prod;
+      });
       const completedNames = new Set<string>();
-      for (const t of customerTasks) {
+      for (const t of coreTasks) {
         if (
           t.id === reviewTask.id ||
           selectVal(t.fields['Status']) === 'Completed'
@@ -73,7 +78,7 @@ export async function POST(
         }
       }
 
-      for (const t of customerTasks) {
+      for (const t of coreTasks) {
         if (selectVal(t.fields['Status']) !== 'Draft') continue;
         const dependsOnRaw = (t.fields['Depends On'] as string) ?? '';
         if (!dependsOnRaw) continue;
@@ -83,7 +88,7 @@ export async function POST(
         }
       }
 
-      // Check if all tasks in the current stage are completed → advance stage
+      // Check if all Core tasks in the current stage are completed → advance stage
       const reviewTaskStage = reviewTask.fields['Stage'] as string;
       await checkAndAdvanceStage(
         customerId,
@@ -91,6 +96,7 @@ export async function POST(
         customerTasks,
         completedNames,
         reviewTask.id,
+        'Core',
       );
     }
 
@@ -147,6 +153,7 @@ export async function POST(
     'Task Order': 10 + round,
     'Visible To Client': false,
     'Attachment Type': 'None',
+    Product: 'Core',
     Instructions: `Revise the design based on customer feedback (Round ${round}).`,
     Notes: feedback ?? '',
     ...(Array.isArray(designerAssignment) && designerAssignment.length > 0
@@ -166,6 +173,7 @@ export async function POST(
     'Visible To Client': false,
     'Depends On': reviseTaskName,
     'Attachment Type': 'None',
+    Product: 'Core',
     Instructions: `Review the revised design (Round ${round}). Approve or send back.`,
     ...(Array.isArray(seniorAssignment) && seniorAssignment.length > 0
       ? { 'Assigned To': seniorAssignment }
@@ -184,6 +192,7 @@ export async function POST(
     'Visible To Client': false,
     'Depends On': reviewTaskName,
     'Attachment Type': 'None',
+    Product: 'Core',
     Instructions: `Upload the revised proof for customer review (Round ${round}).`,
     ...(Array.isArray(designerAssignment) && designerAssignment.length > 0
       ? { 'Assigned To': designerAssignment }

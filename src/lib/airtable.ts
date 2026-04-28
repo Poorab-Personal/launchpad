@@ -8,6 +8,7 @@ import type {
   RosterAgent,
   Event,
   AirtableAttachment,
+  Product,
 } from '@/types';
 import {
   getRecords,
@@ -83,6 +84,14 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     businessLogo: attachments(f['Business Logo']),
     otherAssets: attachments(f['Other Assets']),
 
+    // Add-ons
+    hasVoice: (f['Has Voice'] as boolean) ?? false,
+    hasAvatar: (f['Has Avatar'] as boolean) ?? false,
+    voiceStage: (f['Voice Stage'] as string) ?? '',
+    avatarStage: (f['Avatar Stage'] as string) ?? '',
+    voiceStripeId: (f['Voice Stripe ID'] as string) ?? '',
+    avatarStripeId: (f['Avatar Stripe ID'] as string) ?? '',
+
     // Payment & Deal (D2C)
     hubspotDealId: (f['HubSpot Deal ID'] as string) ?? '',
     stripePaymentId: (f['Stripe Payment ID'] as string) ?? '',
@@ -147,6 +156,7 @@ function mapAirtableToTask(record: AirtableRecord): Task {
     dueDate: (f['Due Date'] as string) ?? '',
     completedAt: (f['Completed At'] as string) ?? '',
     createdAt: (f['Created At'] as string) ?? record.createdTime,
+    product: (selectValue(f['Product']) as Product) || 'Core',
   };
 }
 
@@ -171,6 +181,7 @@ function mapAirtableToWorkflowTemplate(record: AirtableRecord): WorkflowTemplate
     reminderAfterDays: (f['Reminder After Days'] as number) ?? 0,
     maxReminders: (f['Max Reminders'] as number) ?? 0,
     dueDaysAfterActivation: (f['Due Days After Activation'] as number) ?? 0,
+    product: (selectValue(f['Product']) as Product) || 'Core',
   };
 }
 
@@ -203,6 +214,8 @@ function mapAirtableToBrokerage(record: AirtableRecord): Brokerage {
     billingContact: (f['Billing Contact'] as string) ?? '',
     notes: (f['Notes'] as string) ?? '',
     active: (f['Active'] as boolean) ?? false,
+    includesVoice: (f['Includes Voice'] as boolean) ?? false,
+    includesAvatar: (f['Includes Avatar'] as boolean) ?? false,
     createdAt: (f['Created At'] as string) ?? record.createdTime,
   };
 }
@@ -361,6 +374,10 @@ export async function createEvent(
 /**
  * Check if all tasks in a stage are complete and advance the customer
  * to the next stage if so. Activates eligible tasks in the new stage.
+ *
+ * Product scoping: Core tasks advance Current Stage using {Type}-{Channel}
+ * templates. Voice/Avatar tasks advance their own stage field using
+ * Addon-Voice/Addon-Avatar templates.
  */
 export async function checkAndAdvanceStage(
   customerId: string,
@@ -368,19 +385,38 @@ export async function checkAndAdvanceStage(
   allTasks: AirtableRecord[],
   completedNames: Set<string>,
   justCompletedTaskId?: string,
+  product: Product = 'Core',
 ): Promise<boolean> {
-  const stageTasks = allTasks.filter((t) => t.fields['Stage'] === completedTaskStage);
+  // Filter tasks to the same Product
+  const productTasks = allTasks.filter((t) => {
+    const p = selectValue(t.fields['Product']);
+    return p === product || (!p && product === 'Core');
+  });
+
+  const stageTasks = productTasks.filter((t) => t.fields['Stage'] === completedTaskStage);
   const allStageComplete = stageTasks.every((t) => {
     return t.id === justCompletedTaskId ? true : selectValue(t.fields['Status']) === 'Completed';
   });
 
   if (!allStageComplete) return false;
 
-  // Find the next stage from workflow templates
-  const customer = await getRecord('Customers', customerId);
-  const type = selectValue(customer.fields['Type']);
-  const channel = (customer.fields['Channel'] as string) ?? '';
-  const workflowKey = `${type}-${channel}`;
+  // Determine workflow key and stage field based on Product
+  let workflowKey: string;
+  let stageField: string;
+
+  if (product === 'Voice') {
+    workflowKey = 'Addon-Voice';
+    stageField = 'Voice Stage';
+  } else if (product === 'Avatar') {
+    workflowKey = 'Addon-Avatar';
+    stageField = 'Avatar Stage';
+  } else {
+    const customer = await getRecord('Customers', customerId);
+    const type = selectValue(customer.fields['Type']);
+    const channel = (customer.fields['Channel'] as string) ?? '';
+    workflowKey = `${type}-${channel}`;
+    stageField = 'Current Stage';
+  }
 
   const templates = await getRecords('Workflow Templates', {
     filterByFormula: `{Workflow Key} = '${workflowKey}'`,
@@ -406,21 +442,24 @@ export async function checkAndAdvanceStage(
 
   if (!nextStage) return false;
 
-  await updateRecord('Customers', customerId, {
-    'Current Stage': nextStage.stage,
-    'Stage Entered At': new Date().toISOString(),
-  });
+  const stageUpdate: Record<string, unknown> = {
+    [stageField]: nextStage.stage,
+  };
+  if (product === 'Core') {
+    stageUpdate['Stage Entered At'] = new Date().toISOString();
+  }
+  await updateRecord('Customers', customerId, stageUpdate);
 
   // Log Stage Changed event
   await createEvent(
     customerId,
     'Stage Changed',
     'System',
-    `Advanced from "${completedTaskStage}" to "${nextStage.stage}".`,
+    `[${product}] Advanced from "${completedTaskStage}" to "${nextStage.stage}".`,
   );
 
-  // Activate eligible tasks in the new stage (Draft with no unmet dependencies)
-  const newStageTasks = allTasks.filter(
+  // Activate eligible tasks in the new stage (same Product, Draft with no unmet dependencies)
+  const newStageTasks = productTasks.filter(
     (t) => t.fields['Stage'] === nextStage.stage,
   );
   for (const nst of newStageTasks) {

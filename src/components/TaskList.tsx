@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Task, Customer } from '@/types';
 import TaskRenderer from './tasks/TaskRenderer';
@@ -40,14 +40,22 @@ export default function TaskList({
     setTasks(initialTasks);
   }, [initialTasks]);
 
-  // Only show client-visible tasks
-  const visibleTasks = tasks.filter((t) => t.visibleToClient);
+  // Partition tasks by product
+  const coreTasks = tasks.filter((t) => t.product === 'Core' || !t.product);
+  const voiceTasks = tasks.filter((t) => t.product === 'Voice');
+  const avatarTasks = tasks.filter((t) => t.product === 'Avatar');
+  const showVoice = customer.hasVoice || voiceTasks.length > 0;
+  const showAvatar = customer.hasAvatar || avatarTasks.length > 0;
+  const hasAddOns = showVoice || showAvatar;
+
+  // Core client-visible tasks for main section
+  const coreVisibleTasks = coreTasks.filter((t) => t.visibleToClient);
 
   // ALL unique stages sorted by stageOrder (for progress bar)
   // Build stage order map — use the highest non-zero stageOrder for each stage
   // (revision tasks have stageOrder=0, so we skip those to avoid misordering)
   const stageMap = new Map<string, number>();
-  for (const t of tasks) {
+  for (const t of coreTasks) {
     const existing = stageMap.get(t.stage) ?? 0;
     if (t.stageOrder > existing) stageMap.set(t.stage, t.stageOrder);
   }
@@ -57,7 +65,7 @@ export default function TaskList({
 
   // Only stages with client-visible tasks appear in the progress bar
   const progressStages = allStages.filter((stage) =>
-    visibleTasks.some((t) => t.stage === stage),
+    coreVisibleTasks.some((t) => t.stage === stage),
   );
 
   function getStageStatus(stage: string) {
@@ -69,7 +77,7 @@ export default function TaskList({
   }
 
   // Current stage tasks only
-  const currentStageTasks = visibleTasks
+  const currentStageTasks = coreVisibleTasks
     .filter((t) => t.stage === currentStage)
     .sort((a, b) => a.taskOrder - b.taskOrder);
 
@@ -93,6 +101,166 @@ export default function TaskList({
     }, 3000);
   }
 
+  function renderAddonCard(
+    id: string,
+    title: string,
+    description: string,
+    icon: React.ReactNode,
+    addonTasks: Task[],
+    addonStage: string,
+  ) {
+    const visibleAddon = addonTasks.filter((t) => t.visibleToClient);
+    const completedCount = visibleAddon.filter((t) => t.status === 'Completed').length;
+    const totalCount = visibleAddon.length;
+    const allDone = completedCount === totalCount && totalCount > 0;
+
+    // Build stage map for this add-on
+    const addonStageMap = new Map<string, number>();
+    for (const t of addonTasks) {
+      const existing = addonStageMap.get(t.stage) ?? 0;
+      if (t.stageOrder > existing) addonStageMap.set(t.stage, t.stageOrder);
+    }
+    const addonStages = [...addonStageMap.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .map(([stage]) => stage);
+
+    // Determine current stage — use customer field, fallback to first incomplete stage
+    let currentAddon = addonStage;
+    if (!currentAddon && addonStages.length > 0) {
+      currentAddon =
+        addonStages.find((stage) =>
+          addonTasks.some((t) => t.stage === stage && t.status !== 'Completed'),
+        ) || addonStages[0];
+    }
+    const currentAddonIdx = addonStages.indexOf(currentAddon);
+
+    // Current stage tasks
+    const stageTasks = visibleAddon
+      .filter((t) => t.stage === currentAddon)
+      .sort((a, b) => a.taskOrder - b.taskOrder);
+
+    return (
+      <div id={id} className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+        <div className="flex items-start gap-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#6C4AB6]/10">
+            {icon}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-[#1B2E35]">{title}</h3>
+              <span
+                className={`shrink-0 inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-medium ${
+                  allDone
+                    ? 'bg-[#05C68E]/10 text-[#05C68E]'
+                    : 'bg-[#DABA21]/10 text-[#DABA21]'
+                }`}
+              >
+                {allDone ? 'Complete' : 'Pending'}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-[#1B2E35]/60">{description}</p>
+
+            {/* Mini progress */}
+            {addonStages.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-1">
+                {addonStages.map((stage, i) => {
+                  const stageIdx = addonStages.indexOf(stage);
+                  let status: 'completed' | 'active' | 'upcoming';
+                  if (stageIdx < currentAddonIdx) status = 'completed';
+                  else if (stageIdx === currentAddonIdx) status = 'active';
+                  else status = 'upcoming';
+
+                  return (
+                    <Fragment key={stage}>
+                      {i > 0 && <span className="text-[#E0DEE4] text-[10px]">&mdash;</span>}
+                      <span
+                        className={`text-[10px] font-medium ${
+                          status === 'completed'
+                            ? 'text-[#05C68E]'
+                            : status === 'active'
+                              ? 'text-[#6C4AB6]'
+                              : 'text-[#1B2E35]/30'
+                        }`}
+                      >
+                        {status === 'completed' ? '\u25CF' : '\u25CB'} {stage}
+                      </span>
+                    </Fragment>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Current stage tasks */}
+            {stageTasks.length > 0 && (
+              <div className="mt-4 space-y-2">
+                {stageTasks.map((task) => {
+                  if (task.status === 'Completed') {
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex items-center gap-3 rounded-lg border border-[#E0DEE4] bg-[#05C68E]/5 px-4 py-2.5"
+                      >
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/15">
+                          <CheckIcon className="h-3 w-3 text-[#05C68E]" />
+                        </span>
+                        <span className="text-xs text-[#1B2E35]/60 line-through">
+                          {task.taskName}
+                        </span>
+                      </div>
+                    );
+                  }
+
+                  if (task.status === 'Active') {
+                    return (
+                      <div
+                        key={task.id}
+                        className="rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] p-4"
+                      >
+                        <h4 className="mb-2 text-sm font-semibold text-[#1B2E35]">
+                          {task.taskName}
+                        </h4>
+                        <TaskRenderer
+                          task={task}
+                          customerId={customerId}
+                          customer={customer}
+                          onComplete={() => handleTaskComplete(task.id)}
+                        />
+                      </div>
+                    );
+                  }
+
+                  // Draft = locked
+                  return (
+                    <div key={task.id} className="rounded-lg border border-[#E0DEE4] px-4 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#E0DEE4]/50">
+                          <LockIcon className="h-3 w-3 text-[#1B2E35]/40" />
+                        </span>
+                        <span className="text-xs text-[#1B2E35]/54">{task.taskName}</span>
+                      </div>
+                      {task.dependsOn && task.instructions && (
+                        <p className="mt-1.5 ml-8 text-[10px] text-[#1B2E35]/40">
+                          {task.instructions}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Progress counter */}
+            <p className="mt-3 text-[10px] text-[#1B2E35]/40">
+              {totalCount > 0
+                ? `${completedCount} of ${totalCount} complete`
+                : 'Setup not started'}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-10">
       {/* Refreshing indicator */}
@@ -104,6 +272,7 @@ export default function TaskList({
       )}
 
       {/* Progress bar — ALL stages with client-visible tasks, always shown */}
+      <div>
       <nav>
         <ol className="flex flex-wrap items-center gap-2">
           {progressStages.map((stage, i) => {
@@ -137,6 +306,29 @@ export default function TaskList({
           })}
         </ol>
       </nav>
+
+      {/* Add-on jump links */}
+      {hasAddOns && (
+        <div className="flex gap-2 mt-3">
+          {showVoice && (
+            <a
+              href="#voice-addon"
+              className="inline-flex items-center gap-1 rounded-full border border-[#E0DEE4] bg-white px-3 py-1 text-[11px] font-medium text-[#6C4AB6] hover:bg-[#6C4AB6]/5 transition-colors"
+            >
+              🎙️ Voice Setup
+            </a>
+          )}
+          {showAvatar && (
+            <a
+              href="#avatar-addon"
+              className="inline-flex items-center gap-1 rounded-full border border-[#E0DEE4] bg-white px-3 py-1 text-[11px] font-medium text-[#6C4AB6] hover:bg-[#6C4AB6]/5 transition-colors"
+            >
+              📹 Avatar Setup
+            </a>
+          )}
+        </div>
+      )}
+      </div>
 
       {/* Current stage content ONLY */}
       <div>
@@ -216,86 +408,44 @@ export default function TaskList({
         </div>
       </div>
 
-      {/* ── Add-Ons Section (MOCK — hardcoded for UX review) ──────────── */}
-      {/* TODO: Remove this mock and drive from task data once UX is approved */}
-      <div className="border-t border-[#E0DEE4] pt-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-[#1B2E35]">Your Add-Ons</h2>
-          <span className="text-xs font-medium text-[#1B2E35]/40">0 of 2 complete</span>
-        </div>
+      {/* ── Add-Ons Section ──────────────────────────────────────────── */}
+      {hasAddOns && (
+        <div className="border-t border-[#E0DEE4] pt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-[#1B2E35]">Your Add-Ons</h2>
+            <span className="text-xs font-medium text-[#1B2E35]/40">
+              {[...voiceTasks, ...avatarTasks].filter((t) => t.visibleToClient && t.status === 'Completed').length}{' '}
+              of {[...voiceTasks, ...avatarTasks].filter((t) => t.visibleToClient).length} complete
+            </span>
+          </div>
 
-        <div className="space-y-4">
-          {/* Voice Add-On */}
-          <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
-            <div className="flex items-start gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#6C4AB6]/10">
+          <div className="space-y-4">
+            {showVoice &&
+              renderAddonCard(
+                'voice-addon',
+                'AI Voice Setup',
+                'Record your voice so we can set up your AI voice agent. Download the script, record yourself reading it, and upload your recordings.',
                 <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-[#1B2E35]">AI Voice Setup</h3>
-                <p className="mt-1 text-xs text-[#1B2E35]/60">
-                  Record your voice so we can set up your AI voice agent. Download the script, record yourself reading it, and upload your recordings.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button className="inline-flex items-center gap-1.5 rounded-full border border-[#E0DEE4] bg-white px-3.5 py-1.5 text-xs font-medium text-[#1B2E35] hover:bg-[#F7F4EB] transition-colors">
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                    </svg>
-                    View Script
-                  </button>
-                  <button className="inline-flex items-center gap-1.5 rounded-full bg-[#05C68E] px-3.5 py-1.5 text-xs font-medium text-white hover:bg-[#04946A] transition-colors">
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-                    </svg>
-                    Upload Recordings
-                  </button>
-                  <span className="inline-flex items-center text-xs text-[#1B2E35]/40">or share a Drive link</span>
-                </div>
-              </div>
-              <span className="inline-flex items-center rounded-full bg-[#DABA21]/10 px-2.5 py-1 text-[10px] font-medium text-[#DABA21]">
-                Pending
-              </span>
-            </div>
-          </div>
+                </svg>,
+                voiceTasks,
+                customer.voiceStage,
+              )}
 
-          {/* Avatar Add-On */}
-          <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
-            <div className="flex items-start gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#6C4AB6]/10">
+            {showAvatar &&
+              renderAddonCard(
+                'avatar-addon',
+                'AI Avatar Setup',
+                'Record a short video so we can create your AI avatar. Download the guide for tips on lighting, framing, and what to say.',
                 <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-[#1B2E35]">AI Avatar Setup</h3>
-                <p className="mt-1 text-xs text-[#1B2E35]/60">
-                  Record a short video so we can create your AI avatar. Download the guide for tips on lighting, framing, and what to say.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button className="inline-flex items-center gap-1.5 rounded-full border border-[#E0DEE4] bg-white px-3.5 py-1.5 text-xs font-medium text-[#1B2E35] hover:bg-[#F7F4EB] transition-colors">
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                    </svg>
-                    View Guide
-                  </button>
-                  <button className="inline-flex items-center gap-1.5 rounded-full bg-[#05C68E] px-3.5 py-1.5 text-xs font-medium text-white hover:bg-[#04946A] transition-colors">
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-                    </svg>
-                    Upload Video
-                  </button>
-                  <span className="inline-flex items-center text-xs text-[#1B2E35]/40">or share a Drive link</span>
-                </div>
-              </div>
-              <span className="inline-flex items-center rounded-full bg-[#DABA21]/10 px-2.5 py-1 text-[10px] font-medium text-[#DABA21]">
-                Pending
-              </span>
-            </div>
+                </svg>,
+                avatarTasks,
+                customer.avatarStage,
+              )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

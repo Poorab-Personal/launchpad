@@ -48,6 +48,12 @@ const fieldMap: Record<string, string> = {
   billingCycle: 'Billing Cycle',
   mrr: 'MRR',
   renewalDate: 'Renewal Date',
+  hasVoice: 'Has Voice',
+  hasAvatar: 'Has Avatar',
+  voiceStage: 'Voice Stage',
+  avatarStage: 'Avatar Stage',
+  voiceStripeId: 'Voice Stripe ID',
+  avatarStripeId: 'Avatar Stripe ID',
 };
 
 export async function PATCH(

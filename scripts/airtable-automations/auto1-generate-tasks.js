@@ -8,11 +8,13 @@
 //   - firstName:   Customer's First Name field
 //   - lastName:    Customer's Last Name field
 //   - dealId:      Customer's HubSpot Deal ID field — may be empty
+//   - hasVoice:    Customer's Has Voice field (boolean)
+//   - hasAvatar:   Customer's Has Avatar field (boolean)
 
 const HUBSPOT_PORTAL_ID = '44956899';
 
 const config = input.config();
-const { recordId, firstName, lastName, dealId } = config;
+const { recordId, firstName, lastName, dealId, hasVoice, hasAvatar } = config;
 let { type, channel } = config;
 
 // ── 0. Defaults + enrichment for HubSpot-sourced customers ──────────────
@@ -65,6 +67,7 @@ const templatesQuery = await templatesTable.selectRecordsAsync({
         'Workflow Key', 'Stage', 'Stage Order', 'Task Title', 'Task Type',
         'Task Order', 'Visible To Client', 'Assigned Role', 'Initial Status',
         'Depends On', 'Has Team Review', 'Attachment Type', 'Embed URL', 'Instructions',
+        'Product',
     ],
 });
 
@@ -98,71 +101,135 @@ function getMembersByRole(role) {
         .map(r => ({ id: r.id }));
 }
 
-// ── 3. Create a task for each template ──────────────────────────────────
+// ── Helper: Create tasks from a list of templates with a given Product ──
 
 const tasksTable = base.getTable('Tasks');
 
-for (const tmpl of templates) {
-    const taskFields = {
-        'Task Name': tmpl.getCellValueAsString('Task Title'),
-        'Customer': [{ id: recordId }],
-        'Stage': tmpl.getCellValueAsString('Stage'),
-        'Stage Order': Number(tmpl.getCellValue('Stage Order')) || 0,
-        'Task Order': Number(tmpl.getCellValue('Task Order')) || 0,
-        'Visible To Client': tmpl.getCellValue('Visible To Client') === true,
-        'Has Team Review': tmpl.getCellValue('Has Team Review') === true,
-    };
+async function createTasksFromTemplates(templateList, productName) {
+    let count = 0;
+    for (const tmpl of templateList) {
+        const taskFields = {
+            'Task Name': tmpl.getCellValueAsString('Task Title'),
+            'Customer': [{ id: recordId }],
+            'Stage': tmpl.getCellValueAsString('Stage'),
+            'Stage Order': Number(tmpl.getCellValue('Stage Order')) || 0,
+            'Task Order': Number(tmpl.getCellValue('Task Order')) || 0,
+            'Visible To Client': tmpl.getCellValue('Visible To Client') === true,
+            'Has Team Review': tmpl.getCellValue('Has Team Review') === true,
+            'Product': { name: productName },
+        };
 
-    // Single select fields — use { name } format
-    const taskType = tmpl.getCellValueAsString('Task Type');
-    if (taskType) taskFields['Task Type'] = { name: taskType };
+        // Single select fields — use { name } format
+        const taskType = tmpl.getCellValueAsString('Task Type');
+        if (taskType) taskFields['Task Type'] = { name: taskType };
 
-    const status = tmpl.getCellValueAsString('Initial Status');
-    if (status) taskFields['Status'] = { name: status };
+        const status = tmpl.getCellValueAsString('Initial Status');
+        if (status) taskFields['Status'] = { name: status };
 
-    const attachmentType = tmpl.getCellValueAsString('Attachment Type');
-    if (attachmentType) taskFields['Attachment Type'] = { name: attachmentType };
+        const attachmentType = tmpl.getCellValueAsString('Attachment Type');
+        if (attachmentType) taskFields['Attachment Type'] = { name: attachmentType };
 
-    // Text fields — only set if non-empty
-    const dependsOn = tmpl.getCellValueAsString('Depends On');
-    if (dependsOn) taskFields['Depends On'] = dependsOn;
+        // Text fields — only set if non-empty
+        const dependsOn = tmpl.getCellValueAsString('Depends On');
+        if (dependsOn) taskFields['Depends On'] = dependsOn;
 
-    const instructions = tmpl.getCellValueAsString('Instructions');
-    if (instructions) taskFields['Instructions'] = instructions;
+        const instructions = tmpl.getCellValueAsString('Instructions');
+        if (instructions) taskFields['Instructions'] = instructions;
 
-    const embedUrl = tmpl.getCellValueAsString('Embed URL');
-    if (embedUrl) taskFields['Embed URL'] = embedUrl;
+        const embedUrl = tmpl.getCellValueAsString('Embed URL');
+        if (embedUrl) taskFields['Embed URL'] = embedUrl;
 
-    // Assign team member by role
-    const assignedRole = tmpl.getCellValueAsString('Assigned Role');
-    if (assignedRole) {
-        const members = getMembersByRole(assignedRole);
-        if (members.length > 0) {
-            taskFields['Assigned To'] = members;
+        // Assign team member by role
+        const assignedRole = tmpl.getCellValueAsString('Assigned Role');
+        if (assignedRole) {
+            const members = getMembersByRole(assignedRole);
+            if (members.length > 0) {
+                taskFields['Assigned To'] = members;
+            }
         }
-    }
 
-    await tasksTable.createRecordAsync(taskFields);
-    console.log(`  Created: "${taskFields['Task Name']}" [${status || 'Draft'}]`);
+        await tasksTable.createRecordAsync(taskFields);
+        count++;
+        console.log(`  Created [${productName}]: "${taskFields['Task Name']}" [${status || 'Draft'}]`);
+    }
+    return count;
 }
+
+// ── 3. Create Core tasks ────────────────────────────────────────────────
+
+const coreCount = await createTasksFromTemplates(templates, 'Core');
 
 // ── 4. Set the customer's initial stage ─────────────────────────────────
 
 const firstStageName = templates[0].getCellValueAsString('Stage');
 
-await customersTable.updateRecordAsync(recordId, {
+const stageUpdates = {
     'Current Stage': firstStageName,
     'Stage Entered At': new Date().toISOString(),
-});
+};
 
-// ── 5. Log event ────────────────────────────────────────────────────────
+// ── 5. Generate add-on tasks (Voice / Avatar) ──────────────────────────
+
+let voiceCount = 0;
+let avatarCount = 0;
+
+if (hasVoice) {
+    const voiceTemplates = templatesQuery.records
+        .filter(r => r.getCellValueAsString('Workflow Key') === 'Addon-Voice')
+        .sort((a, b) => {
+            const soA = Number(a.getCellValue('Stage Order')) || 0;
+            const soB = Number(b.getCellValue('Stage Order')) || 0;
+            if (soA !== soB) return soA - soB;
+            return (Number(a.getCellValue('Task Order')) || 0) - (Number(b.getCellValue('Task Order')) || 0);
+        });
+
+    if (voiceTemplates.length > 0) {
+        voiceCount = await createTasksFromTemplates(voiceTemplates, 'Voice');
+        const firstVoiceStage = voiceTemplates[0].getCellValueAsString('Stage');
+        stageUpdates['Voice Stage'] = firstVoiceStage;
+        console.log(`Voice: ${voiceCount} tasks created, initial stage "${firstVoiceStage}"`);
+    } else {
+        console.log('Warning: Has Voice = true but no Addon-Voice templates found');
+    }
+}
+
+if (hasAvatar) {
+    const avatarTemplates = templatesQuery.records
+        .filter(r => r.getCellValueAsString('Workflow Key') === 'Addon-Avatar')
+        .sort((a, b) => {
+            const soA = Number(a.getCellValue('Stage Order')) || 0;
+            const soB = Number(b.getCellValue('Stage Order')) || 0;
+            if (soA !== soB) return soA - soB;
+            return (Number(a.getCellValue('Task Order')) || 0) - (Number(b.getCellValue('Task Order')) || 0);
+        });
+
+    if (avatarTemplates.length > 0) {
+        avatarCount = await createTasksFromTemplates(avatarTemplates, 'Avatar');
+        const firstAvatarStage = avatarTemplates[0].getCellValueAsString('Stage');
+        stageUpdates['Avatar Stage'] = firstAvatarStage;
+        console.log(`Avatar: ${avatarCount} tasks created, initial stage "${firstAvatarStage}"`);
+    } else {
+        console.log('Warning: Has Avatar = true but no Addon-Avatar templates found');
+    }
+}
+
+// Apply all stage updates at once
+await customersTable.updateRecordAsync(recordId, stageUpdates);
+
+// ── 6. Log event ────────────────────────────────────────────────────────
+
+const totalCount = coreCount + voiceCount + avatarCount;
+const addOnParts = [];
+if (voiceCount > 0) addOnParts.push(`${voiceCount} Voice`);
+if (avatarCount > 0) addOnParts.push(`${avatarCount} Avatar`);
+const addOnSuffix = addOnParts.length > 0 ? ` + ${addOnParts.join(' + ')} add-on tasks` : '';
 
 const eventsTable = base.getTable('Events');
 await eventsTable.createRecordAsync({
     'Customer': [{ id: recordId }],
     'Event Type': { name: 'Customer Created' },
     'Actor Type': { name: 'System' },
-    'Details': `${type} customer created via ${channel}. ${templates.length} tasks generated from ${workflowKey} workflow.`,
+    'Details': `${type} customer created via ${channel}. ${coreCount} Core tasks generated from ${workflowKey} workflow${addOnSuffix}.`,
 });
 
-console.log(`Done. ${templates.length} tasks created, stage set to "${firstStageName}".`);
+console.log(`Done. ${totalCount} total tasks created (${coreCount} Core${addOnSuffix}), stage set to "${firstStageName}".`);

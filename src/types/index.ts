@@ -77,6 +77,14 @@ export interface Customer {
   designRevisionCount: number;
   designProof: AirtableAttachment[];
 
+  // Add-ons
+  hasVoice: boolean;
+  hasAvatar: boolean;
+  voiceStage: string;
+  avatarStage: string;
+  voiceStripeId: string;
+  avatarStripeId: string;
+
   // Status Tracking
   currentStage: string;
   stageEnteredAt: string;
@@ -99,6 +107,8 @@ export interface Customer {
 
 // ─── Table 2: Tasks ─────────────────────────────────────────────────
 
+export type Product = 'Core' | 'Voice' | 'Avatar';
+
 export interface Task {
   id: string;
   taskName: string;
@@ -120,6 +130,7 @@ export interface Task {
   dueDate: string;
   completedAt: string;
   createdAt: string;
+  product: Product;
 }
 
 // ─── Table 3: Workflow Templates ────────────────────────────────────
@@ -143,6 +154,7 @@ export interface WorkflowTemplate {
   reminderAfterDays: number;
   maxReminders: number;
   dueDaysAfterActivation: number;
+  product: Product;
 }
 
 // ─── Table 4: Team Members ──────────────────────────────────────────
@@ -173,6 +185,8 @@ export interface Brokerage {
   billingContact: string;
   notes: string;
   active: boolean;
+  includesVoice: boolean;
+  includesAvatar: boolean;
   createdAt: string;
 }
 
