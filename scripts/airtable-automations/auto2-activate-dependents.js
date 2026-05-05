@@ -94,6 +94,7 @@ for (const task of sameProductTasks) {
 
         await tasksTable.updateRecordAsync(task.id, {
             'Status': { name: 'Active' },
+            'Activated At': new Date().toISOString(),
         });
         activatedCount++;
         console.log(`  Activated: "${task.getCellValueAsString('Task Name')}" (deps met: ${dependsOnRaw})`);
@@ -255,7 +256,10 @@ if (!allStageCompleted) {
             }
 
             if (canActivate) {
-                await tasksTable.updateRecordAsync(task.id, { 'Status': { name: 'Active' } });
+                await tasksTable.updateRecordAsync(task.id, {
+                    'Status': { name: 'Active' },
+                    'Activated At': new Date().toISOString(),
+                });
                 console.log(`  Activated new-stage task: "${task.getCellValueAsString('Task Name')}" [${product}]`);
             }
         }

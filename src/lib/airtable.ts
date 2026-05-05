@@ -156,6 +156,8 @@ function mapAirtableToTask(record: AirtableRecord): Task {
     notes: (f['Notes'] as string) ?? '',
     dueDate: (f['Due Date'] as string) ?? '',
     completedAt: (f['Completed At'] as string) ?? '',
+    activatedAt: (f['Activated At'] as string) ?? '',
+    daysActive: typeof f['Days Active'] === 'number' ? (f['Days Active'] as number) : null,
     createdAt: (f['Created At'] as string) ?? record.createdTime,
     product: (selectValue(f['Product']) as Product) || 'Core',
   };
@@ -464,11 +466,12 @@ export async function checkAndAdvanceStage(
   const newStageTasks = productTasks.filter(
     (t) => t.fields['Stage'] === nextStage.stage,
   );
+  const nowIso = new Date().toISOString();
   for (const nst of newStageTasks) {
     if (selectValue(nst.fields['Status']) !== 'Draft') continue;
     const dependsOn = (nst.fields['Depends On'] as string) ?? '';
     if (!dependsOn) {
-      await updateRecord('Tasks', nst.id, { Status: 'Active' });
+      await updateRecord('Tasks', nst.id, { Status: 'Active', 'Activated At': nowIso });
       await createEvent(
         customerId,
         'Task Activated',
@@ -480,7 +483,7 @@ export async function checkAndAdvanceStage(
       // Check if all dependencies are met even across stages
       const deps = dependsOn.split(',').map((d) => d.trim());
       if (deps.every((dep) => completedNames.has(dep))) {
-        await updateRecord('Tasks', nst.id, { Status: 'Active' });
+        await updateRecord('Tasks', nst.id, { Status: 'Active', 'Activated At': nowIso });
         await createEvent(
           customerId,
           'Task Activated',

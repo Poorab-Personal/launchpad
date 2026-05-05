@@ -130,6 +130,8 @@ export interface Task {
   notes: string;
   dueDate: string;
   completedAt: string;
+  activatedAt: string;
+  daysActive: number | null;
   createdAt: string;
   product: Product;
 }

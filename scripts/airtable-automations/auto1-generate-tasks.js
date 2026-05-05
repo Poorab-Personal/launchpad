@@ -54,6 +54,25 @@ if (dealId) {
     console.log(`Set HubSpot Deal URL`);
 }
 
+// Link new customer to the "Production" Settings row (env config — portal base URL, etc.)
+// Skip if already linked.
+if (custRecord) {
+    const existingEnv = custRecord.getCellValue('Environment');
+    if (!existingEnv || existingEnv.length === 0) {
+        try {
+            const settingsTable = base.getTable('Settings');
+            const settingsQuery = await settingsTable.selectRecordsAsync({ fields: ['Name'] });
+            const prod = settingsQuery.records.find(r => r.getCellValueAsString('Name') === 'Production');
+            if (prod) {
+                customerUpdates['Environment'] = [{ id: prod.id }];
+                console.log(`Set Environment → Production`);
+            }
+        } catch (e) {
+            console.log(`Could not link Environment: ${e.message}`);
+        }
+    }
+}
+
 // Apply customer updates if any
 if (Object.keys(customerUpdates).length > 0) {
     await customersTable.updateRecordAsync(recordId, customerUpdates);
@@ -132,7 +151,13 @@ async function createTasksFromTemplates(templateList, productName) {
         if (taskType) taskFields['Task Type'] = { name: taskType };
 
         const status = tmpl.getCellValueAsString('Initial Status');
-        if (status) taskFields['Status'] = { name: status };
+        if (status) {
+            taskFields['Status'] = { name: status };
+            // If task is born Active, stamp Activated At so Days Active works from day 0
+            if (status === 'Active') {
+                taskFields['Activated At'] = new Date().toISOString();
+            }
+        }
 
         const attachmentType = tmpl.getCellValueAsString('Attachment Type');
         if (attachmentType) taskFields['Attachment Type'] = { name: attachmentType };

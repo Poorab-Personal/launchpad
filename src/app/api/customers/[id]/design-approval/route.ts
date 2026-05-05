@@ -78,13 +78,14 @@ export async function POST(
         }
       }
 
+      const nowIso = new Date().toISOString();
       for (const t of coreTasks) {
         if (selectVal(t.fields['Status']) !== 'Draft') continue;
         const dependsOnRaw = (t.fields['Depends On'] as string) ?? '';
         if (!dependsOnRaw) continue;
         const deps = dependsOnRaw.split(',').map((d) => d.trim());
         if (deps.every((dep) => completedNames.has(dep))) {
-          await updateRecord('Tasks', t.id, { Status: 'Active' });
+          await updateRecord('Tasks', t.id, { Status: 'Active', 'Activated At': nowIso });
         }
       }
 
@@ -150,6 +151,7 @@ export async function POST(
     Stage: 'Review Your Designs',
     'Stage Order': 2,
     Status: 'Active',
+    'Activated At': new Date().toISOString(),
     'Task Order': 10 + round,
     'Visible To Client': false,
     'Attachment Type': 'None',

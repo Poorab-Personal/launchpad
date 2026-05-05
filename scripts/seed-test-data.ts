@@ -35,6 +35,8 @@ if (!PAT || !BASE_ID) {
 const H = { Authorization: `Bearer ${PAT}`, 'Content-Type': 'application/json' };
 const args = process.argv.slice(2);
 const cleanOnly = args.includes('--clean-only');
+const limitArg = args.find((a) => a.startsWith('--limit='));
+const limit = limitArg ? parseInt(limitArg.split('=')[1], 10) : null;
 
 // ─── Rate Limiting ─────────────────────────────────────────────────
 
@@ -639,6 +641,13 @@ function buildTasksFromTemplates(
       f['Completed At'] = completedAt[taskName];
     }
 
+    // Backdate Activated At for in-flight tasks so Days Active reflects how
+    // long the customer has been waiting on this task. We approximate with
+    // when the customer entered their current stage.
+    if (status === 'Active' || status === 'In Review') {
+      f['Activated At'] = daysAgo(def.stageEnteredDaysAgo);
+    }
+
     const notes = def.taskNotes?.[taskName];
     if (notes) f['Notes'] = notes;
 
@@ -671,6 +680,9 @@ function buildExtraTaskRecords(
     if (ex.instr) f['Instructions'] = ex.instr;
     if (ex.completedAt) f['Completed At'] = ex.completedAt;
     if (ex.notes) f['Notes'] = ex.notes;
+    if (ex.status === 'Active' || ex.status === 'In Review') {
+      f['Activated At'] = daysAgo(def.stageEnteredDaysAgo);
+    }
     const role = ex.role;
     if (role) {
       const memberId = role === 'CSM' ? (def.csm ? csms[def.csm] : undefined) : teamByRole[role];
@@ -769,7 +781,16 @@ async function seed() {
   console.log(`  Team roles: ${Object.keys(teamByRole).join(', ')}`);
   console.log(`  CSMs: ${Object.keys(csms).join(', ')}`);
 
-  // 2. Fetch REAL workflow templates from Airtable
+  // 2. Fetch Production Settings row (for Environment link)
+  const settingsRecords = await fetchAll('Settings').catch(() => []);
+  const prodSettings = settingsRecords.find((r) => r.fields.Name === 'Production');
+  if (prodSettings) {
+    console.log(`  Settings: linking customers to "Production"`);
+  } else {
+    console.log(`  Settings: no Production row found — skipping Environment link`);
+  }
+
+  // 3. Fetch REAL workflow templates from Airtable
   const allTemplates = await fetchAll('Workflow Templates');
   const coreTemplates = allTemplates
     .filter((r) => r.fields['Workflow Key'] === 'D2C-Standard')
@@ -787,7 +808,12 @@ async function seed() {
   let totalEvents = 0;
   const portalUrls: Array<{ name: string; stage: string; url: string }> = [];
 
-  for (const def of CUSTOMERS) {
+  const customersToSeed = limit ? CUSTOMERS.slice(0, limit) : CUSTOMERS;
+  if (limit) {
+    console.log(`  --limit=${limit} → seeding ${customersToSeed.length} of ${CUSTOMERS.length} customers\n`);
+  }
+
+  for (const def of customersToSeed) {
     process.stdout.write(`  ${def.name} [${def.stage}]`);
 
     // 3a. Create customer with Channel="__SEED__" so Auto 1 can't find templates
@@ -839,6 +865,21 @@ async function seed() {
     if (def.voiceStage) update['Voice Stage'] = def.voiceStage;
     if (def.avatarStage) update['Avatar Stage'] = def.avatarStage;
     if (def.csm && csms[def.csm]) update['CSM Assigned'] = [csms[def.csm]];
+    if (prodSettings) update['Environment'] = [prodSettings.id];
+
+    // Placeholder attachments — distinct per customer so Design Brief renders.
+    // Airtable downloads from URL and stores natively.
+    const seed = encodeURIComponent(def.name);
+    update['Agent Photo'] = [
+      { url: `https://api.dicebear.com/7.x/avataaars/png?seed=${seed}&size=400` },
+    ];
+    update['Business Logo'] = [
+      {
+        url: `https://placehold.co/400x400/6C4AB6/FFFFFF/png?text=${encodeURIComponent(
+          (def.biz || def.name).slice(0, 16),
+        )}`,
+      },
+    ];
 
     await batchUpdate('Customers', [{ id: custId, fields: update }]);
 
