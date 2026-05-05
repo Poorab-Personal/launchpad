@@ -71,6 +71,7 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     businessAddress: (f['Business Address'] as string) ?? '',
     website: (f['Website'] as string) ?? '',
     serviceAreas: (f['Service Areas'] as string) ?? '',
+    localContentAreas: (f['Local Content Areas'] as string) ?? '',
     bio: (f['Bio'] as string) ?? '',
     licenseNumber: (f['License Number'] as string) ?? '',
     topics: (f['Topics'] as string) ?? '',

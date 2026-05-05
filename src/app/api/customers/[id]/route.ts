@@ -11,6 +11,7 @@ const fieldMap: Record<string, string> = {
   businessAddress: 'Business Address',
   website: 'Website',
   serviceAreas: 'Service Areas',
+  localContentAreas: 'Local Content Areas',
   bio: 'Bio',
   licenseNumber: 'License Number',
   topics: 'Topics',

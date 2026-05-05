@@ -6,20 +6,28 @@ import type { Task, Customer } from '@/types';
 // ─── Types ──────────────────────────────────────────────────────────
 
 interface FormData {
-  platformEmail: string;
-  phone: string;
+  // Step 1 — Your Business
   businessName: string;
+  phone: string;
   businessAddress: string;
   website: string;
-  serviceAreas: string;
-  bio: string;
   licenseNumber: string;
   mlsIds: string;
   gmbName: string;
-  topics: string;
-  hashtags: string;
+
+  // Step 2 — You & Your Brand
+  bio: string;
   specialInstructions: string;
   otherEmails: string;
+
+  // Step 3 — Content Direction
+  serviceAreas: string;
+  localContentAreas: string;
+  topics: string;
+  hashtags: string;
+
+  // Step 4 — Account Access
+  platformEmail: string;
 }
 
 interface FileState {
@@ -34,58 +42,73 @@ interface StepDef {
 }
 
 const STEPS: StepDef[] = [
-  { name: 'contact', label: 'Contact Info' },
-  { name: 'business', label: 'Business Info' },
-  { name: 'details', label: 'Agent Details' },
-  { name: 'branding', label: 'Content & Branding' },
-  { name: 'assets', label: 'Upload Assets' },
+  { name: 'business', label: 'Your Business' },
+  { name: 'brand', label: 'You & Your Brand' },
+  { name: 'content', label: 'Content Direction' },
+  { name: 'account', label: 'Account Access' },
   { name: 'review', label: 'Review & Submit' },
 ];
 
 const REQUIRED_FIELDS: Record<number, (keyof FormData)[]> = {
-  0: ['platformEmail'],
-  1: ['businessName'],
-  2: ['bio'],
+  0: ['businessName', 'phone', 'website', 'mlsIds'],
+  1: ['bio'],
+  2: ['serviceAreas', 'topics'],
+  3: ['platformEmail'],
 };
 
+const REQUIRED_FILES: Record<number, (keyof FileState)[]> = {
+  1: ['agentPhoto', 'businessLogo'],
+};
+
+const MAX_AREAS = 5;
 const ACCEPTED_FORMATS = '.png,.svg,.jpg,.jpeg,.pdf';
 
 function emptyForm(): FormData {
   return {
-    platformEmail: '',
-    phone: '',
     businessName: '',
+    phone: '',
     businessAddress: '',
     website: '',
-    serviceAreas: '',
-    bio: '',
     licenseNumber: '',
     mlsIds: '',
     gmbName: '',
-    topics: '',
-    hashtags: '',
+    bio: '',
     specialInstructions: '',
     otherEmails: '',
+    serviceAreas: '',
+    localContentAreas: '',
+    topics: '',
+    hashtags: '',
+    platformEmail: '',
   };
 }
 
 function prefillFromCustomer(customer: Customer): FormData {
   return {
-    platformEmail: customer.platformEmail || '',
-    phone: customer.phone || '',
     businessName: customer.businessName || '',
+    phone: customer.phone || '',
     businessAddress: customer.businessAddress || '',
     website: customer.website || '',
-    serviceAreas: customer.serviceAreas || '',
-    bio: customer.bio || '',
     licenseNumber: customer.licenseNumber || '',
     mlsIds: customer.mlsIds || '',
     gmbName: customer.gmbName || '',
-    topics: customer.topics || '',
-    hashtags: customer.hashtags || '',
+    bio: customer.bio || '',
     specialInstructions: customer.specialInstructions || '',
     otherEmails: customer.otherEmails || '',
+    serviceAreas: customer.serviceAreas || '',
+    localContentAreas: customer.localContentAreas || '',
+    topics: customer.topics || '',
+    hashtags: customer.hashtags || '',
+    platformEmail: customer.platformEmail || '',
   };
+}
+
+// Parse a multi-line areas textarea into trimmed, non-empty entries
+function parseAreas(raw: string): string[] {
+  return raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────
@@ -132,16 +155,26 @@ function FieldLabel({ label, required }: { label: string; required?: boolean }) 
   );
 }
 
+function HelperText({ children }: { children: React.ReactNode }) {
+  return <p className="mt-1 text-xs text-[#1B2E35]/50">{children}</p>;
+}
+
 function DropZone({
   label,
+  required,
   multiple,
   files,
   onFiles,
+  onRemove,
+  error,
 }: {
   label: string;
+  required?: boolean;
   multiple?: boolean;
   files: File | File[] | null;
   onFiles: (files: FileList) => void;
+  onRemove?: (index: number) => void;
+  error?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -160,10 +193,14 @@ function DropZone({
 
   return (
     <div>
-      <FieldLabel label={label} />
+      <FieldLabel label={label} required={required} />
       <div
         className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${
-          dragOver ? 'border-[#6C4AB6] bg-[#6C4AB6]/5' : 'border-[#E0DEE4] hover:border-[#6C4AB6]/50'
+          error
+            ? 'border-[#EC531A] bg-[#EC531A]/5'
+            : dragOver
+              ? 'border-[#6C4AB6] bg-[#6C4AB6]/5'
+              : 'border-[#E0DEE4] hover:border-[#6C4AB6]/50'
         }`}
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -185,6 +222,9 @@ function DropZone({
           onChange={(e) => { if (e.target.files?.length) onFiles(e.target.files); }}
         />
       </div>
+      {error && (
+        <p className="mt-1 text-xs text-[#EC531A]">Please upload a file to continue.</p>
+      )}
       {fileList.length > 0 && (
         <ul className="mt-2 space-y-1">
           {fileList.map((f, i) => (
@@ -192,11 +232,70 @@ function DropZone({
               <svg className="h-3.5 w-3.5 text-[#05C68E] shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
               </svg>
-              {f.name}
+              <span className="flex-1 truncate">{f.name}</span>
+              {onRemove && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onRemove(i); }}
+                  className="text-[#1B2E35]/40 hover:text-[#EC531A] transition-colors"
+                  aria-label={`Remove ${f.name}`}
+                >
+                  ×
+                </button>
+              )}
             </li>
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function AreasTextarea({
+  label,
+  required,
+  value,
+  onChange,
+  placeholder,
+  helper,
+  invalid,
+}: {
+  label: string;
+  required?: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  helper: string;
+  invalid?: boolean;
+}) {
+  const parsed = parseAreas(value);
+  const count = parsed.length;
+  const overLimit = count > MAX_AREAS;
+
+  let counterClass = 'text-[#1B2E35]/50';
+  if (overLimit) counterClass = 'text-[#EC531A] font-medium';
+  else if (count > 0) counterClass = 'text-[#05C68E]';
+
+  return (
+    <div>
+      <FieldLabel label={label} required={required} />
+      <textarea
+        rows={5}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-[#1B2E35] placeholder:text-[#1B2E35]/40 focus:outline-none focus:ring-2 focus:ring-[#6C4AB6]/20 focus:border-[#6C4AB6] resize-y ${
+          overLimit || invalid ? 'border-[#EC531A]' : 'border-[#E0DEE4]'
+        }`}
+      />
+      <div className="mt-1 flex items-start justify-between gap-3">
+        <p className="text-xs text-[#1B2E35]/50 flex-1">{helper}</p>
+        <p className={`shrink-0 text-xs ${counterClass}`}>
+          {overLimit
+            ? `${count} of ${MAX_AREAS} — please trim ${count - MAX_AREAS} to continue`
+            : `${count} of ${MAX_AREAS}`}
+        </p>
+      </div>
     </div>
   );
 }
@@ -268,6 +367,11 @@ export default function FormTask({
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const update = useCallback((field: keyof FormData, value: string) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setTouched((prev) => new Set(prev).add(field));
+  }, []);
 
   // ── Feedback Form (simple rating + comments) ──
   const isFeedbackForm = task.taskName.toLowerCase().includes('feedback');
@@ -371,17 +475,12 @@ export default function FormTask({
 
   // ── Helpers ──
 
-  const update = useCallback((field: keyof FormData, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    setTouched((prev) => new Set(prev).add(field));
-  }, []);
-
   function isInvalid(field: keyof FormData) {
     return touched.has(field) && isRequired(field) && !form[field].trim();
   }
 
   function isRequired(field: keyof FormData) {
-    for (const [, fields] of Object.entries(REQUIRED_FIELDS)) {
+    for (const fields of Object.values(REQUIRED_FIELDS)) {
       if (fields.includes(field)) return true;
     }
     return false;
@@ -397,10 +496,15 @@ export default function FormTask({
     return `${inputClass(field)} resize-y`;
   }
 
+  function isFileMissing(file: keyof FileState): boolean {
+    if (file === 'otherAssets') return files.otherAssets.length === 0;
+    return !files[file];
+  }
+
   // ── Navigation ──
 
   function handleNext() {
-    // Mark required fields for current step as touched
+    // Required text fields for current step
     const required = REQUIRED_FIELDS[step];
     if (required) {
       setTouched((prev) => {
@@ -408,10 +512,40 @@ export default function FormTask({
         for (const f of required) next.add(f);
         return next;
       });
-      // Block navigation if any required field for this step is empty
       if (required.some((f) => !form[f].trim())) return;
     }
-    setStep((s) => Math.min(s + 1, STEPS.length - 1));
+
+    // Required files for current step
+    const requiredFiles = REQUIRED_FILES[step];
+    if (requiredFiles) {
+      setTouched((prev) => {
+        const next = new Set(prev);
+        for (const f of requiredFiles) next.add(`file:${f}`);
+        return next;
+      });
+      if (requiredFiles.some(isFileMissing)) return;
+    }
+
+    // Max-5 area textareas: block if over limit on Content step
+    if (step === 2) {
+      if (parseAreas(form.serviceAreas).length > MAX_AREAS) return;
+      if (parseAreas(form.localContentAreas).length > MAX_AREAS) return;
+    }
+
+    const nextStep = Math.min(step + 1, STEPS.length - 1);
+
+    // Pre-fill Local Content Areas from Service Areas when entering Step 3
+    // for the first time (user hasn't touched it, and it's empty).
+    if (
+      nextStep === 2 &&
+      !touched.has('localContentAreas') &&
+      !form.localContentAreas.trim() &&
+      form.serviceAreas.trim()
+    ) {
+      setForm((prev) => ({ ...prev, localContentAreas: prev.serviceAreas }));
+    }
+
+    setStep(nextStep);
   }
 
   function handleBack() {
@@ -421,16 +555,25 @@ export default function FormTask({
   // ── Submit ──
 
   async function handleSubmit() {
-    // Check ALL required fields across all steps before submitting
+    // Re-check ALL required text fields
     const allRequired = Object.values(REQUIRED_FIELDS).flat();
-    const missing = allRequired.filter((f) => !form[f].trim());
-    if (missing.length > 0) {
+    const missingText = allRequired.filter((f) => !form[f].trim());
+    // Re-check ALL required files
+    const allRequiredFiles = Object.values(REQUIRED_FILES).flat();
+    const missingFiles = allRequiredFiles.filter(isFileMissing);
+    // Re-check area limits
+    const overAreas =
+      parseAreas(form.serviceAreas).length > MAX_AREAS ||
+      parseAreas(form.localContentAreas).length > MAX_AREAS;
+
+    if (missingText.length || missingFiles.length || overAreas) {
       setTouched((prev) => {
         const next = new Set(prev);
-        for (const f of missing) next.add(f);
+        for (const f of missingText) next.add(f);
+        for (const f of missingFiles) next.add(`file:${f}`);
         return next;
       });
-      setError('Please fill in all required fields before submitting.');
+      setError('Please fix the highlighted fields before submitting.');
       return;
     }
 
@@ -438,7 +581,6 @@ export default function FormTask({
     setError(null);
 
     try {
-      // 1. Upload files individually to Airtable via Vercel Blob
       const uploadFile = async (file: File, fieldName: string) => {
         if (file.size > 3_500_000) {
           throw new Error(`"${file.name}" is too large (${(file.size / 1_000_000).toFixed(1)}MB). Maximum is 3.5MB.`);
@@ -460,15 +602,17 @@ export default function FormTask({
         await uploadFile(asset, 'Other Assets');
       }
 
-      // 2. Build payload — only non-empty text fields
+      // Build payload — normalize area textareas to comma-separated, trim everything
       const payload: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(form)) {
-        if (value.trim()) {
+        if (key === 'serviceAreas' || key === 'localContentAreas') {
+          const parsed = parseAreas(value);
+          if (parsed.length) payload[key] = parsed.join(', ');
+        } else if (value.trim()) {
           payload[key] = value.trim();
         }
       }
 
-      // 3. PATCH customer with form data (files already written by upload route)
       const custRes = await fetch(`/api/customers/${customerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -480,7 +624,6 @@ export default function FormTask({
         throw new Error(err?.error || 'Failed to save your information');
       }
 
-      // PATCH task as completed
       const taskRes = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -503,33 +646,8 @@ export default function FormTask({
 
   function renderStep() {
     switch (step) {
+      // Step 1 — Your Business
       case 0:
-        return (
-          <div className="space-y-4">
-            <div>
-              <FieldLabel label="Platform Email" required />
-              <input
-                type="email"
-                className={inputClass('platformEmail')}
-                placeholder="Email for your app.rejig.ai login"
-                value={form.platformEmail}
-                onChange={(e) => update('platformEmail', e.target.value)}
-              />
-            </div>
-            <div>
-              <FieldLabel label="Phone" />
-              <input
-                type="tel"
-                className={inputClass('phone')}
-                placeholder="(555) 123-4567"
-                value={form.phone}
-                onChange={(e) => update('phone', e.target.value)}
-              />
-            </div>
-          </div>
-        );
-
-      case 1:
         return (
           <div className="space-y-4">
             <div>
@@ -543,6 +661,16 @@ export default function FormTask({
               />
             </div>
             <div>
+              <FieldLabel label="Phone" required />
+              <input
+                type="tel"
+                className={inputClass('phone')}
+                placeholder="(555) 123-4567"
+                value={form.phone}
+                onChange={(e) => update('phone', e.target.value)}
+              />
+            </div>
+            <div>
               <FieldLabel label="Business Address" />
               <textarea
                 className={textareaClass('businessAddress')}
@@ -553,39 +681,13 @@ export default function FormTask({
               />
             </div>
             <div>
-              <FieldLabel label="Website" />
+              <FieldLabel label="Website" required />
               <input
                 type="url"
                 className={inputClass('website')}
                 placeholder="https://yoursite.com"
                 value={form.website}
                 onChange={(e) => update('website', e.target.value)}
-              />
-            </div>
-            <div>
-              <FieldLabel label="Service Areas" />
-              <textarea
-                className={textareaClass('serviceAreas')}
-                rows={2}
-                placeholder="e.g., Brickell, Coral Gables, Coconut Grove"
-                value={form.serviceAreas}
-                onChange={(e) => update('serviceAreas', e.target.value)}
-              />
-            </div>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-4">
-            <div>
-              <FieldLabel label="Bio" required />
-              <textarea
-                className={textareaClass('bio')}
-                rows={6}
-                placeholder="Tell us about yourself — your experience, specialties, and what makes you unique"
-                value={form.bio}
-                onChange={(e) => update('bio', e.target.value)}
               />
             </div>
             <div>
@@ -599,21 +701,22 @@ export default function FormTask({
               />
             </div>
             <div>
-              <FieldLabel label="MLS IDs" />
+              <FieldLabel label="MLS Name & ID" required />
               <input
                 type="text"
                 className={inputClass('mlsIds')}
-                placeholder="Comma-separated MLS IDs"
+                placeholder="e.g., Miami MLS — 12345"
                 value={form.mlsIds}
                 onChange={(e) => update('mlsIds', e.target.value)}
               />
+              <HelperText>Enter both the MLS name and your ID. If you have more than one, list each.</HelperText>
             </div>
             <div>
               <FieldLabel label="Google My Business Name" />
               <input
                 type="text"
                 className={inputClass('gmbName')}
-                placeholder="Google My Business name"
+                placeholder="Name as it appears on Google"
                 value={form.gmbName}
                 onChange={(e) => update('gmbName', e.target.value)}
               />
@@ -621,31 +724,64 @@ export default function FormTask({
           </div>
         );
 
-      case 3:
+      // Step 2 — You & Your Brand
+      case 1:
         return (
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div>
-              <FieldLabel label="Topics" />
+              <FieldLabel label="Bio" required />
               <textarea
-                className={textareaClass('topics')}
-                rows={3}
-                placeholder="e.g., Luxury Real Estate, Market Updates"
-                value={form.topics}
-                onChange={(e) => update('topics', e.target.value)}
+                className={textareaClass('bio')}
+                rows={6}
+                placeholder="Tell us about yourself — your experience, specialties, and what makes you unique"
+                value={form.bio}
+                onChange={(e) => update('bio', e.target.value)}
               />
             </div>
+            <DropZone
+              label="Agent Photo"
+              required
+              files={files.agentPhoto}
+              onFiles={(fl) => {
+                setFiles((prev) => ({ ...prev, agentPhoto: fl[0] }));
+                setTouched((prev) => new Set(prev).add('file:agentPhoto'));
+              }}
+              onRemove={() => setFiles((prev) => ({ ...prev, agentPhoto: null }))}
+              error={touched.has('file:agentPhoto') && !files.agentPhoto}
+            />
+            <DropZone
+              label="Business Logo"
+              required
+              files={files.businessLogo}
+              onFiles={(fl) => {
+                setFiles((prev) => ({ ...prev, businessLogo: fl[0] }));
+                setTouched((prev) => new Set(prev).add('file:businessLogo'));
+              }}
+              onRemove={() => setFiles((prev) => ({ ...prev, businessLogo: null }))}
+              error={touched.has('file:businessLogo') && !files.businessLogo}
+            />
+            <DropZone
+              label="Other Brand Assets"
+              multiple
+              files={files.otherAssets}
+              onFiles={(fl) =>
+                setFiles((prev) => ({
+                  ...prev,
+                  otherAssets: [...prev.otherAssets, ...Array.from(fl)],
+                }))
+              }
+              onRemove={(i) =>
+                setFiles((prev) => ({
+                  ...prev,
+                  otherAssets: prev.otherAssets.filter((_, idx) => idx !== i),
+                }))
+              }
+            />
+            <p className="text-xs text-[#1B2E35]/40">
+              Accepted formats: PNG, SVG, JPG, PDF
+            </p>
             <div>
-              <FieldLabel label="Hashtags" />
-              <input
-                type="text"
-                className={inputClass('hashtags')}
-                placeholder="#MiamiRealEstate #LuxuryLiving"
-                value={form.hashtags}
-                onChange={(e) => update('hashtags', e.target.value)}
-              />
-            </div>
-            <div>
-              <FieldLabel label="Special Instructions" />
+              <FieldLabel label="Special Instructions for Design" />
               <textarea
                 className={textareaClass('specialInstructions')}
                 rows={3}
@@ -659,95 +795,116 @@ export default function FormTask({
               <input
                 type="text"
                 className={inputClass('otherEmails')}
-                placeholder="Additional emails for design sends"
+                placeholder="comma-separated"
                 value={form.otherEmails}
                 onChange={(e) => update('otherEmails', e.target.value)}
+              />
+              <HelperText>Anyone else who should be CC&apos;d on design proofs.</HelperText>
+            </div>
+          </div>
+        );
+
+      // Step 3 — Content Direction
+      case 2:
+        return (
+          <div className="space-y-5">
+            <AreasTextarea
+              label="Service Areas"
+              required
+              value={form.serviceAreas}
+              onChange={(v) => update('serviceAreas', v)}
+              placeholder={'One per line\ne.g.\nBrickell\nCoral Gables\nCoconut Grove'}
+              helper="Our AI creates monthly market reports for these areas."
+              invalid={isInvalid('serviceAreas')}
+            />
+            <AreasTextarea
+              label="Local Content Areas"
+              value={form.localContentAreas}
+              onChange={(v) => update('localContentAreas', v)}
+              placeholder={'One per line, max 5'}
+              helper="Where we'll source local stories and trends. Pre-filled from your service areas — edit if different."
+            />
+            <div>
+              <FieldLabel label="Topics" required />
+              <textarea
+                className={textareaClass('topics')}
+                rows={3}
+                placeholder="e.g., Luxury Real Estate, Market Updates, First-Time Buyers"
+                value={form.topics}
+                onChange={(e) => update('topics', e.target.value)}
+              />
+              <HelperText>What kinds of posts should we create for you?</HelperText>
+            </div>
+            <div>
+              <FieldLabel label="Hashtags" />
+              <input
+                type="text"
+                className={inputClass('hashtags')}
+                placeholder="#MiamiRealEstate #LuxuryLiving"
+                value={form.hashtags}
+                onChange={(e) => update('hashtags', e.target.value)}
               />
             </div>
           </div>
         );
 
-      case 4:
+      // Step 4 — Account Access
+      case 3:
         return (
-          <div className="space-y-5">
-            <DropZone
-              label="Agent Photo"
-              files={files.agentPhoto}
-              onFiles={(fl) => setFiles((prev) => ({ ...prev, agentPhoto: fl[0] }))}
-            />
-            <DropZone
-              label="Business Logo"
-              files={files.businessLogo}
-              onFiles={(fl) => setFiles((prev) => ({ ...prev, businessLogo: fl[0] }))}
-            />
-            <DropZone
-              label="Other Assets"
-              multiple
-              files={files.otherAssets}
-              onFiles={(fl) =>
-                setFiles((prev) => ({
-                  ...prev,
-                  otherAssets: [...prev.otherAssets, ...Array.from(fl)],
-                }))
-              }
-            />
-            <p className="text-xs text-[#1B2E35]/40">
-              Accepted formats: PNG, SVG, JPG, PDF
-            </p>
+          <div className="space-y-4">
+            <div>
+              <FieldLabel
+                label="What email should we use to log in to your Rejig account?"
+                required
+              />
+              <input
+                type="email"
+                className={inputClass('platformEmail')}
+                placeholder="you@example.com"
+                value={form.platformEmail}
+                onChange={(e) => update('platformEmail', e.target.value)}
+              />
+              <HelperText>
+                This is the email you&apos;ll use to sign in at app.rejig.ai. We&apos;ll also send a notification here whenever new content is published to your account.
+              </HelperText>
+            </div>
           </div>
         );
 
-      case 5:
+      // Step 5 — Review & Submit
+      case 4:
         return (
           <div className="space-y-4">
             <ReviewSection
-              title="Contact Info"
+              title="Your Business"
               stepIndex={0}
               onEdit={setStep}
               fields={[
-                { label: 'Platform Email', value: form.platformEmail },
+                { label: 'Business Name', value: form.businessName },
                 { label: 'Phone', value: form.phone },
+                { label: 'Business Address', value: form.businessAddress },
+                { label: 'Website', value: form.website },
+                { label: 'License Number', value: form.licenseNumber },
+                { label: 'MLS Name & ID', value: form.mlsIds },
+                { label: 'Google My Business', value: form.gmbName },
               ]}
             />
             <ReviewSection
-              title="Business Info"
+              title="You & Your Brand"
               stepIndex={1}
               onEdit={setStep}
               fields={[
-                { label: 'Business Name', value: form.businessName },
-                { label: 'Business Address', value: form.businessAddress },
-                { label: 'Website', value: form.website },
-                { label: 'Service Areas', value: form.serviceAreas },
-              ]}
-            />
-            <ReviewSection
-              title="Agent Details"
-              stepIndex={2}
-              onEdit={setStep}
-              fields={[
                 { label: 'Bio', value: form.bio },
-                { label: 'License Number', value: form.licenseNumber },
-                { label: 'MLS IDs', value: form.mlsIds },
-                { label: 'GMB Name', value: form.gmbName },
-              ]}
-            />
-            <ReviewSection
-              title="Content & Branding"
-              stepIndex={3}
-              onEdit={setStep}
-              fields={[
-                { label: 'Topics', value: form.topics },
-                { label: 'Hashtags', value: form.hashtags },
                 { label: 'Special Instructions', value: form.specialInstructions },
                 { label: 'Other Emails', value: form.otherEmails },
               ]}
             />
             <div className="rounded-lg border border-[#E0DEE4] p-4">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-semibold text-[#1B2E35]">Upload Assets</h4>
+                <h4 className="text-sm font-semibold text-[#1B2E35]">Brand Assets</h4>
                 <button
                   type="button"
-                  onClick={() => setStep(4)}
+                  onClick={() => setStep(1)}
                   className="text-xs font-medium text-[#6C4AB6] hover:text-[#6C4AB6]/80 transition-colors"
                 >
                   Edit
@@ -778,6 +935,25 @@ export default function FormTask({
                 <p className="text-sm text-[#1B2E35]/40 italic">No files selected</p>
               )}
             </div>
+            <ReviewSection
+              title="Content Direction"
+              stepIndex={2}
+              onEdit={setStep}
+              fields={[
+                { label: 'Service Areas', value: form.serviceAreas },
+                { label: 'Local Content Areas', value: form.localContentAreas },
+                { label: 'Topics', value: form.topics },
+                { label: 'Hashtags', value: form.hashtags },
+              ]}
+            />
+            <ReviewSection
+              title="Account Access"
+              stepIndex={3}
+              onEdit={setStep}
+              fields={[
+                { label: 'Account Email', value: form.platformEmail },
+              ]}
+            />
 
             {error && (
               <div className="rounded-lg border border-[#EC531A]/30 bg-[#EC531A]/5 px-4 py-3 text-sm text-[#EC531A]">

@@ -44,6 +44,7 @@ export interface Customer {
   businessAddress: string;
   website: string;
   serviceAreas: string;
+  localContentAreas: string;
   bio: string;
   licenseNumber: string;
   topics: string;
