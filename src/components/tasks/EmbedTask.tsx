@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { Task } from '@/types';
 
 export default function EmbedTask({
@@ -14,6 +14,7 @@ export default function EmbedTask({
   const [iframeLoading, setIframeLoading] = useState(true);
   const [iframeError, setIframeError] = useState(false);
   const [booked, setBooked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const isVideo =
     task.taskName.toLowerCase().includes('video') ||
@@ -21,47 +22,56 @@ export default function EmbedTask({
 
   const isCalendly = task.embedUrl?.includes('calendly.com') ?? false;
 
+  const handleCalendlyBooked = useCallback(async () => {
+    setBooked(true);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Completed' }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Booking saved but task status update failed. Please refresh.');
+      }
+      setTimeout(() => onComplete(), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong saving your booking.');
+    } finally {
+      setLoading(false);
+    }
+  }, [task.id, onComplete]);
+
   // Listen for Calendly's postMessage event when booking completes
   useEffect(() => {
     if (!isCalendly) return;
-
     function handleMessage(event: MessageEvent) {
-      // Calendly fires this event when a booking is confirmed
       if (event.data?.event === 'calendly.event_scheduled') {
         handleCalendlyBooked();
       }
     }
-
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCalendly]);
-
-  async function handleCalendlyBooked() {
-    setBooked(true);
-    setLoading(true);
-    try {
-      await fetch(`/api/tasks/${task.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Completed' }),
-      });
-      // Small delay to let user see the confirmation, then refresh
-      setTimeout(() => onComplete(), 2000);
-    } finally {
-      setLoading(false);
-    }
-  }
+  }, [isCalendly, handleCalendlyBooked]);
 
   async function handleComplete() {
     setLoading(true);
+    setError(null);
     try {
-      await fetch(`/api/tasks/${task.id}`, {
+      const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'Completed' }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Failed to mark task complete');
+      }
       onComplete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -118,6 +128,12 @@ export default function EmbedTask({
           <p className="text-sm text-[#1B2E35]/60">
             {isVideo ? 'Video will appear here once available.' : 'Booking link will appear here once available.'}
           </p>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-lg border border-[#EC531A]/30 bg-[#EC531A]/5 px-4 py-3 text-sm text-[#EC531A]">
+          {error}
         </div>
       )}
 

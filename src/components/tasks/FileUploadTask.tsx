@@ -72,73 +72,85 @@ export default function FileUploadTask({
 
   const canSubmit = files.length > 0 || shareLink.trim().length > 0;
 
+  function isValidUrl(value: string): boolean {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }
+
+  async function uploadOne(file: File, fieldName: string): Promise<void> {
+    setUploadStatus((prev) => ({ ...prev, [file.name]: 'uploading' }));
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('customerId', customerId);
+    fd.append('fieldName', fieldName);
+
+    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    if (!res.ok) {
+      setUploadStatus((prev) => ({ ...prev, [file.name]: 'error' }));
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || `Failed to upload ${file.name}`);
+    }
+    setUploadStatus((prev) => ({ ...prev, [file.name]: 'done' }));
+  }
+
   async function handleSubmit() {
     setLoading(true);
     setError('');
 
     try {
+      // Path 1: share link
       if (shareLink.trim()) {
-        // Save share link to task Notes field
-        await fetch(`/api/tasks/${task.id}`, {
+        if (!isValidUrl(shareLink.trim())) {
+          setError('Please enter a valid link starting with http:// or https://');
+          setLoading(false);
+          return;
+        }
+        const res = await fetch(`/api/tasks/${task.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'Completed', notes: shareLink.trim() }),
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.error || 'Failed to save share link');
+        }
         onComplete();
         return;
       }
 
-      // Upload files
-      if (isAddonUpload) {
-        // Add-on files are typically too large — check size and warn
-        const oversized = files.filter((f) => f.size > MAX_FILE_SIZE);
-        if (oversized.length > 0) {
-          setError(
-            `${oversized.map((f) => f.name).join(', ')} ${oversized.length === 1 ? 'is' : 'are'} too large to upload directly. Please use the share link option below.`,
-          );
-          setLoading(false);
-          return;
-        }
+      // Path 2: file upload
+      const oversized = files.filter((f) => f.size > MAX_FILE_SIZE);
+      if (oversized.length > 0) {
+        const names = oversized.map((f) => `"${f.name}" (${(f.size / 1_000_000).toFixed(1)}MB)`).join(', ');
+        const msg = isAddonUpload
+          ? `${names} ${oversized.length === 1 ? 'is' : 'are'} too large to upload. Please use the share link option below.`
+          : `${names} too large. Maximum is 3.5MB per file. Use the share link option for larger files.`;
+        setError(msg);
+        setLoading(false);
+        return;
       }
 
-      // Upload each file to Airtable via Vercel Blob
+      // Upload all files in parallel
       const fieldName = getFieldName();
-      for (const file of files) {
-        if (file.size > MAX_FILE_SIZE) {
-          setError(`"${file.name}" is too large (${(file.size / 1_000_000).toFixed(1)}MB). Max is 3.5MB. Use the share link option.`);
-          setLoading(false);
-          return;
-        }
-
-        setUploadStatus((prev) => ({ ...prev, [file.name]: 'uploading' }));
-
-        const fd = new FormData();
-        fd.append('file', file);
-        fd.append('customerId', customerId);
-        fd.append('fieldName', fieldName);
-
-        const res = await fetch('/api/upload', { method: 'POST', body: fd });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => null);
-          setUploadStatus((prev) => ({ ...prev, [file.name]: 'error' }));
-          setError(err?.error || `Failed to upload ${file.name}`);
-          setLoading(false);
-          return;
-        }
-
-        setUploadStatus((prev) => ({ ...prev, [file.name]: 'done' }));
-      }
+      await Promise.all(files.map((file) => uploadOne(file, fieldName)));
 
       // Mark task complete
-      await fetch(`/api/tasks/${task.id}`, {
+      const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'Completed' }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Files uploaded, but failed to mark task complete. Please refresh.');
+      }
       onComplete();
-    } catch {
-      setError('Something went wrong. Please try again.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }

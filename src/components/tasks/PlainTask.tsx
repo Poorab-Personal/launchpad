@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { Task } from '@/types';
+
 export default function PlainTask({
   task,
   onComplete,
@@ -10,16 +11,24 @@ export default function PlainTask({
   onComplete: () => void;
 }) {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleComplete() {
     setLoading(true);
+    setError(null);
     try {
-      await fetch(`/api/tasks/${task.id}`, {
+      const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'Completed' }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || 'Failed to mark task complete');
+      }
       onComplete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -29,6 +38,11 @@ export default function PlainTask({
     <div className="space-y-4">
       {task.instructions && (
         <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+      )}
+      {error && (
+        <div className="rounded-lg border border-[#EC531A]/30 bg-[#EC531A]/5 px-4 py-3 text-sm text-[#EC531A]">
+          {error}
+        </div>
       )}
       <button
         onClick={handleComplete}
