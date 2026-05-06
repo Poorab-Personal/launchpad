@@ -54,13 +54,16 @@ export async function POST(request: NextRequest) {
 
   try {
     if (template === 'credentials-sent') {
-      const platformEmail = customer.platformEmail || customer.contactEmail;
-      const result = await sendEmail({
-        template: 'credentials-sent',
-        to: recipient,
-        data: { firstName: fname, portalUrl, platformEmail },
-      });
-      return Response.json({ ok: true, id: result?.id });
+      // Credentials emails now require a Temporary Password generated in the
+      // workspace at send-time. Use the Account Creator workspace
+      // (POST /api/workspace/send-credentials) instead of this generic route.
+      return Response.json(
+        {
+          error:
+            'credentials-sent must be sent via /api/workspace/send-credentials so a temporary password can be generated.',
+        },
+        { status: 400 },
+      );
     }
 
     const result = await sendEmail({

@@ -16,7 +16,15 @@ export type PaymentStatus = 'Paid' | 'Waived';
 
 export type OnboardingStatus = 'Not Started' | 'In Progress' | 'Completed';
 
-export type TeamRole = 'Designer' | 'Senior Designer' | 'CSM' | 'Onboarding Ops' | 'Sales' | 'Admin';
+export type TeamRole =
+  | 'Designer'
+  | 'Senior Designer'
+  | 'CSM'
+  | 'Senior CSM'
+  | 'Account Creator'
+  | 'Onboarding Ops'
+  | 'Sales'
+  | 'Admin';
 
 export type ActorType = 'Customer' | 'Team Member' | 'System';
 
@@ -232,4 +240,28 @@ export interface Event {
   details: string;
   relatedTask: string[];
   createdAt: string;
+}
+
+// ─── Table 8: Calls ─────────────────────────────────────────────────
+
+export type CallType = 'Onboarding' | 'Check-In 1' | 'Check-In 2' | 'Ad-hoc';
+export type CallStatus = 'Scheduled' | 'Completed' | 'No Show' | 'Rescheduled' | 'Canceled';
+
+export interface Call {
+  id: string;
+  /** Optional title — Calls table primary field. Free-form (e.g. "Onboarding — Sarah Test"). */
+  title: string;
+  customer: string[];
+  type: CallType;
+  scheduledDate: string;
+  status: CallStatus;
+  csm: string[];
+  notes: string;
+  recordingUrl: string;
+  /** UUID parsed from Calendly event URI. Used to dedupe webhook deliveries. */
+  calendlyEventUuid: string;
+  /** From Airtable record metadata (always present). */
+  createdAt: string;
+  /** From `Last Modified` field if it exists in Airtable; else empty string. */
+  lastModified: string;
 }

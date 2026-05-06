@@ -9,6 +9,10 @@ import {
 import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from '@/types';
 import MarkCompleteButton from './MarkCompleteButton';
 import ProofTaskAction from './ProofTaskAction';
+import CallsSection from './CallsSection';
+import LogCallButton, { type CSMOption } from './LogCallButton';
+import CreateAccountAction from './CreateAccountAction';
+import SendCredentialsAction from './SendCredentialsAction';
 
 const BIO_COLLAPSE_THRESHOLD = 180;
 
@@ -150,6 +154,33 @@ function TaskActionPanel({
   if (!isMine || task.status !== 'Active') {
     return null;
   }
+
+  // Account Creator action panels: dedicated UIs for these specific tasks.
+  if (task.taskName === 'Create Customer Account') {
+    return (
+      <CreateAccountAction
+        taskId={task.id}
+        customerId={customerId}
+        initialPlatformEmail={customer.platformEmail}
+      />
+    );
+  }
+  if (task.taskName === 'Send Credentials') {
+    const portalBase =
+      customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
+    const portalUrl = `${portalBase}/r/${customer.id}`;
+    const firstName = customer.name.trim().split(/\s+/)[0] || 'there';
+    return (
+      <SendCredentialsAction
+        taskId={task.id}
+        customerId={customerId}
+        platformEmail={customer.platformEmail}
+        firstName={firstName}
+        portalUrl={portalUrl}
+      />
+    );
+  }
+
   const showFeedback = /Revis(e|ion)|Round/i.test(task.taskName) && customer.designFeedback;
   const isProofTask = allowsProofUpload(task.taskName);
   const latestProof = customer.designProof[customer.designProof.length - 1];
@@ -251,6 +282,15 @@ export default async function CustomerDetailPage({
   const myActiveTasks = coreTasks.filter(
     (t) => t.status === 'Active' && isAssignedToEffective(t),
   );
+
+  // CSM/Admin can edit calls (notes, recording URL) and log ad-hoc calls.
+  const canEditCalls =
+    session.role === 'Admin' ||
+    session.role === 'CSM' ||
+    session.role === 'Senior CSM';
+  const csmOptions: CSMOption[] = members
+    .filter((m) => (m.role === 'CSM' || m.role === 'Senior CSM') && m.active)
+    .map((m) => ({ id: m.id, name: m.name }));
 
   return (
     <div className="space-y-6">
@@ -435,10 +475,24 @@ export default async function CustomerDetailPage({
               )}
             </dl>
           </section>
+
+          <CallsSection customerId={customerId} canEdit={canEditCalls} />
         </div>
 
         {/* Right rail: Action panel + Tasks */}
         <aside className="space-y-6">
+          {canEditCalls && (
+            <section className="rounded-xl bg-white border border-[#E0DEE4] p-5">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70 mb-3">
+                Log a call
+              </h2>
+              <LogCallButton
+                customerId={customerId}
+                currentMemberId={ctx.memberId}
+                csms={csmOptions}
+              />
+            </section>
+          )}
           {highlighted ? (
             <section className="rounded-xl bg-white border-2 border-[#6C4AB6] p-5">
               <div className="mb-4">

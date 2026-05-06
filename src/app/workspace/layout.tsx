@@ -43,7 +43,19 @@ export default async function WorkspaceLayout({
                 href="/workspace/queue"
                 className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
               >
-                My Queue
+                Design Queue
+              </Link>
+              <Link
+                href="/workspace/book"
+                className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
+              >
+                CSM Book
+              </Link>
+              <Link
+                href="/workspace/account-queue"
+                className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
+              >
+                Account Queue
               </Link>
               <Link
                 href="/workspace/customers"

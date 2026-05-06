@@ -9,6 +9,9 @@ import type {
   Event,
   AirtableAttachment,
   Product,
+  Call,
+  CallStatus,
+  CallType,
 } from '@/types';
 import {
   getRecords,
@@ -614,4 +617,114 @@ export async function getRosterAgentByEmail(
   });
   if (records.length === 0) return null;
   return mapAirtableToRosterAgent(records[0]);
+}
+
+// --- Calls ---
+
+function mapAirtableToCall(record: AirtableRecord): Call {
+  const f = record.fields;
+  return {
+    id: record.id,
+    title: (f['Title'] as string) ?? '',
+    customer: linkedIds(f['Customer']),
+    type: (selectValue(f['Type']) as CallType) || 'Ad-hoc',
+    scheduledDate: (f['Scheduled Date'] as string) ?? '',
+    status: (selectValue(f['Status']) as CallStatus) || 'Scheduled',
+    csm: linkedIds(f['CSM']),
+    notes: (f['Notes'] as string) ?? '',
+    recordingUrl: (f['Recording URL'] as string) ?? '',
+    calendlyEventUuid: (f['Calendly Event UUID'] as string) ?? '',
+    createdAt: (f['Created At'] as string) ?? record.createdTime,
+    lastModified: (f['Last Modified'] as string) ?? '',
+  };
+}
+
+/**
+ * Map a partial `Call` (camelCase) → Airtable Title-Case fields object.
+ * Skips undefined values so callers can pass partials freely.
+ */
+function callFieldsToAirtable(fields: Partial<Call>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (fields.title !== undefined) out['Title'] = fields.title;
+  if (fields.customer !== undefined) out['Customer'] = fields.customer;
+  if (fields.type !== undefined) out['Type'] = fields.type;
+  if (fields.scheduledDate !== undefined) out['Scheduled Date'] = fields.scheduledDate;
+  if (fields.status !== undefined) out['Status'] = fields.status;
+  if (fields.csm !== undefined) out['CSM'] = fields.csm;
+  if (fields.notes !== undefined) out['Notes'] = fields.notes;
+  if (fields.recordingUrl !== undefined) out['Recording URL'] = fields.recordingUrl;
+  if (fields.calendlyEventUuid !== undefined) out['Calendly Event UUID'] = fields.calendlyEventUuid;
+  return out;
+}
+
+/** All Calls for a customer, oldest first by Scheduled Date. */
+export async function getCallsForCustomer(customerId: string): Promise<Call[]> {
+  // Use FIND on the linked-record array string representation.
+  // (filterByFormula on linked records can't compare arrays, but
+  //  ARRAYJOIN + FIND works because linked-record values stringify to the
+  //  customer's primary field — we use the record ID via FIND on the
+  //  flattened array, which Airtable supports via the id portion.)
+  // Fallback: Airtable can't filter linked-record-by-ID via formula in all
+  // cases. We fetch by formula on Customer name OR fall back to in-memory
+  // scan. For reliability we use the in-memory approach matching how
+  // getTasksForCustomer does it.
+  const records = await getRecords('Calls', {
+    sort: [{ field: 'Scheduled Date', direction: 'asc' }],
+  });
+  return records
+    .filter((r) => {
+      const linked = r.fields['Customer'] as Array<string | { id: string }> | undefined;
+      return Array.isArray(linked) && linked.some((x) => (typeof x === 'string' ? x : x.id) === customerId);
+    })
+    .map(mapAirtableToCall);
+}
+
+/**
+ * Upcoming scheduled calls for a CSM. Status=Scheduled, Scheduled Date in
+ * the future. Optionally cap to next `daysAhead` days.
+ */
+export async function getUpcomingCallsForCSM(
+  csmMemberId: string,
+  daysAhead?: number,
+): Promise<Call[]> {
+  // Build filter formula using IS_AFTER for "future" and optional IS_BEFORE
+  // for the daysAhead cap. Status comparison is plain string equality.
+  const clauses = [`{Status} = 'Scheduled'`, `IS_AFTER({Scheduled Date}, NOW())`];
+  if (daysAhead !== undefined) {
+    clauses.push(`IS_BEFORE({Scheduled Date}, DATEADD(NOW(), ${Math.max(0, daysAhead)}, 'days'))`);
+  }
+  const records = await getRecords('Calls', {
+    filterByFormula: `AND(${clauses.join(', ')})`,
+    sort: [{ field: 'Scheduled Date', direction: 'asc' }],
+  });
+  // CSM is a linked-record array — filter in-memory (Airtable formulas
+  // can't index by linked-record ID reliably).
+  return records
+    .filter((r) => {
+      const linked = r.fields['CSM'] as Array<string | { id: string }> | undefined;
+      return Array.isArray(linked) && linked.some((x) => (typeof x === 'string' ? x : x.id) === csmMemberId);
+    })
+    .map(mapAirtableToCall);
+}
+
+/** Look up a Call by Calendly Event UUID for idempotent webhook upserts. */
+export async function getCallByCalendlyUuid(uuid: string): Promise<Call | null> {
+  if (!uuid) return null;
+  const safe = uuid.replace(/'/g, "\\'");
+  const records = await getRecords('Calls', {
+    filterByFormula: `{Calendly Event UUID} = '${safe}'`,
+    maxRecords: 1,
+  });
+  if (records.length === 0) return null;
+  return mapAirtableToCall(records[0]);
+}
+
+export async function createCall(fields: Partial<Call>): Promise<Call> {
+  const record = await createRecord('Calls', callFieldsToAirtable(fields));
+  return mapAirtableToCall(record);
+}
+
+export async function updateCall(id: string, fields: Partial<Call>): Promise<Call> {
+  const record = await updateRecord('Calls', id, callFieldsToAirtable(fields));
+  return mapAirtableToCall(record);
 }

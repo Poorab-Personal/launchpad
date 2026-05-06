@@ -3,7 +3,7 @@
 import { useTransition } from 'react';
 import { setViewAsRole } from './actions';
 
-const ROLES = ['Designer', 'Senior Designer', 'CSM', 'Account Creator', 'Onboarding Ops', 'Sales'] as const;
+const ROLES = ['Designer', 'Senior Designer', 'CSM', 'Senior CSM', 'Account Creator', 'Onboarding Ops', 'Sales'] as const;
 
 export type ViewAsMember = {
   id: string;

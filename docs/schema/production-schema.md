@@ -236,6 +236,34 @@ Brokerage-level configuration for B2B/enterprise customers.
 
 ---
 
+## Table 8: Calls
+
+One row per scheduled (or ad-hoc) CSM ↔ customer call. Replaces the legacy
+single-field `Customer.Call Date`, which got clobbered by every Schedule
+task. Calls table is upserted by the Calendly webhook (idempotent on
+Calendly Event UUID) and surfaced in the CSM workspace.
+
+The legacy `Customer.Call Date` / `Call Booked` / `Call Completed` /
+`No Show Count` fields remain on Customers for backwards compat with the
+customer portal — the webhook still writes Call Date + Call Booked for
+Onboarding-type calls only.
+
+| Field Name | Type | Notes |
+|---|---|---|
+| Title | Single line text | Primary field. Free-form; webhook stamps `"<Type> — <Customer Name>"` |
+| Customer | Link to Customers | Required |
+| Type | Single select | `Onboarding`, `Check-In 1`, `Check-In 2`, `Ad-hoc` |
+| Scheduled Date | Date (w/ time) | Event start time |
+| Status | Single select | `Scheduled`, `Completed`, `No Show`, `Rescheduled`, `Canceled` |
+| CSM | Link to Team Members | The CSM owning this call |
+| Notes | Long text | Free-form CSM notes |
+| Recording URL | URL | Zoom/Loom link (optional) |
+| Calendly Event UUID | Single line text | Idempotency key — last segment of Calendly event URI |
+
+Setup: `npx tsx scripts/setup-calls-table.ts` (idempotent).
+
+---
+
 ## Enterprise Agent Onboarding Flow
 
 ```

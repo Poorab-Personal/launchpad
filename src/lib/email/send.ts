@@ -17,6 +17,7 @@ interface BaseData {
 
 interface CredentialsData extends BaseData {
   platformEmail: string;
+  password: string;
 }
 
 type TemplateDataMap = {

@@ -19,6 +19,16 @@ export default async function WorkspaceLanding() {
     redirect('/workspace/customers');
   }
 
+  // CSM: book of customers + upcoming calls + health flags.
+  if (ctx.role === 'CSM' || ctx.role === 'Senior CSM') {
+    redirect('/workspace/book');
+  }
+
+  // Account Creator: queue of accounts to create + credentials to send.
+  if (ctx.role === 'Account Creator') {
+    redirect('/workspace/account-queue');
+  }
+
   // Other roles: placeholder until P1
   return (
     <div className="mx-auto max-w-2xl py-16 text-center">
