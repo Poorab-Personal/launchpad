@@ -28,6 +28,7 @@ const META = `https://api.airtable.com/v0/meta/bases/${BASE_ID}`;
 const DATA = `https://api.airtable.com/v0/${BASE_ID}`;
 
 const PROD_URL = 'https://launchpad-indol-ten.vercel.app';
+const PLACEHOLDER_CALENDLY = 'https://calendly.com/rejig-onboarding/30min';
 
 const auth = { Authorization: `Bearer ${PAT}` };
 const jsonAuth = { ...auth, 'Content-Type': 'application/json' };
@@ -114,6 +115,15 @@ async function main() {
   if (settings) {
     console.log('✓ Settings table already exists');
     settingsId = settings.id;
+    // Make sure all expected fields exist
+    if (!settings.fields.find((f) => f.name === 'Default Onboarding Calendly URL')) {
+      await addField(settingsId, {
+        name: 'Default Onboarding Calendly URL',
+        type: 'url',
+        description: 'Round-robin Calendly link used for D2C onboarding calls (and as fallback for B2B if a brokerage has none set).',
+      });
+      console.log('✓ Added Settings.Default Onboarding Calendly URL');
+    }
   } else {
     const created = await createTable('Settings', [
       { name: 'Name', type: 'singleLineText' },
@@ -122,22 +132,35 @@ async function main() {
         type: 'url',
         description: 'Base URL of the customer portal (no trailing slash). Used to build per-customer portal links.',
       },
+      {
+        name: 'Default Onboarding Calendly URL',
+        type: 'url',
+        description: 'Round-robin Calendly link used for D2C onboarding calls (and as fallback for B2B if a brokerage has none set).',
+      },
     ]);
     settingsId = created.id;
     console.log('✓ Created Settings table');
   }
 
-  // ── 2. Create Production row if missing ─────────────────────────────
+  // ── 2. Create Production row if missing, fill missing fields ────────
   const settingsRecords = await listRecords('Settings');
   const prodRow = settingsRecords.find((r) => r.fields.Name === 'Production');
   let prodId: string;
   if (prodRow) {
     console.log('✓ Production row already exists');
     prodId = prodRow.id;
+    // Backfill Calendly URL if blank
+    if (!prodRow.fields['Default Onboarding Calendly URL']) {
+      await patchRecords('Settings', [
+        { id: prodId, fields: { 'Default Onboarding Calendly URL': PLACEHOLDER_CALENDLY } },
+      ]);
+      console.log(`✓ Set Production.Default Onboarding Calendly URL → ${PLACEHOLDER_CALENDLY}`);
+    }
   } else {
     const created = await createRecord('Settings', {
       Name: 'Production',
       'Portal Base URL': PROD_URL,
+      'Default Onboarding Calendly URL': PLACEHOLDER_CALENDLY,
     });
     prodId = created.id;
     console.log(`✓ Created Production row → ${PROD_URL}`);

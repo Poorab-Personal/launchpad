@@ -596,6 +596,7 @@ function buildTasksFromTemplates(
   def: CustDef,
   teamByRole: Record<string, string>,
   csms: Record<string, string>,
+  onboardingCalendlyUrl: string,
 ): Array<{ fields: Record<string, unknown> }> {
   const completed = statusMap.completed || [];
   const timestamps = spreadTimestamps(completed.length, def.createdDaysAgo, def.stageEnteredDaysAgo);
@@ -623,7 +624,12 @@ function buildTasksFromTemplates(
 
     if (tf['Depends On']) f['Depends On'] = tf['Depends On'];
     if (tf['Instructions']) f['Instructions'] = tf['Instructions'];
-    if (tf['Embed URL']) f['Embed URL'] = tf['Embed URL'];
+    // Schedule task gets resolved URL (templates leave it blank); other tasks use template Embed URL
+    if (taskName === 'Schedule Your Onboarding Call' && onboardingCalendlyUrl) {
+      f['Embed URL'] = onboardingCalendlyUrl;
+    } else if (tf['Embed URL']) {
+      f['Embed URL'] = tf['Embed URL'];
+    }
 
     // Assign team member
     const role = (tf['Assigned Role'] as string) || '';
@@ -781,11 +787,15 @@ async function seed() {
   console.log(`  Team roles: ${Object.keys(teamByRole).join(', ')}`);
   console.log(`  CSMs: ${Object.keys(csms).join(', ')}`);
 
-  // 2. Fetch Production Settings row (for Environment link)
+  // 2. Fetch Production Settings row (for Environment link + onboarding Calendly URL)
   const settingsRecords = await fetchAll('Settings').catch(() => []);
   const prodSettings = settingsRecords.find((r) => r.fields.Name === 'Production');
+  const onboardingCalendlyUrl = (prodSettings?.fields['Default Onboarding Calendly URL'] as string) || '';
   if (prodSettings) {
     console.log(`  Settings: linking customers to "Production"`);
+    if (onboardingCalendlyUrl) {
+      console.log(`  Onboarding Calendly URL: ${onboardingCalendlyUrl}`);
+    }
   } else {
     console.log(`  Settings: no Production row found — skipping Environment link`);
   }
@@ -830,9 +840,9 @@ async function seed() {
     const custId = custRecord.id;
 
     // 3b. Create tasks from REAL templates
-    const coreTasks = buildTasksFromTemplates(coreTemplates, def.core, 'Core', custId, def, teamByRole, csms);
-    const voiceTasks = def.hasVoice && def.voice ? buildTasksFromTemplates(voiceTemplates, def.voice, 'Voice', custId, def, teamByRole, csms) : [];
-    const avatarTasks = def.hasAvatar && def.avatar ? buildTasksFromTemplates(avatarTemplates, def.avatar, 'Avatar', custId, def, teamByRole, csms) : [];
+    const coreTasks = buildTasksFromTemplates(coreTemplates, def.core, 'Core', custId, def, teamByRole, csms, onboardingCalendlyUrl);
+    const voiceTasks = def.hasVoice && def.voice ? buildTasksFromTemplates(voiceTemplates, def.voice, 'Voice', custId, def, teamByRole, csms, onboardingCalendlyUrl) : [];
+    const avatarTasks = def.hasAvatar && def.avatar ? buildTasksFromTemplates(avatarTemplates, def.avatar, 'Avatar', custId, def, teamByRole, csms, onboardingCalendlyUrl) : [];
     const extraTasks = buildExtraTaskRecords(def, custId, teamByRole, csms);
 
     const allTaskRecords = [...coreTasks, ...voiceTasks, ...avatarTasks, ...extraTasks];

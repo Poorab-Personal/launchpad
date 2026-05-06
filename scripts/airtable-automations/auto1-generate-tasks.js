@@ -128,6 +128,38 @@ function getMembersByRole(role) {
     return [];
 }
 
+// ── Resolve onboarding Calendly URL (B2B brokerage URL > Settings default) ──
+
+let onboardingCalendlyUrl = '';
+try {
+    // B2B path: read brokerage's default Calendly URL
+    if (custRecord) {
+        const brokerages = custRecord.getCellValue('Brokerage');
+        if (brokerages && brokerages.length > 0) {
+            const brokeragesTable = base.getTable('Brokerages');
+            const bq = await brokeragesTable.selectRecordsAsync({ fields: ['Default Calendly URL'] });
+            const brokerageRow = bq.records.find(r => r.id === brokerages[0].id);
+            if (brokerageRow) {
+                onboardingCalendlyUrl = brokerageRow.getCellValueAsString('Default Calendly URL') || '';
+            }
+        }
+    }
+    // Fallback: Settings.Default Onboarding Calendly URL (used by D2C, and B2B if brokerage has none)
+    if (!onboardingCalendlyUrl) {
+        const settingsTable = base.getTable('Settings');
+        const sq = await settingsTable.selectRecordsAsync({ fields: ['Name', 'Default Onboarding Calendly URL'] });
+        const prod = sq.records.find(r => r.getCellValueAsString('Name') === 'Production');
+        if (prod) onboardingCalendlyUrl = prod.getCellValueAsString('Default Onboarding Calendly URL') || '';
+    }
+    if (onboardingCalendlyUrl) {
+        console.log(`Onboarding Calendly URL resolved: ${onboardingCalendlyUrl}`);
+    } else {
+        console.log('No onboarding Calendly URL found — Schedule task will have empty Embed URL.');
+    }
+} catch (e) {
+    console.log(`Could not resolve onboarding Calendly URL: ${e.message}`);
+}
+
 // ── Helper: Create tasks from a list of templates with a given Product ──
 
 const tasksTable = base.getTable('Tasks');
@@ -169,8 +201,15 @@ async function createTasksFromTemplates(templateList, productName) {
         const instructions = tmpl.getCellValueAsString('Instructions');
         if (instructions) taskFields['Instructions'] = instructions;
 
+        const taskTitle = tmpl.getCellValueAsString('Task Title');
         const embedUrl = tmpl.getCellValueAsString('Embed URL');
-        if (embedUrl) taskFields['Embed URL'] = embedUrl;
+        // For "Schedule Your Onboarding Call", use the resolved Calendly URL
+        // (template Embed URL is intentionally empty for this one).
+        if (taskTitle === 'Schedule Your Onboarding Call' && onboardingCalendlyUrl) {
+            taskFields['Embed URL'] = onboardingCalendlyUrl;
+        } else if (embedUrl) {
+            taskFields['Embed URL'] = embedUrl;
+        }
 
         // Assign team member by role
         const assignedRole = tmpl.getCellValueAsString('Assigned Role');
