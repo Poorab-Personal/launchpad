@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import { put } from '@vercel/blob';
 import { requireSession } from '@/lib/auth/dal';
 import { getRecord, updateRecord } from '@/lib/airtable-client';
-import { createEvent } from '@/lib/airtable';
+import { createEvent, getCustomerById } from '@/lib/airtable';
+import { sendEmail } from '@/lib/email/send';
 
 const MAX_FILE_SIZE = 3_500_000; // 3.5MB
 
@@ -95,6 +96,31 @@ export async function POST(request: NextRequest) {
     );
   } catch (err) {
     console.warn('Event log failed (non-fatal):', err);
+  }
+
+  // Revision rounds: send the design-ready email directly.
+  // Round 0 (initial "Upload Proof to Customer") is handled by the Airtable
+  // automation that fires when "Review & Approve Your Brand Kit" activates.
+  // For rounds 1+, that customer task is already Active so no activation
+  // event fires — we trigger the email here instead. Non-fatal on failure.
+  const taskName = (task.fields['Task Name'] as string) ?? '';
+  const isRevisionUpload = /^Upload Revised Proof \(Round/i.test(taskName);
+  if (isRevisionUpload) {
+    try {
+      const customer = await getCustomerById(customerId);
+      if (customer && customer.contactEmail) {
+        const portalBase = customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
+        const portalUrl = `${portalBase}/r/${customer.id}`;
+        const fname = customer.name.trim().split(/\s+/)[0] || 'there';
+        await sendEmail({
+          template: 'design-ready',
+          to: customer.contactEmail,
+          data: { firstName: fname, portalUrl },
+        });
+      }
+    } catch (err) {
+      console.warn('Revision email send failed (non-fatal):', err);
+    }
   }
 
   return Response.json({

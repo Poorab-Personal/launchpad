@@ -8,7 +8,7 @@ import {
 } from '@/lib/airtable';
 import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from '@/types';
 import MarkCompleteButton from './MarkCompleteButton';
-import UploadProofButton from './UploadProofButton';
+import ProofTaskAction from './ProofTaskAction';
 
 const BIO_COLLAPSE_THRESHOLD = 180;
 
@@ -18,6 +18,21 @@ function allowsProofUpload(name: string): boolean {
     name === 'Upload Proof to Customer' ||
     /^(Revise Design|Upload Revised Proof) \(Round/i.test(name)
   );
+}
+
+/**
+ * "Send to customer" tasks where a proof is required before completing.
+ * These activate the customer's review/email step downstream.
+ */
+function requiresProof(name: string): boolean {
+  return (
+    name === 'Upload Proof to Customer' ||
+    /^Upload Revised Proof \(Round/i.test(name)
+  );
+}
+
+function ctaLabelForTask(name: string): string {
+  return requiresProof(name) ? 'Send to Customer' : 'Mark Complete';
 }
 
 function StatusDot({ status }: { status: TaskStatus }) {
@@ -137,13 +152,7 @@ function TaskActionPanel({
   }
   const showFeedback = /Revis(e|ion)|Round/i.test(task.taskName) && customer.designFeedback;
   const isProofTask = allowsProofUpload(task.taskName);
-  const isUploadToCustomer =
-    task.taskName === 'Upload Proof to Customer' ||
-    /^Upload Revised Proof \(Round/i.test(task.taskName);
   const latestProof = customer.designProof[customer.designProof.length - 1];
-  // For "Upload Proof to Customer" with an existing proof, the designer
-  // probably just wants to send the existing one — make Mark Complete primary.
-  const markCompleteIsPrimary = isUploadToCustomer && !!latestProof;
 
   return (
     <div className="space-y-3">
@@ -166,7 +175,7 @@ function TaskActionPanel({
         </div>
       )}
       {isProofTask && latestProof && (
-        <div className="rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] p-3 space-y-2">
+        <div className="rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] p-3 space-y-1">
           <p className="text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold">
             Current proof
           </p>
@@ -178,42 +187,16 @@ function TaskActionPanel({
           >
             {latestProof.filename ?? 'View proof'}
           </a>
-          {isUploadToCustomer && (
-            <p className="text-xs text-[#1B2E35]/60">
-              Send this to the customer? Click <strong>Mark Complete</strong>.
-              Need to replace it? Upload a new file below.
-            </p>
-          )}
         </div>
       )}
       {isProofTask ? (
-        <div className="space-y-2">
-          {markCompleteIsPrimary ? (
-            <>
-              <MarkCompleteButton
-                taskId={task.id}
-                customerId={customerId}
-                label="Send to Customer (Mark Complete)"
-              />
-              <div className="text-center">
-                <span className="text-xs text-[#1B2E35]/40">or replace proof</span>
-              </div>
-              <UploadProofButton customerId={customerId} taskId={task.id} />
-            </>
-          ) : (
-            <>
-              <UploadProofButton customerId={customerId} taskId={task.id} />
-              <div className="text-center">
-                <span className="text-xs text-[#1B2E35]/40">or</span>
-              </div>
-              <MarkCompleteButton
-                taskId={task.id}
-                customerId={customerId}
-                label="Mark Complete (no upload)"
-              />
-            </>
-          )}
-        </div>
+        <ProofTaskAction
+          customerId={customerId}
+          taskId={task.id}
+          hasExistingProof={!!latestProof}
+          proofRequired={requiresProof(task.taskName)}
+          ctaLabel={ctaLabelForTask(task.taskName)}
+        />
       ) : (
         <MarkCompleteButton taskId={task.id} customerId={customerId} />
       )}
