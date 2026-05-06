@@ -54,10 +54,31 @@ export async function POST(
     );
 
     if (reviewTask) {
+      const nowIsoOuter = new Date().toISOString();
       await updateRecord('Tasks', reviewTask.id, {
         Status: 'Completed',
-        'Completed At': new Date().toISOString(),
+        'Completed At': nowIsoOuter,
       });
+
+      // Auto-complete any pending revision tasks (Revise Design, Review Revision,
+      // Upload Revised Proof — across all rounds). Once the customer approves,
+      // these are stale and would otherwise sit in designers' queues forever.
+      const REVISION_TASK_RE = /^(Revise Design|Review Revision|Upload Revised Proof) \(Round /;
+      const pendingRevisions = allTaskRecords.filter(
+        (t) =>
+          linkedId(t.fields['Customer']) === customerId &&
+          REVISION_TASK_RE.test((t.fields['Task Name'] as string) ?? '') &&
+          selectVal(t.fields['Status']) !== 'Completed',
+      );
+      for (const t of pendingRevisions) {
+        const existingNotes = (t.fields['Notes'] as string) ?? '';
+        const note = '[Auto-completed: customer approved final design]';
+        await updateRecord('Tasks', t.id, {
+          Status: 'Completed',
+          'Completed At': nowIsoOuter,
+          Notes: existingNotes ? `${existingNotes}\n${note}` : note,
+        });
+      }
 
       // Activate dependent tasks — scoped to Core product only
       // (design approval is a Core-only flow)
@@ -69,23 +90,24 @@ export async function POST(
         return prod === 'Core' || !prod;
       });
       const completedNames = new Set<string>();
+      const cancelledIds = new Set(pendingRevisions.map((t) => t.id));
       for (const t of coreTasks) {
         if (
           t.id === reviewTask.id ||
+          cancelledIds.has(t.id) ||
           selectVal(t.fields['Status']) === 'Completed'
         ) {
           completedNames.add(t.fields['Task Name'] as string);
         }
       }
 
-      const nowIso = new Date().toISOString();
       for (const t of coreTasks) {
         if (selectVal(t.fields['Status']) !== 'Draft') continue;
         const dependsOnRaw = (t.fields['Depends On'] as string) ?? '';
         if (!dependsOnRaw) continue;
         const deps = dependsOnRaw.split(',').map((d) => d.trim());
         if (deps.every((dep) => completedNames.has(dep))) {
-          await updateRecord('Tasks', t.id, { Status: 'Active', 'Activated At': nowIso });
+          await updateRecord('Tasks', t.id, { Status: 'Active', 'Activated At': nowIsoOuter });
         }
       }
 
