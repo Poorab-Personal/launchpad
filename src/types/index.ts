@@ -16,7 +16,7 @@ export type PaymentStatus = 'Paid' | 'Waived';
 
 export type OnboardingStatus = 'Not Started' | 'In Progress' | 'Completed';
 
-export type TeamRole = 'Designer' | 'Senior Designer' | 'CSM' | 'Onboarding Ops' | 'Admin';
+export type TeamRole = 'Designer' | 'Senior Designer' | 'CSM' | 'Onboarding Ops' | 'Sales' | 'Admin';
 
 export type ActorType = 'Customer' | 'Team Member' | 'System';
 

@@ -14,6 +14,11 @@ export default async function WorkspaceLanding() {
     redirect('/workspace/queue');
   }
 
+  // Sales: view-only over the customer list — see stage, copy portal link.
+  if (ctx.role === 'Sales') {
+    redirect('/workspace/customers');
+  }
+
   // Other roles: placeholder until P1
   return (
     <div className="mx-auto max-w-2xl py-16 text-center">
