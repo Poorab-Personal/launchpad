@@ -2,7 +2,13 @@ import { NextRequest } from 'next/server';
 import { put } from '@vercel/blob';
 import { getRecord, updateRecord } from '@/lib/airtable-client';
 
-const ALLOWED_FIELDS = ['Agent Photo', 'Business Logo', 'Other Assets'];
+// Per-field append limits. null = no limit. Fields not in this map are rejected.
+const FIELD_LIMITS: Record<string, number | null> = {
+  'Agent Photo': 10,
+  'Business Logo': 10,
+  'Other Assets': null,
+};
+
 const MAX_FILE_SIZE = 3_500_000; // 3.5MB — Vercel body limit is 4.5MB, leave room for multipart overhead
 
 export async function POST(request: NextRequest) {
@@ -18,9 +24,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!ALLOWED_FIELDS.includes(fieldName)) {
+  if (!(fieldName in FIELD_LIMITS)) {
     return Response.json(
-      { error: `Invalid fieldName. Must be one of: ${ALLOWED_FIELDS.join(', ')}` },
+      { error: `Invalid fieldName. Must be one of: ${Object.keys(FIELD_LIMITS).join(', ')}` },
       { status: 400 },
     );
   }
@@ -32,31 +38,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Upload to Vercel Blob
-  const blob = await put(file.name, file, { access: 'public' });
+  // Read existing attachments and append (preserves existing files)
+  const record = await getRecord('Customers', customerId);
+  const existingRaw = record.fields[fieldName];
+  const existing = Array.isArray(existingRaw) ? existingRaw : [];
 
-  // Build the attachment value for Airtable
-  const newAttachment = { url: blob.url, filename: file.name };
-
-  let attachmentArray;
-
-  if (fieldName === 'Other Assets') {
-    // Multi-file field — read existing attachments and append
-    const record = await getRecord('Customers', customerId);
-    const existing = record.fields[fieldName];
-    if (Array.isArray(existing) && existing.length > 0) {
-      // Keep existing attachments (Airtable returns {id, url, filename, ...})
-      // When writing back, Airtable accepts [{url}] — existing ones with {id} are preserved
-      attachmentArray = [...existing, newAttachment];
-    } else {
-      attachmentArray = [newAttachment];
-    }
-  } else {
-    // Single-file field — replace
-    attachmentArray = [newAttachment];
+  const limit = FIELD_LIMITS[fieldName];
+  if (limit !== null && existing.length >= limit) {
+    return Response.json(
+      { error: `Maximum of ${limit} files reached for ${fieldName}. Remove some before adding more.` },
+      { status: 409 },
+    );
   }
 
-  // Write to Airtable attachment field
+  // Upload to Vercel Blob with random suffix to avoid collisions on
+  // duplicate filenames (now relevant since these fields append).
+  const blob = await put(file.name, file, { access: 'public', addRandomSuffix: true });
+  const newAttachment = { url: blob.url, filename: file.name };
+
+  // Airtable preserves existing attachments when writing back as long as the
+  // {id} fields are kept. The records returned from getRecord include {id},
+  // so spreading them is safe.
+  const attachmentArray = [...existing, newAttachment];
+
   await updateRecord('Customers', customerId, {
     [fieldName]: attachmentArray,
   });
@@ -65,5 +69,6 @@ export async function POST(request: NextRequest) {
     url: blob.url,
     filename: file.name,
     field: fieldName,
+    count: attachmentArray.length,
   });
 }

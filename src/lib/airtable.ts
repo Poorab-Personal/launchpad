@@ -307,7 +307,10 @@ export async function updateCustomerFields(
 
 export async function getTasksForCustomer(customerId: string): Promise<Task[]> {
   const records = await getRecords('Tasks', {
-    sort: [{ field: 'Task Order', direction: 'asc' }],
+    sort: [
+      { field: 'Stage Order', direction: 'asc' },
+      { field: 'Task Order', direction: 'asc' },
+    ],
   });
   return records
     .filter((r) => {
@@ -514,6 +517,69 @@ export async function getTeamMembersByRole(role: string): Promise<TeamMember[]> 
     filterByFormula: `AND({Role} = '${role}', {Active} = TRUE())`,
   });
   return records.map(mapAirtableToTeamMember);
+}
+
+/**
+ * Look up an active Team Member by email. Used as the auth gate.
+ * Returns null if no match or inactive.
+ */
+export async function getTeamMemberByEmail(email: string): Promise<TeamMember | null> {
+  const safe = email.replace(/'/g, "\\'");
+  const records = await getRecords('Team Members', {
+    filterByFormula: `AND(LOWER({Email}) = LOWER('${safe}'), {Active} = TRUE())`,
+    maxRecords: 1,
+  });
+  if (records.length === 0) return null;
+  return mapAirtableToTeamMember(records[0]);
+}
+
+export async function getTeamMemberById(id: string): Promise<TeamMember | null> {
+  try {
+    const record = await getRecord('Team Members', id);
+    return mapAirtableToTeamMember(record);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tasks where Assigned To includes the given member ID, filtered by status(es).
+ * Used by the workspace queue. Pulls all tasks then filters in-memory because
+ * Airtable can't filter linked-record arrays via filterByFormula reliably.
+ */
+export async function getTasksAssignedTo(
+  memberId: string,
+  statuses: TaskStatus[] = ['Active'],
+): Promise<Task[]> {
+  const records = await getRecords('Tasks', {
+    sort: [
+      { field: 'Stage Order', direction: 'asc' },
+      { field: 'Task Order', direction: 'asc' },
+    ],
+  });
+  const statusSet = new Set<string>(statuses);
+  return records
+    .map(mapAirtableToTask)
+    .filter((t) => statusSet.has(t.status) && t.assignedTo.includes(memberId));
+}
+
+/**
+ * All Core tasks matching given statuses (admin overview).
+ * Used when an Admin views the queue — shows everyone's work.
+ */
+export async function getAllCoreTasks(
+  statuses: TaskStatus[] = ['Active'],
+): Promise<Task[]> {
+  const records = await getRecords('Tasks', {
+    sort: [
+      { field: 'Stage Order', direction: 'asc' },
+      { field: 'Task Order', direction: 'asc' },
+    ],
+  });
+  const statusSet = new Set<string>(statuses);
+  return records
+    .map(mapAirtableToTask)
+    .filter((t) => statusSet.has(t.status) && t.product === 'Core');
 }
 
 // --- Brokerages ---

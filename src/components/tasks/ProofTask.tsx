@@ -21,7 +21,10 @@ export default function ProofTask({
   const [feedbackText, setFeedbackText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const proofUrl = customer?.designProof?.[0]?.url;
+  // Show the LATEST proof (last in array). Append-only history of revisions
+  // means the most recent upload is what the customer should review.
+  const proofs = customer?.designProof ?? [];
+  const proofUrl = proofs[proofs.length - 1]?.url;
 
   async function handleApprove() {
     setLoading('approve');

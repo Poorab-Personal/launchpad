@@ -3,6 +3,7 @@ import * as React from 'react';
 import WelcomeEmail from './templates/welcome';
 import DesignReadyEmail from './templates/design-ready';
 import CredentialsSentEmail from './templates/credentials-sent';
+import MagicLinkEmail from './templates/magic-link';
 
 const FROM = 'Rejig.ai Success Team <success@rejig.ai>';
 const REPLY_TO = 'success@rejig.ai';
@@ -67,6 +68,40 @@ export async function sendEmail<T extends EmailTemplate>({
     replyTo: REPLY_TO,
     subject: subjects[template],
     react: renderTemplate(template, data),
+  });
+
+  if (result.error) {
+    throw new Error(`Resend error: ${result.error.message}`);
+  }
+  return result.data;
+}
+
+/**
+ * Send a magic-link sign-in email to an internal team member.
+ * Separate from sendEmail() because the data shape is different
+ * (signInUrl vs portalUrl) and the recipient is internal, not a customer.
+ */
+export async function sendMagicLinkEmail({
+  to,
+  firstName,
+  signInUrl,
+}: {
+  to: string;
+  firstName: string;
+  signInUrl: string;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set');
+  }
+  const resend = new Resend(apiKey);
+
+  const result = await resend.emails.send({
+    from: FROM,
+    to,
+    replyTo: REPLY_TO,
+    subject: 'Your LaunchPad sign-in link',
+    react: React.createElement(MagicLinkEmail, { firstName, signInUrl }),
   });
 
   if (result.error) {
