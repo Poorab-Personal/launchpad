@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { Task, Customer } from '@/types';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -31,8 +31,8 @@ interface FormData {
 }
 
 interface FileState {
-  agentPhoto: File | null;
-  businessLogo: File | null;
+  agentPhoto: File[];
+  businessLogo: File[];
   otherAssets: File[];
 }
 
@@ -103,10 +103,11 @@ function prefillFromCustomer(customer: Customer): FormData {
   };
 }
 
-// Parse a multi-line areas textarea into trimmed, non-empty entries
+// Parse an areas textarea into trimmed, non-empty entries.
+// Accepts either newlines or commas as delimiters (or both).
 function parseAreas(raw: string): string[] {
   return raw
-    .split('\n')
+    .split(/[\n,]/)
     .map((line) => line.trim())
     .filter(Boolean);
 }
@@ -159,6 +160,54 @@ function HelperText({ children }: { children: React.ReactNode }) {
   return <p className="mt-1 text-xs text-[#1B2E35]/50">{children}</p>;
 }
 
+function FilePreview({ file, onRemove }: { file: File; onRemove?: () => void }) {
+  const isImage = file.type.startsWith('image/');
+  const url = useMemo(
+    () => (isImage ? URL.createObjectURL(file) : null),
+    [file, isImage],
+  );
+
+  useEffect(() => {
+    if (!url) return;
+    return () => URL.revokeObjectURL(url);
+  }, [url]);
+
+  return (
+    <div className="relative rounded-lg border border-[#E0DEE4] overflow-hidden bg-white">
+      <div className="aspect-square bg-[#F7F4EB] flex items-center justify-center">
+        {isImage && url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={url}
+            alt={file.name}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div className="text-xs font-medium text-[#1B2E35]/50 px-1 text-center">
+            {file.name.split('.').pop()?.toUpperCase() ?? 'FILE'}
+          </div>
+        )}
+      </div>
+      <p className="text-[10px] text-[#1B2E35]/70 px-1.5 py-1 truncate" title={file.name}>
+        {file.name}
+      </p>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          aria-label={`Remove ${file.name}`}
+          className="absolute top-1 right-1 rounded-full bg-white/95 px-1.5 text-xs leading-5 text-[#1B2E35]/70 hover:text-[#EC531A] shadow-sm"
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+}
+
 function DropZone({
   label,
   required,
@@ -171,7 +220,7 @@ function DropZone({
   label: string;
   required?: boolean;
   multiple?: boolean;
-  files: File | File[] | null;
+  files: File[];
   onFiles: (files: FileList) => void;
   onRemove?: (index: number) => void;
   error?: boolean;
@@ -179,11 +228,7 @@ function DropZone({
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const fileList = files
-    ? Array.isArray(files)
-      ? files
-      : [files]
-    : [];
+  const fileList = files;
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -226,26 +271,15 @@ function DropZone({
         <p className="mt-1 text-xs text-[#EC531A]">Please upload a file to continue.</p>
       )}
       {fileList.length > 0 && (
-        <ul className="mt-2 space-y-1">
+        <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
           {fileList.map((f, i) => (
-            <li key={i} className="flex items-center gap-2 text-xs text-[#1B2E35]/70">
-              <svg className="h-3.5 w-3.5 text-[#05C68E] shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-              </svg>
-              <span className="flex-1 truncate">{f.name}</span>
-              {onRemove && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onRemove(i); }}
-                  className="text-[#1B2E35]/40 hover:text-[#EC531A] transition-colors"
-                  aria-label={`Remove ${f.name}`}
-                >
-                  ×
-                </button>
-              )}
-            </li>
+            <FilePreview
+              key={`${f.name}-${i}`}
+              file={f}
+              onRemove={onRemove ? () => onRemove(i) : undefined}
+            />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
@@ -360,8 +394,8 @@ export default function FormTask({
     customer ? prefillFromCustomer(customer) : emptyForm,
   );
   const [files, setFiles] = useState<FileState>({
-    agentPhoto: null,
-    businessLogo: null,
+    agentPhoto: [],
+    businessLogo: [],
     otherAssets: [],
   });
   const [touched, setTouched] = useState<Set<string>>(new Set());
@@ -497,8 +531,7 @@ export default function FormTask({
   }
 
   function isFileMissing(file: keyof FileState): boolean {
-    if (file === 'otherAssets') return files.otherAssets.length === 0;
-    return !files[file];
+    return files[file].length === 0;
   }
 
   // ── Navigation ──
@@ -536,13 +569,18 @@ export default function FormTask({
 
     // Pre-fill Local Content Areas from Service Areas when entering Step 3
     // for the first time (user hasn't touched it, and it's empty).
+    // Normalize through parseAreas so comma- AND newline-separated input
+    // both pre-fill correctly as one-per-line.
     if (
       nextStep === 2 &&
       !touched.has('localContentAreas') &&
       !form.localContentAreas.trim() &&
       form.serviceAreas.trim()
     ) {
-      setForm((prev) => ({ ...prev, localContentAreas: prev.serviceAreas }));
+      const parsed = parseAreas(form.serviceAreas).slice(0, MAX_AREAS);
+      if (parsed.length > 0) {
+        setForm((prev) => ({ ...prev, localContentAreas: parsed.join('\n') }));
+      }
     }
 
     setStep(nextStep);
@@ -596,8 +634,12 @@ export default function FormTask({
         }
       };
 
-      if (files.agentPhoto) await uploadFile(files.agentPhoto, 'Agent Photo');
-      if (files.businessLogo) await uploadFile(files.businessLogo, 'Business Logo');
+      for (const photo of files.agentPhoto) {
+        await uploadFile(photo, 'Agent Photo');
+      }
+      for (const logo of files.businessLogo) {
+        await uploadFile(logo, 'Business Logo');
+      }
       for (const asset of files.otherAssets) {
         await uploadFile(asset, 'Other Assets');
       }
@@ -741,24 +783,42 @@ export default function FormTask({
             <DropZone
               label="Agent Photo"
               required
+              multiple
               files={files.agentPhoto}
               onFiles={(fl) => {
-                setFiles((prev) => ({ ...prev, agentPhoto: fl[0] }));
+                setFiles((prev) => ({
+                  ...prev,
+                  agentPhoto: [...prev.agentPhoto, ...Array.from(fl)],
+                }));
                 setTouched((prev) => new Set(prev).add('file:agentPhoto'));
               }}
-              onRemove={() => setFiles((prev) => ({ ...prev, agentPhoto: null }))}
-              error={touched.has('file:agentPhoto') && !files.agentPhoto}
+              onRemove={(i) =>
+                setFiles((prev) => ({
+                  ...prev,
+                  agentPhoto: prev.agentPhoto.filter((_, idx) => idx !== i),
+                }))
+              }
+              error={touched.has('file:agentPhoto') && files.agentPhoto.length === 0}
             />
             <DropZone
               label="Business Logo"
               required
+              multiple
               files={files.businessLogo}
               onFiles={(fl) => {
-                setFiles((prev) => ({ ...prev, businessLogo: fl[0] }));
+                setFiles((prev) => ({
+                  ...prev,
+                  businessLogo: [...prev.businessLogo, ...Array.from(fl)],
+                }));
                 setTouched((prev) => new Set(prev).add('file:businessLogo'));
               }}
-              onRemove={() => setFiles((prev) => ({ ...prev, businessLogo: null }))}
-              error={touched.has('file:businessLogo') && !files.businessLogo}
+              onRemove={(i) =>
+                setFiles((prev) => ({
+                  ...prev,
+                  businessLogo: prev.businessLogo.filter((_, idx) => idx !== i),
+                }))
+              }
+              error={touched.has('file:businessLogo') && files.businessLogo.length === 0}
             />
             <DropZone
               label="Other Brand Assets"
@@ -910,22 +970,22 @@ export default function FormTask({
                   Edit
                 </button>
               </div>
-              {files.agentPhoto || files.businessLogo || files.otherAssets.length > 0 ? (
+              {files.agentPhoto.length > 0 || files.businessLogo.length > 0 || files.otherAssets.length > 0 ? (
                 <ul className="space-y-1 text-sm text-[#1B2E35]">
-                  {files.agentPhoto && (
-                    <li className="flex items-center gap-2">
+                  {files.agentPhoto.map((f, i) => (
+                    <li key={`p-${i}`} className="flex items-center gap-2">
                       <CheckIcon className="h-3.5 w-3.5 text-[#05C68E] shrink-0" />
-                      Agent Photo: {files.agentPhoto.name}
+                      Agent Photo: {f.name}
                     </li>
-                  )}
-                  {files.businessLogo && (
-                    <li className="flex items-center gap-2">
+                  ))}
+                  {files.businessLogo.map((f, i) => (
+                    <li key={`l-${i}`} className="flex items-center gap-2">
                       <CheckIcon className="h-3.5 w-3.5 text-[#05C68E] shrink-0" />
-                      Business Logo: {files.businessLogo.name}
+                      Business Logo: {f.name}
                     </li>
-                  )}
+                  ))}
                   {files.otherAssets.map((f, i) => (
-                    <li key={i} className="flex items-center gap-2">
+                    <li key={`o-${i}`} className="flex items-center gap-2">
                       <CheckIcon className="h-3.5 w-3.5 text-[#05C68E] shrink-0" />
                       {f.name}
                     </li>
