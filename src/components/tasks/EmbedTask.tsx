@@ -1,7 +1,30 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Task } from '@/types';
+
+/**
+ * Calendly only fires postMessage events ("calendly.event_scheduled",
+ * "calendly.profile_page_viewed", etc.) when the embedded URL includes
+ * `embed_domain` and `embed_type=Inline` query params. Without these,
+ * the iframe loads but our parent page never learns when the booking is
+ * confirmed. We append the params client-side from window.location.host.
+ */
+function withCalendlyEmbedParams(url: string): string {
+  if (typeof window === 'undefined') return url;
+  try {
+    const u = new URL(url);
+    if (!u.searchParams.has('embed_domain')) {
+      u.searchParams.set('embed_domain', window.location.host);
+    }
+    if (!u.searchParams.has('embed_type')) {
+      u.searchParams.set('embed_type', 'Inline');
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
 
 export default function EmbedTask({
   task,
@@ -21,6 +44,13 @@ export default function EmbedTask({
     task.taskName.toLowerCase().includes('watch');
 
   const isCalendly = task.embedUrl?.includes('calendly.com') ?? false;
+
+  // For Calendly, augment the URL with embed params on the client.
+  // For other embeds (videos), pass through unchanged.
+  const embedUrl = useMemo(() => {
+    if (!task.embedUrl) return '';
+    return isCalendly ? withCalendlyEmbedParams(task.embedUrl) : task.embedUrl;
+  }, [task.embedUrl, isCalendly]);
 
   const handleCalendlyBooked = useCallback(async () => {
     setBooked(true);
@@ -44,11 +74,18 @@ export default function EmbedTask({
     }
   }, [task.id, onComplete]);
 
-  // Listen for Calendly's postMessage event when booking completes
+  // Listen for Calendly's postMessage events:
+  //  - "calendly.profile_page_viewed" → widget is fully loaded; dismiss spinner
+  //  - "calendly.event_scheduled"     → booking confirmed; mark task complete
   useEffect(() => {
     if (!isCalendly) return;
     function handleMessage(event: MessageEvent) {
-      if (event.data?.event === 'calendly.event_scheduled') {
+      const ev = event.data?.event;
+      if (typeof ev !== 'string' || !ev.startsWith('calendly.')) return;
+      if (ev === 'calendly.profile_page_viewed' || ev === 'calendly.event_type_viewed') {
+        setIframeLoading(false);
+      }
+      if (ev === 'calendly.event_scheduled') {
         handleCalendlyBooked();
       }
     }
@@ -81,13 +118,22 @@ export default function EmbedTask({
   if (booked) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-3 rounded-lg bg-[#05C68E]/10 border border-[#05C68E]/20 px-5 py-4">
-          <svg className="h-5 w-5 text-[#05C68E] shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-          </svg>
-          <span className="text-sm font-medium text-[#1B2E35]">
-            Booking confirmed! We&apos;ll send you a confirmation email with the details.
-          </span>
+        <div className="rounded-lg bg-[#05C68E]/10 border border-[#05C68E]/20 px-5 py-4 space-y-2">
+          <div className="flex items-center gap-3">
+            <svg className="h-5 w-5 text-[#05C68E] shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+            </svg>
+            <span className="text-sm font-semibold text-[#1B2E35]">
+              Booking confirmed!
+            </span>
+          </div>
+          <p className="text-sm text-[#1B2E35]/70 ml-8">
+            A calendar invite is on its way to your inbox. Updating your portal…
+          </p>
+          <div className="ml-8 flex items-center gap-2 text-xs text-[#1B2E35]/50">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-[#6C4AB6]/30 border-t-[#6C4AB6]" />
+            One moment
+          </div>
         </div>
       </div>
     );
@@ -99,10 +145,18 @@ export default function EmbedTask({
         <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
       )}
       {task.embedUrl ? (
-        <div className="relative overflow-hidden rounded-lg border border-[#E0DEE4]">
+        <div className={`relative overflow-hidden rounded-lg border border-[#E0DEE4] ${isCalendly ? 'h-[800px]' : 'h-[700px]'}`}>
           {iframeLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-[#F7F4EB]">
-              <span className="h-6 w-6 animate-spin rounded-full border-2 border-[#6C4AB6]/30 border-t-[#6C4AB6]" />
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#F7F4EB] gap-3">
+              <span className="h-8 w-8 animate-spin rounded-full border-2 border-[#6C4AB6]/30 border-t-[#6C4AB6]" />
+              <p className="text-sm text-[#1B2E35]/60">
+                {isCalendly ? 'Loading your booking calendar…' : 'Loading…'}
+              </p>
+              {isCalendly && (
+                <p className="text-xs text-[#1B2E35]/40">
+                  This can take a few seconds
+                </p>
+              )}
             </div>
           )}
           {iframeError ? (
@@ -111,11 +165,16 @@ export default function EmbedTask({
             </div>
           ) : (
             <iframe
-              src={task.embedUrl}
-              className={`w-full border-0 ${isCalendly ? 'h-[800px]' : 'h-[700px]'}`}
+              src={embedUrl}
+              className="w-full h-full border-0"
               allow="camera; microphone; fullscreen"
               loading="lazy"
-              onLoad={() => setIframeLoading(false)}
+              onLoad={() => {
+                // For non-Calendly embeds (videos), iframe.onLoad means ready.
+                // For Calendly, we wait for postMessage events to confirm
+                // the widget is interactive (handled in the effect above).
+                if (!isCalendly) setIframeLoading(false);
+              }}
               onError={() => { setIframeLoading(false); setIframeError(true); }}
             />
           )}
