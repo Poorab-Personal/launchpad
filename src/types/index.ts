@@ -100,6 +100,8 @@ export interface Customer {
 
   // System
   accessToken: string;
+  environment: string[];
+  portalBaseUrl: string;
   tasks: string[];
   events: string[];
   createdAt: string;

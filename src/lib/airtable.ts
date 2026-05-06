@@ -127,6 +127,10 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
 
     // System
     accessToken: record.id,
+    environment: linkedIds(f['Environment']),
+    portalBaseUrl: Array.isArray(f['Portal Base URL'])
+      ? ((f['Portal Base URL'] as unknown[])[0] as string) ?? ''
+      : ((f['Portal Base URL'] as string) ?? ''),
     tasks: linkedIds(f['Tasks']),
     events: linkedIds(f['Events']),
     createdAt: (f['Created At'] as string) ?? record.createdTime,

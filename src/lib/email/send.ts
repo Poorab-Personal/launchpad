@@ -1,0 +1,78 @@
+import { Resend } from 'resend';
+import * as React from 'react';
+import WelcomeEmail from './templates/welcome';
+import DesignReadyEmail from './templates/design-ready';
+import CredentialsSentEmail from './templates/credentials-sent';
+
+// Send via the Resend-verified subdomain; replies route to the existing
+// success@rejig.ai Google Group on the root domain.
+const FROM = 'Rejig.ai Success Team <success@send.rejig.ai>';
+const REPLY_TO = 'success@rejig.ai';
+
+export type EmailTemplate = 'welcome' | 'design-ready' | 'credentials-sent';
+
+interface BaseData {
+  firstName: string;
+  portalUrl: string;
+}
+
+interface CredentialsData extends BaseData {
+  platformEmail: string;
+}
+
+type TemplateDataMap = {
+  welcome: BaseData;
+  'design-ready': BaseData;
+  'credentials-sent': CredentialsData;
+};
+
+const subjects: Record<EmailTemplate, string> = {
+  welcome: 'Welcome to Rejig — your portal is ready',
+  'design-ready': 'Your design proof is ready to review',
+  'credentials-sent': 'Your Rejig account is ready',
+};
+
+function renderTemplate<T extends EmailTemplate>(
+  template: T,
+  data: TemplateDataMap[T],
+): React.ReactElement {
+  switch (template) {
+    case 'welcome':
+      return React.createElement(WelcomeEmail, data as BaseData);
+    case 'design-ready':
+      return React.createElement(DesignReadyEmail, data as BaseData);
+    case 'credentials-sent':
+      return React.createElement(CredentialsSentEmail, data as CredentialsData);
+  }
+  // exhaustiveness guard
+  throw new Error(`Unknown email template: ${template}`);
+}
+
+export async function sendEmail<T extends EmailTemplate>({
+  template,
+  to,
+  data,
+}: {
+  template: T;
+  to: string;
+  data: TemplateDataMap[T];
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set');
+  }
+  const resend = new Resend(apiKey);
+
+  const result = await resend.emails.send({
+    from: FROM,
+    to,
+    replyTo: REPLY_TO,
+    subject: subjects[template],
+    react: renderTemplate(template, data),
+  });
+
+  if (result.error) {
+    throw new Error(`Resend error: ${result.error.message}`);
+  }
+  return result.data;
+}
