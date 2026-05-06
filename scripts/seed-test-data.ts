@@ -831,7 +831,8 @@ async function seed() {
       Name: def.name,
       Type: 'D2C',
       Channel: '__SEED__',
-      'Contact Email': def.email,
+      // Plus-alias every test customer to your inbox so emails route to you
+      'Contact Email': `poorab+${def.name.toLowerCase().split(' ')[0]}@rejig.ai`,
     };
     if (def.hasVoice) initFields['Has Voice'] = true;
     if (def.hasAvatar) initFields['Has Avatar'] = true;

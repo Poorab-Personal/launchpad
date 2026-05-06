@@ -4,9 +4,7 @@ import WelcomeEmail from './templates/welcome';
 import DesignReadyEmail from './templates/design-ready';
 import CredentialsSentEmail from './templates/credentials-sent';
 
-// Send via the Resend-verified subdomain; replies route to the existing
-// success@rejig.ai Google Group on the root domain.
-const FROM = 'Rejig.ai Success Team <success@send.rejig.ai>';
+const FROM = 'Rejig.ai Success Team <success@rejig.ai>';
 const REPLY_TO = 'success@rejig.ai';
 
 export type EmailTemplate = 'welcome' | 'design-ready' | 'credentials-sent';
