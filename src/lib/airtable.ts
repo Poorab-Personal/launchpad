@@ -200,7 +200,6 @@ function mapAirtableToWorkflowTemplate(record: AirtableRecord): WorkflowTemplate
     dueDaysAfterActivation: (f['Due Days After Activation'] as number) ?? 0,
     product: (selectValue(f['Product']) as Product) || 'Core',
     paymentMode: (selectValue(f['Payment Mode']) as WorkflowTemplate['paymentMode']) || null,
-    stripePriceId: (f['Stripe Price ID'] as string) ?? '',
     trialDays: (f['Trial Days'] as number) ?? 0,
   };
 }

@@ -181,7 +181,6 @@ export interface WorkflowTemplate {
   dueDaysAfterActivation: number;
   product: Product;
   paymentMode: PaymentMode | null;
-  stripePriceId: string;
   trialDays: number;
 }
 
