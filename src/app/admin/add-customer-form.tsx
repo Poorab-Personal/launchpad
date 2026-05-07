@@ -177,6 +177,15 @@ export default function AddCustomerForm({ workflows }: { workflows: Workflow[] }
               >
                 Portal link
               </a>
+              {' · '}
+              <a
+                href={`/r/${result.id}?test=fill`}
+                target="_blank"
+                className="underline text-[#6C4AB6]/80 hover:text-[#6C4AB6]"
+                title="Opens portal with auto-fill button enabled"
+              >
+                Portal (test)
+              </a>
             </span>
           )}
         </div>

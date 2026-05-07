@@ -105,6 +105,9 @@ export default async function AdminPage({
                     <a href={`/r/${customer.id}`} target="_blank" className="text-[#05C68E] hover:text-[#04946A] font-medium transition-colors">
                       Portal &rarr;
                     </a>
+                    <a href={`/r/${customer.id}?test=fill`} target="_blank" className="ml-3 text-[#6C4AB6]/70 hover:text-[#6C4AB6] text-xs transition-colors" title="Opens portal with auto-fill button enabled">
+                      (test)
+                    </a>
                   </td>
                 </tr>
               ))

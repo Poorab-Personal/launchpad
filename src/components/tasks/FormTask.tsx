@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { Task, Customer } from '@/types';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -82,6 +83,25 @@ function emptyForm(): FormData {
     platformEmail: '',
   };
 }
+
+/** Stub data for testing — used by the ?test=fill URL param. */
+const TEST_STUB: FormData = {
+  businessName: 'Test Realty Group',
+  phone: '(555) 123-4567',
+  businessAddress: '123 Test Street, Miami, FL 33101',
+  website: 'https://testrealty.example.com',
+  licenseNumber: 'TEST-12345',
+  mlsIds: 'Test MLS — TM00001',
+  gmbName: 'Test Realty Group',
+  bio: 'Miami-based agent specializing in residential real estate. 10+ years experience helping clients find homes across South Florida. Bilingual English/Spanish.',
+  specialInstructions: 'Brand should feel modern and approachable. Use coastal-inspired tones.',
+  otherEmails: '',
+  serviceAreas: 'Miami, Coral Gables, Coconut Grove, Brickell',
+  localContentAreas: 'Miami, Coral Gables, Coconut Grove',
+  topics: 'First-time buyers, Luxury condos, Investment properties',
+  hashtags: '#TestRealty #MiamiHomes #SouthFloridaAgent',
+  platformEmail: '',
+};
 
 function prefillFromCustomer(customer: Customer): FormData {
   return {
@@ -407,6 +427,16 @@ export default function FormTask({
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Dev-only: ?test=fill on the portal URL exposes an "Auto-fill" button
+  // that populates all form fields with stub data. Real customers won't
+  // know the param exists.
+  const searchParams = useSearchParams();
+  const testFillEnabled = searchParams?.get('test') === 'fill';
+  const handleAutoFill = useCallback(() => {
+    setForm(TEST_STUB);
+    setTouched(new Set(Object.keys(TEST_STUB)));
+  }, []);
 
   const update = useCallback((field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -1050,6 +1080,19 @@ export default function FormTask({
     <div className="space-y-4">
       {task.instructions && (
         <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+      )}
+
+      {testFillEnabled && (
+        <div className="flex items-center justify-between rounded-lg border border-dashed border-[#6C4AB6]/40 bg-[#6C4AB6]/5 px-4 py-2 text-xs">
+          <span className="text-[#6C4AB6]">Test mode — fill all fields with stub data?</span>
+          <button
+            type="button"
+            onClick={handleAutoFill}
+            className="rounded-full bg-[#6C4AB6] px-3 py-1 font-medium text-white hover:bg-[#5A3DA5]"
+          >
+            Auto-fill
+          </button>
+        </div>
       )}
 
       <StepIndicator current={step} total={STEPS.length} steps={STEPS} />
