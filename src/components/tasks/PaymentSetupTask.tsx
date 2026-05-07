@@ -8,7 +8,7 @@ import {
   useElements,
   useStripe,
 } from '@stripe/react-stripe-js';
-import type { Task, StripePlan } from '@/types';
+import type { Task, StripePlan, Customer } from '@/types';
 
 const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 
@@ -24,18 +24,26 @@ function getStripe(): Promise<StripeJs | null> {
 export default function PaymentSetupTask({
   task,
   customerId,
+  customer,
   workflowKey,
   onComplete,
 }: {
   task: Task;
   customerId: string;
+  customer?: Customer;
   workflowKey: string;
   onComplete: () => void;
 }) {
+  // If the customer already has a saved plan, start in the 'done' state so
+  // revisiting the tab shows a summary instead of the picker.
+  const alreadyPaid = !!(customer?.selectedStripePriceId && customer?.selectedPlanName);
+
   const [plans, setPlans] = useState<StripePlan[] | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<StripePlan | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [stage, setStage] = useState<'pickPlan' | 'enterCard' | 'done'>('pickPlan');
+  const [stage, setStage] = useState<'pickPlan' | 'enterCard' | 'done'>(
+    alreadyPaid ? 'done' : 'pickPlan',
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -181,9 +189,25 @@ export default function PaymentSetupTask({
   }
 
   if (stage === 'done') {
+    const savedPlanName = customer?.selectedPlanName ?? selectedPlan?.planName ?? '';
     return (
-      <div className="rounded-lg border border-[#05C68E]/30 bg-[#05C68E]/5 px-4 py-3 text-sm text-[#1B2E35]">
-        ✓ Payment method saved. You can continue with the next steps.
+      <div className="space-y-3">
+        <div className="rounded-lg border border-[#05C68E]/30 bg-[#05C68E]/5 px-4 py-3 text-sm text-[#1B2E35]">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-[#05C68E]">✓ Payment method saved</span>
+          </div>
+          {savedPlanName && (
+            <div className="mt-1 text-[#1B2E35]/70">
+              Plan: <span className="font-medium text-[#1B2E35]">{savedPlanName}</span>
+            </div>
+          )}
+          <div className="mt-1 text-xs text-[#1B2E35]/60">
+            You won&apos;t be charged until your onboarding call is complete.
+          </div>
+        </div>
+        <p className="text-xs text-[#1B2E35]/50">
+          Need to change your plan or card? Contact support.
+        </p>
       </div>
     );
   }

@@ -33,6 +33,7 @@ export default function TaskRenderer({
         <PaymentSetupTask
           task={task}
           customerId={customerId}
+          customer={customer}
           workflowKey={customer?.workflowKey ?? ''}
           onComplete={onComplete}
         />
