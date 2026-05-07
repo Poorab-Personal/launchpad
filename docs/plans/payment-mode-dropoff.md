@@ -330,6 +330,12 @@ The Stripe webhook secret is configured against a specific endpoint URL. Today w
 
 **Failure mode if missed:** webhooks silently fail signature verification → Capture Payment Method tasks never auto-complete after card capture → customer is stuck → CSM eventually flags via At Risk → manual cleanup required. Cron in Phase 2 doesn't help because there's no "Stripe webhook health check" yet. Worth adding to a deploy checklist.
 
+### Switch Keyes Calendly URL back to real one before prod
+
+During testing the Keyes brokerage's `Default Calendly URL` is set to the throwaway `https://calendly.com/rejig-ai/onboarding` to avoid burning real onboarding slots. The real URL is `https://calendly.com/d/cyqz-rp5-2s3/social-media-onboarding-rejig-ai-keyes`.
+
+**Before launch:** update Brokerages.Keyes.Default Calendly URL back to the real link. Also patch any test-customer Schedule Onboarding Call tasks (they snapshot the URL at task-creation time).
+
 ### Calls webhook URL switchover
 
 Same story for the Airtable automation that POSTs to `/api/webhooks/calls/completed` — the URL is hardcoded in the Airtable automation script and must be updated when the domain changes. **Same checklist applies.**

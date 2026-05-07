@@ -202,7 +202,7 @@ export default function PaymentSetupTask({
             </div>
           )}
           <div className="mt-1 text-xs text-[#1B2E35]/60">
-            You won&apos;t be charged until your onboarding call is complete.
+            Your free trial starts after your onboarding call. You won&apos;t be charged during the trial.
           </div>
         </div>
         <p className="text-xs text-[#1B2E35]/50">
