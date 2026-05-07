@@ -26,7 +26,6 @@ function classifyCall(callDateIso: string): {
     return { daysUntil: null, label: 'Invalid date', urgency: 'none' };
   }
   const now = new Date();
-  // Compare at the day level — strip time.
   const startOfDay = (d: Date) =>
     new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const dayDiff = Math.round(
@@ -37,8 +36,8 @@ function classifyCall(callDateIso: string): {
   if (dayDiff === 0) label = 'today';
   else if (dayDiff === 1) label = 'tomorrow';
   else if (dayDiff === -1) label = 'yesterday';
-  else if (dayDiff < 0) label = `${Math.abs(dayDiff)} days ago`;
-  else label = `in ${dayDiff} days`;
+  else if (dayDiff < 0) label = `${Math.abs(dayDiff)}d ago`;
+  else label = `in ${dayDiff}d`;
 
   let urgency: Urgency;
   if (dayDiff < 0) urgency = 'overdue';
@@ -49,32 +48,18 @@ function classifyCall(callDateIso: string): {
   return { daysUntil: dayDiff, label, urgency };
 }
 
-function formatCallDate(iso: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function urgencyChip(urgency: Urgency, label: string) {
-  const styles: Record<Urgency, string> = {
-    overdue: 'bg-[#EC531A]/10 text-[#EC531A] border-[#EC531A]/30',
-    urgent: 'bg-[#EC531A]/10 text-[#EC531A] border-[#EC531A]/30',
-    soon: 'bg-[#D97706]/10 text-[#D97706] border-[#D97706]/30',
-    normal: 'bg-[#F7F4EB] text-[#1B2E35]/70 border-[#E0DEE4]',
-    none: 'bg-[#F7F4EB] text-[#1B2E35]/40 border-[#E0DEE4]',
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${styles[urgency]}`}
-    >
-      {label}
-    </span>
-  );
+function urgencyClass(urgency: Urgency): string {
+  switch (urgency) {
+    case 'overdue':
+    case 'urgent':
+      return 'text-[#EC531A] font-semibold';
+    case 'soon':
+      return 'text-[#D97706] font-medium';
+    case 'normal':
+      return 'text-[#1B2E35]/60';
+    default:
+      return 'text-[#1B2E35]/40';
+  }
 }
 
 type Row = {
@@ -84,86 +69,77 @@ type Row = {
   call: ReturnType<typeof classifyCall>;
 };
 
-function TaskRow({ row, showAssignees }: { row: Row; showAssignees: boolean }) {
-  const { task, customer, call } = row;
+function TaskCard({ row, showAssignees }: { row: Row; showAssignees: boolean }) {
+  const { task, customer, call, assigneeNames } = row;
   const customerId = task.customer[0] ?? '';
   return (
     <Link
       href={`/workspace/customers/${customerId}?taskId=${task.id}`}
-      className="grid grid-cols-12 items-center gap-3 px-4 py-3 hover:bg-[#F7F4EB] transition-colors"
+      className="block rounded-lg border border-[#E0DEE4] bg-white p-3 hover:border-[#6C4AB6] hover:shadow-sm transition-all"
     >
-      <div className="col-span-4 min-w-0">
-        <p className="text-sm font-medium text-[#6C4AB6] truncate">
-          {customer?.name ?? 'Unknown customer'}
+      <p className="text-sm font-medium text-[#1B2E35] line-clamp-1">
+        {customer?.name ?? 'Unknown'}
+      </p>
+      <p className="text-xs text-[#1B2E35]/60 line-clamp-1 mt-0.5">
+        {customer?.businessName || '—'}
+      </p>
+      {showAssignees && (
+        <p className="text-xs text-[#1B2E35]/50 line-clamp-1 mt-0.5">
+          → {assigneeNames || 'unassigned'}
         </p>
-        <p className="text-xs text-[#1B2E35]/50 truncate">
-          {customer?.businessName || '—'}
-        </p>
-      </div>
-      <div className="col-span-3 text-xs text-[#1B2E35]/70 truncate">
-        {task.taskName}
-      </div>
-      <div className="col-span-3 min-w-0">
-        {customer?.callDate ? (
-          <div className="flex flex-col">
-            <span className="text-xs text-[#1B2E35]">
-              {formatCallDate(customer.callDate)}
-            </span>
-            {urgencyChip(call.urgency, call.label)}
-          </div>
-        ) : (
-          <span className="text-xs text-[#1B2E35]/40 italic">No call scheduled</span>
+      )}
+      <div className="flex items-center justify-between mt-2 text-xs">
+        <span className="inline-flex items-center rounded-full bg-[#F7F4EB] px-2 py-0.5 text-[#1B2E35]/70">
+          📞 {customer?.callDate ? call.label : 'no call'}
+        </span>
+        {customer?.callDate && (
+          <span className={urgencyClass(call.urgency)}>
+            {call.urgency === 'urgent' || call.urgency === 'overdue'
+              ? 'urgent'
+              : call.urgency === 'soon'
+                ? 'soon'
+                : ''}
+          </span>
         )}
-      </div>
-      <div className="col-span-2 text-right text-xs text-[#1B2E35]/50 truncate">
-        {showAssignees ? row.assigneeNames || 'unassigned' : task.stage}
       </div>
     </Link>
   );
 }
 
-function Section({
+function Column({
   title,
   emoji,
   rows,
   showAssignees,
+  emptyMessage,
 }: {
   title: string;
   emoji: string;
   rows: Row[];
   showAssignees: boolean;
+  emptyMessage: string;
 }) {
   return (
-    <section className="rounded-xl bg-white border border-[#E0DEE4] overflow-hidden">
-      <header className="flex items-center justify-between px-4 py-3 bg-[#F7F4EB] border-b border-[#E0DEE4]">
+    <div className="flex flex-col">
+      <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-[#1B2E35]">
           <span className="mr-1.5">{emoji}</span>
           {title}
         </h2>
-        <span className="text-xs text-[#1B2E35]/50">
-          {rows.length} task{rows.length === 1 ? '' : 's'}
-        </span>
-      </header>
-      {rows.length === 0 ? (
-        <p className="text-sm text-[#1B2E35]/40 italic px-4 py-6 text-center">
-          Nothing here right now.
-        </p>
-      ) : (
-        <div className="divide-y divide-[#E0DEE4]">
-          <div className="grid grid-cols-12 gap-3 px-4 py-2 bg-[#F7F4EB]/40 text-[10px] font-semibold uppercase tracking-wide text-[#1B2E35]/50">
-            <div className="col-span-4">Customer</div>
-            <div className="col-span-3">Task</div>
-            <div className="col-span-3">Onboarding Call</div>
-            <div className="col-span-2 text-right">
-              {showAssignees ? 'Assignee' : 'Stage'}
-            </div>
-          </div>
-          {rows.map((r) => (
-            <TaskRow key={r.task.id} row={r} showAssignees={showAssignees} />
-          ))}
-        </div>
-      )}
-    </section>
+        <span className="text-xs text-[#1B2E35]/50">{rows.length}</span>
+      </div>
+      <div className="space-y-2 min-h-[60px]">
+        {rows.length === 0 ? (
+          <p className="text-xs text-[#1B2E35]/40 italic px-3 py-4 rounded-lg border border-dashed border-[#E0DEE4]">
+            {emptyMessage}
+          </p>
+        ) : (
+          rows.map((r) => (
+            <TaskCard key={r.task.id} row={r} showAssignees={showAssignees} />
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -171,8 +147,6 @@ export default async function AccountQueuePage() {
   const session = await requireSession();
   const [ctx, view] = await Promise.all([getEffectiveContext(session), readViewAs()]);
 
-  // Admin (no impersonation) sees ALL such tasks.
-  // Otherwise filter to the effective member.
   const isAdminBroadView = session.role === 'Admin' && view.kind !== 'member';
 
   const [tasks, customers, members] = await Promise.all([
@@ -198,7 +172,7 @@ export default async function AccountQueuePage() {
     return { task, customer, call, assigneeNames };
   });
 
-  // Sort by call date ASC; nulls last.
+  // Sort by call date ASC; nulls last; urgent always at top.
   rows.sort((a, b) => {
     const ad = a.customer?.callDate ?? '';
     const bd = b.customer?.callDate ?? '';
@@ -211,42 +185,55 @@ export default async function AccountQueuePage() {
   const createRows = rows.filter((r) => r.task.taskName === 'Create Customer Account');
   const sendRows = rows.filter((r) => r.task.taskName === 'Send Credentials');
 
+  // Visual urgency split: pull urgent ones into separate column for visibility
+  const urgent = rows.filter(
+    (r) => r.call.urgency === 'urgent' || r.call.urgency === 'overdue',
+  );
+
   const heading = isAdminBroadView
-    ? 'Account Creator Queue'
+    ? 'Account Queue'
     : view.kind === 'member'
       ? `${ctx.label}'s Queue`
       : 'My Queue';
 
-  const subline = isAdminBroadView
-    ? `${rows.length} active account task${rows.length === 1 ? '' : 's'} (all assignees)`
-    : `${rows.length} active account task${rows.length === 1 ? '' : 's'}`;
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4">
+    <div>
+      <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-[#1B2E35]">{heading}</h1>
-          <p className="text-sm text-[#1B2E35]/60 mt-1">{subline}</p>
+          <p className="text-sm text-[#1B2E35]/60 mt-1">
+            {rows.length} active task{rows.length === 1 ? '' : 's'}
+            {isAdminBroadView && ' (all assignees)'} · sorted by call date
+          </p>
         </div>
         <p className="text-xs text-[#1B2E35]/50 max-w-xs text-right">
-          Sorted by onboarding call date — soonest first. Accounts must exist
-          before the call.
+          Accounts must exist before the onboarding call.
         </p>
       </div>
 
-      <Section
-        title="Create Customer Account"
-        emoji="🆕"
-        rows={createRows}
-        showAssignees={isAdminBroadView}
-      />
-
-      <Section
-        title="Send Credentials"
-        emoji="🔑"
-        rows={sendRows}
-        showAssignees={isAdminBroadView}
-      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Column
+          title="Urgent"
+          emoji="🚨"
+          rows={urgent}
+          showAssignees={isAdminBroadView}
+          emptyMessage="Nothing urgent"
+        />
+        <Column
+          title="Create Account"
+          emoji="🆕"
+          rows={createRows}
+          showAssignees={isAdminBroadView}
+          emptyMessage="No accounts to create"
+        />
+        <Column
+          title="Send Credentials"
+          emoji="🔑"
+          rows={sendRows}
+          showAssignees={isAdminBroadView}
+          emptyMessage="No credentials to send"
+        />
+      </div>
     </div>
   );
 }

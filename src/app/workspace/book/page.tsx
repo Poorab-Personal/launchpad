@@ -1,279 +1,432 @@
 import Link from 'next/link';
+import { connection } from 'next/server';
 import { requireSession, getEffectiveContext } from '@/lib/auth/dal';
 import {
   getCustomers,
   getTeamMembers,
   getTeamMemberById,
   getUpcomingCallsForCSM,
+  getTasksAssignedTo,
 } from '@/lib/airtable';
-import type { Customer, TeamMember, Call } from '@/types';
-import { customerHealth, daysSinceStageEntered } from '@/lib/csm';
+import type { Customer, TeamMember, Call, Task } from '@/types';
+import { customerHealth } from '@/lib/csm';
 import BookFilter, { type CSMOption } from './BookFilter';
 import { readBookFilter } from './actions';
 import type { BookFilter as BookFilterType } from './filter';
 
-function stagePill(stage: string) {
-  if (!stage) return <span className="text-[#1B2E35]/40">—</span>;
-  if (stage === 'Done') {
-    return (
-      <span className="inline-flex items-center rounded-full bg-[#05C68E]/10 px-2 py-0.5 text-xs font-medium text-[#04946A]">
-        {stage}
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center rounded-full bg-[#6C4AB6]/10 px-2 py-0.5 text-xs font-medium text-[#6C4AB6]">
-      {stage}
-    </span>
-  );
+const CSM_TASK_NAMES = new Set([
+  'Mark Onboarding Call Complete',
+  'Send Zoom Recording',
+  'Send Follow-Up Email',
+]);
+
+const CALL_TYPE_ICON: Record<string, string> = {
+  Onboarding: '🚀',
+  'Check-In 1': '🤝',
+  'Check-In 2': '📈',
+  'Ad-hoc': '💬',
+};
+
+function startOfToday(): Date {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-function HealthBadge({ flag, reason }: { flag: 'green' | 'yellow' | 'red'; reason: string }) {
-  const map = {
-    green: { color: 'bg-[#05C68E]/10 text-[#04946A]', dot: '🟢', label: 'On track' },
-    yellow: { color: 'bg-[#D97706]/10 text-[#D97706]', dot: '🟡', label: 'Watch' },
-    red: { color: 'bg-[#EC531A]/10 text-[#EC531A]', dot: '🔴', label: 'At risk' },
-  } as const;
-  const s = map[flag];
-  return (
-    <span
-      title={reason}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${s.color}`}
-    >
-      <span aria-hidden>{s.dot}</span>
-      <span className="hidden sm:inline">{s.label}</span>
-    </span>
-  );
-}
-
-function TypePill({ type, channel }: { type: string; channel: string }) {
-  return (
-    <span className="inline-flex items-center rounded-full bg-[#F7F4EB] px-2 py-0.5 text-xs font-medium text-[#1B2E35]/70">
-      {type}
-      {channel && ` · ${channel}`}
-    </span>
-  );
-}
-
-function formatScheduled(iso: string): string {
-  if (!iso) return '';
+function isToday(iso: string): boolean {
+  if (!iso) return false;
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  return `${date}, ${time}`;
+  if (Number.isNaN(d.getTime())) return false;
+  const today = startOfToday();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  return d >= today && d < tomorrow;
 }
 
-/**
- * Pick which customers to show based on the cookie filter.
- */
-function applyFilter(
-  customers: Customer[],
-  filter: BookFilterType,
-  effectiveMemberId: string,
-): { rows: Customer[]; targetMemberId: string | null } {
-  if (filter.kind === 'all') {
-    return { rows: customers, targetMemberId: null };
-  }
-  if (filter.kind === 'unassigned') {
-    return {
-      rows: customers.filter(
-        (c) => c.csmAssigned.length === 0 && c.currentStage !== 'Done',
-      ),
-      targetMemberId: null,
-    };
-  }
-  const targetId = filter.kind === 'member' ? filter.memberId : effectiveMemberId;
-  return {
-    rows: customers.filter((c) => c.csmAssigned.includes(targetId)),
-    targetMemberId: targetId,
-  };
+function isThisWeek(iso: string): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  const today = startOfToday();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const inSevenDays = new Date(today);
+  inSevenDays.setDate(today.getDate() + 7);
+  return d >= tomorrow && d <= inSevenDays;
 }
 
-function filterToCookieValue(filter: BookFilterType): string {
-  if (filter.kind === 'my') return 'my';
-  if (filter.kind === 'unassigned') return 'unassigned';
-  if (filter.kind === 'all') return 'all';
-  return `member:${filter.memberId}`;
+function formatTime(iso: string): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
-export default async function BookPage() {
+function formatShortDate(iso: string): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString([], {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function CallCard({
+  call,
+  customer,
+  showDate,
+}: {
+  call: Call;
+  customer?: Customer;
+  showDate?: boolean;
+}) {
+  if (!customer) return null;
+  const icon = CALL_TYPE_ICON[call.type] ?? '📞';
+  return (
+    <Link
+      href={`/workspace/customers/${customer.id}`}
+      className="block rounded-lg border border-[#E0DEE4] bg-white p-3 hover:border-[#6C4AB6] hover:shadow-sm transition-all"
+    >
+      <p className="text-sm font-medium text-[#1B2E35] line-clamp-1">
+        {customer.name}
+      </p>
+      <p className="text-xs text-[#1B2E35]/60 line-clamp-1 mt-0.5">
+        <span className="mr-1">{icon}</span>
+        {call.type}
+      </p>
+      <p className="text-xs text-[#6C4AB6] mt-1.5">
+        {showDate ? formatShortDate(call.scheduledDate) + ' · ' : ''}
+        {formatTime(call.scheduledDate)}
+      </p>
+    </Link>
+  );
+}
+
+function TaskCard({
+  task,
+  customer,
+}: {
+  task: Task;
+  customer?: Customer;
+}) {
+  if (!customer) return null;
+  return (
+    <Link
+      href={`/workspace/customers/${customer.id}?taskId=${task.id}`}
+      className="block rounded-lg border border-[#E0DEE4] bg-white p-3 hover:border-[#6C4AB6] hover:shadow-sm transition-all"
+    >
+      <p className="text-sm font-medium text-[#1B2E35] line-clamp-1">
+        {customer.name}
+      </p>
+      <p className="text-xs text-[#1B2E35]/60 line-clamp-1 mt-0.5">
+        ✓ {task.taskName}
+      </p>
+      <p className="text-xs text-[#1B2E35]/50 mt-1.5">
+        {task.stage}
+      </p>
+    </Link>
+  );
+}
+
+function AtRiskCard({
+  customer,
+  reason,
+  flag,
+}: {
+  customer: Customer;
+  reason: string;
+  flag: 'yellow' | 'red';
+}) {
+  const dot = flag === 'red' ? '🔴' : '🟡';
+  return (
+    <Link
+      href={`/workspace/customers/${customer.id}`}
+      className="block rounded-lg border border-[#E0DEE4] bg-white p-3 hover:border-[#6C4AB6] hover:shadow-sm transition-all"
+    >
+      <p className="text-sm font-medium text-[#1B2E35] line-clamp-1">
+        {customer.name}
+      </p>
+      <p className="text-xs text-[#1B2E35]/60 line-clamp-2 mt-0.5">
+        <span className="mr-1">{dot}</span>
+        {reason}
+      </p>
+      <p className="text-xs text-[#1B2E35]/50 mt-1.5">
+        {customer.currentStage || '—'}
+      </p>
+    </Link>
+  );
+}
+
+function EmptyColumn({ label }: { label: string }) {
+  return (
+    <p className="text-xs text-[#1B2E35]/40 italic px-3 py-4 rounded-lg border border-dashed border-[#E0DEE4]">
+      {label}
+    </p>
+  );
+}
+
+export default async function CSMQueuePage() {
+  await connection();
   const session = await requireSession();
   const ctx = await getEffectiveContext(session);
+  const filter: BookFilterType = await readBookFilter();
 
-  const [filter, customers, members] = await Promise.all([
-    readBookFilter(),
+  // Resolve which member's book we're showing
+  let targetMemberId: string | null = ctx.memberId;
+  let scopeLabel = 'My Queue';
+
+  if (filter.kind === 'all') {
+    targetMemberId = null;
+    scopeLabel = 'All CSMs';
+  } else if (filter.kind === 'unassigned') {
+    targetMemberId = null;
+    scopeLabel = 'Unassigned';
+  } else if (filter.kind === 'member') {
+    targetMemberId = filter.memberId;
+    const m = await getTeamMemberById(filter.memberId);
+    scopeLabel = m ? `${m.name.split(' ')[0]}'s Queue` : "Member's Queue";
+  } else if (ctx.isViewAs && ctx.role === 'CSM') {
+    scopeLabel = `${ctx.label}'s Queue`;
+  }
+
+  const [allCustomers, allMembers, myTasks, myUpcomingCalls] = await Promise.all([
     getCustomers(),
     getTeamMembers(),
+    targetMemberId
+      ? getTasksAssignedTo(targetMemberId, ['Active'])
+      : Promise.resolve([] as Task[]),
+    targetMemberId
+      ? getUpcomingCallsForCSM(targetMemberId, 14)
+      : Promise.resolve([] as Call[]),
   ]);
 
-  const memberMap = new Map<string, TeamMember>(members.map((m) => [m.id, m]));
-  const activeCsms = members
-    .filter((m) => m.role === 'CSM' && m.active)
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  const csmOptions: CSMOption[] = activeCsms.map((m) => ({ id: m.id, name: m.name }));
-
-  const { rows, targetMemberId } = applyFilter(customers, filter, ctx.memberId);
-
-  // Fetch upcoming calls. Use the dedicated CSM helper when filtering by a
-  // single member's book; otherwise we need calls across all customers in
-  // the rows — fetch per-customer in parallel.
-  const callsByCustomer = new Map<string, Call[]>();
-  if (targetMemberId) {
-    const calls = await getUpcomingCallsForCSM(targetMemberId);
-    for (const call of calls) {
-      const cId = call.customer[0];
-      if (!cId) continue;
-      const arr = callsByCustomer.get(cId) ?? [];
-      arr.push(call);
-      callsByCustomer.set(cId, arr);
-    }
-  } else {
-    // Aggregate upcoming across all CSMs by union of per-csm queries we know
-    // about. For Unassigned/All modes this is best-effort: query upcoming for
-    // every active CSM in parallel and merge.
-    const callLists = await Promise.all(
-      activeCsms.map((m) => getUpcomingCallsForCSM(m.id).catch(() => [])),
+  // Customers in scope based on filter
+  let scopedCustomers: Customer[];
+  if (filter.kind === 'all') {
+    scopedCustomers = allCustomers;
+  } else if (filter.kind === 'unassigned') {
+    scopedCustomers = allCustomers.filter(
+      (c) => c.csmAssigned.length === 0 && c.currentStage !== 'Done',
     );
-    const seen = new Set<string>();
-    for (const list of callLists) {
-      for (const call of list) {
-        if (seen.has(call.id)) continue;
-        seen.add(call.id);
-        const cId = call.customer[0];
-        if (!cId) continue;
-        const arr = callsByCustomer.get(cId) ?? [];
-        arr.push(call);
-        callsByCustomer.set(cId, arr);
-      }
-    }
+  } else if (targetMemberId) {
+    scopedCustomers = allCustomers.filter((c) =>
+      c.csmAssigned.includes(targetMemberId!),
+    );
+  } else {
+    scopedCustomers = [];
   }
 
-  // Sort each customer's upcoming calls soonest-first
-  for (const [, arr] of callsByCustomer) {
-    arr.sort((a, b) => (a.scheduledDate || '').localeCompare(b.scheduledDate || ''));
-  }
+  const customerMap = new Map<string, Customer>(
+    allCustomers.map((c) => [c.id, c]),
+  );
 
-  // Sort rows: customers with upcoming calls (soonest first), then by stageEnteredAt desc
-  const sorted = [...rows].sort((a, b) => {
-    const aCalls = callsByCustomer.get(a.id) ?? [];
-    const bCalls = callsByCustomer.get(b.id) ?? [];
-    const aNext = aCalls[0]?.scheduledDate || '';
-    const bNext = bCalls[0]?.scheduledDate || '';
-    if (aNext && bNext) return aNext.localeCompare(bNext);
-    if (aNext && !bNext) return -1;
-    if (!aNext && bNext) return 1;
-    // No upcoming calls on either: sort by stage entered desc
-    return (b.stageEnteredAt || '').localeCompare(a.stageEnteredAt || '');
-  });
+  // CSM tasks for the queue
+  const csmTasks = myTasks.filter((t) => CSM_TASK_NAMES.has(t.taskName));
 
-  // Heading
-  let heading = 'My Book';
-  if (filter.kind === 'unassigned') heading = 'Unassigned Customers';
-  else if (filter.kind === 'all') heading = 'All Customers';
-  else if (filter.kind === 'member') {
-    const m = await getTeamMemberById(filter.memberId);
-    heading = m ? `${m.name.split(' ')[0]}'s Book` : 'CSM Book';
-  }
+  // Bucketize calls
+  const callsToday = myUpcomingCalls.filter(
+    (c) => c.customer[0] && isToday(c.scheduledDate),
+  );
+  const callsThisWeek = myUpcomingCalls.filter(
+    (c) => c.customer[0] && isThisWeek(c.scheduledDate),
+  );
+
+  // At-risk customers (yellow + red), only on scoped book
+  const atRisk = scopedCustomers
+    .map((c) => ({ customer: c, ...customerHealth(c) }))
+    .filter((x) => x.flag !== 'green') as Array<{
+      customer: Customer;
+      flag: 'yellow' | 'red';
+      reason: string;
+    }>;
+
+  const csmOptions: CSMOption[] = allMembers
+    .filter(
+      (m) =>
+        (m.role === 'CSM' || m.role === 'Senior CSM') &&
+        m.active &&
+        m.id !== ctx.memberId,
+    )
+    .map((m) => ({ id: m.id, name: m.name }));
+
+  // Cookie value for the BookFilter <select>
+  let filterValue = 'my';
+  if (filter.kind === 'all') filterValue = 'all';
+  else if (filter.kind === 'unassigned') filterValue = 'unassigned';
+  else if (filter.kind === 'member') filterValue = `member:${filter.memberId}`;
+
+  const totalActiveCount =
+    callsToday.length + callsThisWeek.length + csmTasks.length + atRisk.length;
 
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-[#1B2E35]">{heading}</h1>
+          <h1 className="text-2xl font-bold text-[#1B2E35]">CSM Queue</h1>
           <p className="text-sm text-[#1B2E35]/60 mt-1">
-            {sorted.length} customer{sorted.length === 1 ? '' : 's'}
+            {scopeLabel} · {totalActiveCount} item{totalActiveCount === 1 ? '' : 's'}
           </p>
         </div>
-        <BookFilter current={filterToCookieValue(filter)} csms={csmOptions} />
+        <BookFilter current={filterValue} csms={csmOptions} />
       </div>
 
-      <div className="rounded-xl bg-white border border-[#E0DEE4] overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-[#F7F4EB] border-b border-[#E0DEE4]">
-            <tr>
-              <th className="text-left text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
-                Customer
-              </th>
-              <th className="text-left text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
-                Type
-              </th>
-              <th className="text-left text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
-                Stage
-              </th>
-              <th className="text-left text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
-                Health
-              </th>
-              <th className="text-left text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
-                Days
-              </th>
-              <th className="text-left text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
-                Next Call
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#E0DEE4]">
-            {sorted.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-[#1B2E35]/50">
-                  No customers match this filter.
-                </td>
-              </tr>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Today */}
+        <div className="flex flex-col">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[#1B2E35]">
+              <span className="mr-1.5">☀️</span>Today
+            </h2>
+            <span className="text-xs text-[#1B2E35]/50">{callsToday.length}</span>
+          </div>
+          <div className="space-y-2 min-h-[60px]">
+            {callsToday.length === 0 ? (
+              <EmptyColumn label="No calls today" />
             ) : (
-              sorted.map((c) => {
-                const health = customerHealth(c);
-                const days = daysSinceStageEntered(c);
-                const nextCall = (callsByCustomer.get(c.id) ?? [])[0];
-                const csmNames = c.csmAssigned
-                  .map((id) => memberMap.get(id)?.name?.split(' ')[0] ?? null)
-                  .filter(Boolean)
-                  .join(', ');
-                return (
-                  <tr key={c.id} className="hover:bg-[#F7F4EB]/50 transition-colors">
-                    <td className="px-4 py-3">
+              callsToday.map((call) => (
+                <CallCard
+                  key={call.id}
+                  call={call}
+                  customer={customerMap.get(call.customer[0])}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* This Week */}
+        <div className="flex flex-col">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[#1B2E35]">
+              <span className="mr-1.5">📅</span>This Week
+            </h2>
+            <span className="text-xs text-[#1B2E35]/50">{callsThisWeek.length}</span>
+          </div>
+          <div className="space-y-2 min-h-[60px]">
+            {callsThisWeek.length === 0 ? (
+              <EmptyColumn label="No upcoming calls" />
+            ) : (
+              callsThisWeek.map((call) => (
+                <CallCard
+                  key={call.id}
+                  call={call}
+                  customer={customerMap.get(call.customer[0])}
+                  showDate
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Action Items */}
+        <div className="flex flex-col">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[#1B2E35]">
+              <span className="mr-1.5">✅</span>Action Items
+            </h2>
+            <span className="text-xs text-[#1B2E35]/50">{csmTasks.length}</span>
+          </div>
+          <div className="space-y-2 min-h-[60px]">
+            {csmTasks.length === 0 ? (
+              <EmptyColumn label="Nothing pending" />
+            ) : (
+              csmTasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  customer={customerMap.get(task.customer[0])}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* At Risk */}
+        <div className="flex flex-col">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-[#1B2E35]">
+              <span className="mr-1.5">⚠️</span>At Risk
+            </h2>
+            <span className="text-xs text-[#1B2E35]/50">{atRisk.length}</span>
+          </div>
+          <div className="space-y-2 min-h-[60px]">
+            {atRisk.length === 0 ? (
+              <EmptyColumn label="All healthy" />
+            ) : (
+              atRisk.map((x) => (
+                <AtRiskCard
+                  key={x.customer.id}
+                  customer={x.customer}
+                  reason={x.reason}
+                  flag={x.flag}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {scopedCustomers.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-sm font-semibold text-[#1B2E35]/70 mb-3 uppercase tracking-wide">
+            {scopeLabel} ({scopedCustomers.length} customer{scopedCustomers.length === 1 ? '' : 's'})
+          </h2>
+          <div className="rounded-xl bg-white border border-[#E0DEE4] overflow-hidden">
+            <ul className="divide-y divide-[#E0DEE4]">
+              {scopedCustomers
+                .slice()
+                .sort((a, b) =>
+                  (b.stageEnteredAt || '').localeCompare(a.stageEnteredAt || ''),
+                )
+                .map((c) => {
+                  const h = customerHealth(c);
+                  return (
+                    <li key={c.id}>
                       <Link
                         href={`/workspace/customers/${c.id}`}
-                        className="text-sm font-medium text-[#6C4AB6] hover:underline"
+                        className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-[#F7F4EB]/50 transition-colors"
                       >
-                        {c.name}
-                      </Link>
-                      <p className="text-xs text-[#1B2E35]/50 line-clamp-1">
-                        {c.businessName || '—'}
-                        {csmNames && filter.kind !== 'my' && (
-                          <span className="ml-1 text-[#1B2E35]/40">· CSM: {csmNames}</span>
-                        )}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <TypePill type={c.type} channel={c.channel} />
-                    </td>
-                    <td className="px-4 py-3">{stagePill(c.currentStage)}</td>
-                    <td className="px-4 py-3">
-                      <HealthBadge flag={health.flag} reason={health.reason} />
-                    </td>
-                    <td className="px-4 py-3 text-sm text-[#1B2E35]/70">
-                      {days === null ? '—' : `${days}d`}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-[#1B2E35]/70">
-                      {nextCall ? (
-                        <div>
-                          <p className="text-[#1B2E35]">{nextCall.type}</p>
-                          <p className="text-xs text-[#1B2E35]/50">
-                            {formatScheduled(nextCall.scheduledDate)}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-[#1B2E35] line-clamp-1">
+                            {c.name}
+                          </p>
+                          <p className="text-xs text-[#1B2E35]/50 line-clamp-1 mt-0.5">
+                            {c.businessName || '—'}
                           </p>
                         </div>
-                      ) : (
-                        <span className="text-[#1B2E35]/40">—</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                        <span
+                          className={`text-xs ${
+                            c.currentStage === 'Done'
+                              ? 'text-[#04946A]'
+                              : 'text-[#6C4AB6]'
+                          }`}
+                        >
+                          {c.currentStage || '—'}
+                        </span>
+                        <span
+                          aria-hidden
+                          title={h.reason}
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{
+                            backgroundColor:
+                              h.flag === 'red'
+                                ? '#EC531A'
+                                : h.flag === 'yellow'
+                                  ? '#D97706'
+                                  : '#05C68E',
+                          }}
+                        />
+                      </Link>
+                    </li>
+                  );
+                })}
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// Suppress unused-imports warning for TeamMember (used only via types)
+export type { TeamMember };

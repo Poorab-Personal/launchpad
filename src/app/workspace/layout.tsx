@@ -4,6 +4,29 @@ import { getTeamMemberById, getTeamMembers } from '@/lib/airtable';
 import { readViewAs } from '@/lib/auth/view-as';
 import RoleSwitcher from './RoleSwitcher';
 
+type NavLink = { href: string; label: string };
+
+/**
+ * Filter nav links by the role the user is currently viewing as.
+ * Admin (no view-as) sees everything. Other roles see only what's
+ * actually relevant to their day-to-day. "All Customers" is always visible.
+ */
+function navLinksForRole(role: string): NavLink[] {
+  const links: NavLink[] = [];
+  const isAdminBroad = role === 'Admin';
+  if (isAdminBroad || role === 'Designer' || role === 'Senior Designer') {
+    links.push({ href: '/workspace/queue', label: 'Design Queue' });
+  }
+  if (isAdminBroad || role === 'CSM' || role === 'Senior CSM') {
+    links.push({ href: '/workspace/book', label: 'CSM Queue' });
+  }
+  if (isAdminBroad || role === 'Account Creator') {
+    links.push({ href: '/workspace/account-queue', label: 'Account Queue' });
+  }
+  links.push({ href: '/workspace/customers', label: 'All Customers' });
+  return links;
+}
+
 export default async function WorkspaceLayout({
   children,
 }: {
@@ -39,30 +62,15 @@ export default async function WorkspaceLayout({
               LaunchPad
             </Link>
             <nav className="hidden sm:flex items-center gap-4 text-sm">
-              <Link
-                href="/workspace/queue"
-                className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
-              >
-                Design Queue
-              </Link>
-              <Link
-                href="/workspace/book"
-                className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
-              >
-                CSM Book
-              </Link>
-              <Link
-                href="/workspace/account-queue"
-                className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
-              >
-                Account Queue
-              </Link>
-              <Link
-                href="/workspace/customers"
-                className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
-              >
-                All Customers
-              </Link>
+              {navLinksForRole(effective.role).map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ))}
             </nav>
           </div>
           <div className="flex items-center gap-3">

@@ -283,6 +283,16 @@ export default async function CustomerDetailPage({
     (t) => t.status === 'Active' && isAssignedToEffective(t),
   );
 
+  // Surface the current active task in the header — first team task if any,
+  // otherwise the first active client task. Helps anyone glance at "where
+  // are we right now" without scrolling.
+  const headerCurrentTask =
+    coreTasks.find((t) => t.status === 'Active' && t.taskType === 'Team') ??
+    coreTasks.find((t) => t.status === 'Active');
+  const headerTaskAssignee = headerCurrentTask?.assignedTo[0]
+    ? memberMap.get(headerCurrentTask.assignedTo[0])?.name
+    : undefined;
+
   // CSM/Admin can edit calls (notes, recording URL) and log ad-hoc calls.
   const canEditCalls =
     session.role === 'Admin' ||
@@ -316,13 +326,30 @@ export default async function CustomerDetailPage({
               </span>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-xs uppercase tracking-wide text-[#1B2E35]/50 font-medium">
-              Current Stage
-            </p>
-            <p className="text-sm font-semibold text-[#6C4AB6] mt-1">
-              {customer.currentStage || '—'}
-            </p>
+          <div className="text-right space-y-3">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-[#1B2E35]/50 font-medium">
+                Current Stage
+              </p>
+              <p className="text-sm font-semibold text-[#6C4AB6] mt-1">
+                {customer.currentStage || '—'}
+              </p>
+            </div>
+            {headerCurrentTask && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-[#1B2E35]/50 font-medium">
+                  Current Task
+                </p>
+                <p className="text-sm text-[#1B2E35] mt-1">
+                  {headerCurrentTask.taskName}
+                </p>
+                {headerTaskAssignee && (
+                  <p className="text-xs text-[#1B2E35]/60 mt-0.5">
+                    → {headerTaskAssignee}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

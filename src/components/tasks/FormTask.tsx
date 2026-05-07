@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Task, Customer } from '@/types';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -162,25 +162,31 @@ function HelperText({ children }: { children: React.ReactNode }) {
 
 function FilePreview({ file, onRemove }: { file: File; onRemove?: () => void }) {
   const isImage = file.type.startsWith('image/');
-  const url = useMemo(
-    () => (isImage ? URL.createObjectURL(file) : null),
-    [file, isImage],
-  );
-
+  // Object URLs MUST be created/revoked in an effect (not useMemo) — strict
+  // mode runs effects twice in dev and would revoke the URL while the memo
+  // still references it, leaving a broken <img> src. The setState below
+  // triggers one extra render, but that's correct and necessary here.
+  const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
-    if (!url) return;
-    return () => URL.revokeObjectURL(url);
-  }, [url]);
+    if (!isImage) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUrl(null);
+      return;
+    }
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file, isImage]);
 
   return (
     <div className="relative rounded-lg border border-[#E0DEE4] overflow-hidden bg-white">
-      <div className="aspect-square bg-[#F7F4EB] flex items-center justify-center">
+      <div className="aspect-square bg-[#F7F4EB] flex items-center justify-center p-1">
         {isImage && url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={url}
             alt={file.name}
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full object-contain"
           />
         ) : (
           <div className="text-xs font-medium text-[#1B2E35]/50 px-1 text-center">
@@ -271,7 +277,7 @@ function DropZone({
         <p className="mt-1 text-xs text-[#EC531A]">Please upload a file to continue.</p>
       )}
       {fileList.length > 0 && (
-        <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
           {fileList.map((f, i) => (
             <FilePreview
               key={`${f.name}-${i}`}
@@ -872,9 +878,22 @@ export default function FormTask({
               label="Service Areas"
               required
               value={form.serviceAreas}
-              onChange={(v) => update('serviceAreas', v)}
+              onChange={(v) => {
+                // Live-sync into Local Content Areas if user hasn't customized
+                // it yet. Stops as soon as they touch the Local Content field.
+                setForm((prev) => {
+                  const next: FormData = { ...prev, serviceAreas: v };
+                  if (!touched.has('localContentAreas')) {
+                    next.localContentAreas = parseAreas(v)
+                      .slice(0, MAX_AREAS)
+                      .join('\n');
+                  }
+                  return next;
+                });
+                setTouched((prev) => new Set(prev).add('serviceAreas'));
+              }}
               placeholder={'One per line\ne.g.\nBrickell\nCoral Gables\nCoconut Grove'}
-              helper="Our AI creates monthly market reports for these areas."
+              helper="Our AI creates monthly market reports for these areas. Max 5."
               invalid={isInvalid('serviceAreas')}
             />
             <AreasTextarea
@@ -882,7 +901,7 @@ export default function FormTask({
               value={form.localContentAreas}
               onChange={(v) => update('localContentAreas', v)}
               placeholder={'One per line, max 5'}
-              helper="Where we'll source local stories and trends. Pre-filled from your service areas — edit if different."
+              helper="Where we'll source local stories and trends. Pre-filled from your service areas — edit if different. Max 5."
             />
             <div>
               <FieldLabel label="Topics" required />
