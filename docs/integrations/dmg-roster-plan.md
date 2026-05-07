@@ -632,13 +632,13 @@ Things that touch this work but are separate efforts:
 
 ---
 
-## 10. Decisions for Poorab
+## 10. Decisions — locked 2026-05-06
 
-Items where the architect didn't pick clearly between two options and that need a fresh judgment call:
+Both v2-flagged items resolved by Poorab:
 
-1. **`Brokerages.Roster API URL` / `Roster API Key` / `Roster Refresh Interval` — delete or rename-as-vestigial?** The architect listed both as acceptable. Delete is cleaner; rename keeps an audit trail. My (Claude's) lean: delete, since "vestigial fields with notes" tend to confuse the next reader more than missing fields do — and the Airtable revision history preserves the audit. Decide before Phase 3.
+1. **`Brokerages.Roster API URL` / `Roster API Key` / `Roster Refresh Interval` → DELETE.** Credentials live in Vercel env vars; the URL is shared/in-code; refresh interval is hardcoded daily. Airtable revision history preserves the audit trail. Delete in Phase 3 cutover (alongside the schema-doc updates).
 
-2. **Extend `magic-link.ts` with a second `subject` variant, or write a sibling `agent-magic-link.ts`?** v2 leans (a) extend, but this is a minor stylistic call worth a glance during Phase 3 implementation. Either is correct.
+2. **Magic-link variant for agent verification → EXTEND `magic-link.ts` with a second `subject` tag.** Reuses JWT helpers without duplicating signing/verification logic. The agent path skips `setSessionCookie`; the workspace path keeps it.
 
 Everything else is committed.
 

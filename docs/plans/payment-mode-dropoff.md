@@ -249,9 +249,12 @@ CSM action panel on `/workspace/customers/[id]` for at-risk customers:
 ## Phasing
 
 ### Phase 0 — Schema only (1 day)
-- Meta-API script: add fields above to Workflow Templates, Customers, Tasks; populate `Payment Mode` / `Stripe Price ID` / `Trial Days` on existing template rows; delete `Customers.Reminder Count`.
-- Update TypeScript types (`WorkflowTemplate`, `Customer`, `Task`).
+- **Additive Meta-API script** (`scripts/phase0-payment-mode-fields.ts`): add new fields to Workflow Templates / Customers / Tasks; populate `Payment Mode` / `Stripe Price ID` / `Trial Days` on existing template rows. Idempotent.
+- **Destructive Meta-API script** (`scripts/phase0-cleanup-legacy-reminder-fields.ts`): delete `Customers.Reminder Count`, `Workflow Templates.Reminder After Days`, `Workflow Templates.Max Reminders` (all dead weight per live-schema survey + code grep — no consumers).
+- Update TypeScript types (`WorkflowTemplate`, `Customer`, `Task`) — remove deleted fields, add new ones.
 - Update mappers in `src/lib/airtable.ts`.
+- Update `scripts/seed-test-data.ts` and `src/lib/mock-data.ts` to drop `reminderCount` references.
+- Update `scripts/setup-production.ts` to match new schema.
 - Supersede the `Auto 8` reference in `docs/schema/production-schema.md`.
 - Lint, typecheck, smoke test.
 - **No behavior change yet.**
@@ -292,13 +295,25 @@ CSM action panel on `/workspace/customers/[id]` for at-risk customers:
 
 ---
 
-## Decisions for Poorab
+## Decisions — locked 2026-05-06
 
-These two are genuinely ambiguous and the architect did not pick:
+Both v1-flagged decisions resolved by Poorab:
 
-1. **Where `Stripe Price ID` lives if you ever need per-brokerage pricing within a single workflow.** Today every Keyes customer pays the same price; same for IP. If/when one brokerage on the `B2B-Keyes` workflow needs a different price than another (e.g., Keyes pays $X, IP pays $Y, both on the same template set), `Stripe Price ID` should migrate from Workflow Templates to Brokerages while `Payment Mode` stays on Workflow Templates. **Today's plan puts it on Workflow Templates.** Confirm that today's reality (one price per workflow) is expected to hold; flag if not.
+1. **`Stripe Price ID` stays on Workflow Templates.** New brokerages with their own pricing get their own Workflow Key + template (e.g., `B2B-IP` is a new template set with `Stripe Price ID` set per its deal). If a future brokerage needs to share a workflow but pay a different price, that's the moment we'd revisit — not before.
 
-2. **Whether the Calls-driven sub creation should also support a `Type = Check-In 1` or other call types as a fallback.** Today the trigger is `Type = Onboarding` only — if the Onboarding call is somehow skipped (deal closes via async path), the sub is never created and the safety-net audit catches it. Alternative: extend the trigger to any `Status = Completed` call where `Stripe Subscription ID` is still empty. Cleaner failure mode but blurs the "onboarding call is the moment we charge" semantics. **Today's plan uses `Type = Onboarding` only**; the safety-net audit covers the gap.
+2. **Sub creation triggers on `Calls.Type = Onboarding` only.** The safety-net audit (CSM workspace badge: "Stage 4+ with `Payment Mode = setup-intent-at-intake` and no `Stripe Subscription ID`") catches any gap from skipped onboarding calls. No fallback trigger.
+
+## Schema findings from live Airtable (2026-05-06)
+
+Verifying the live base before writing the Phase 0 script surfaced three pre-existing fields the architect didn't know about (the setup script is not source of truth — per project rule). All three are dead weight (mapper reads them, no consumer):
+
+- **`Workflow Templates.Reminder After Days`** (number) — per-task threshold; replaced by single global cron schedule. **Delete in Phase 0.**
+- **`Workflow Templates.Max Reminders`** (number) — per-task cap; replaced by single global cap (3). **Delete in Phase 0.**
+- **`Customers.Reminder Count`** (number) — already planned for deletion. Confirmed unused. **Delete in Phase 0.**
+
+The live `Customers` table also has `Subscription Status` (single-select: Active/Trial/Past Due/Cancelled), `MRR`, `Renewal Date`, `Billing Cycle`, etc. These are pre-existing CRM fields, NOT touched by this plan. The Stripe webhook should write `Subscription Status` (Trial → Active, etc.) once we wire it in Phase 1; that's a behavior addition, not a schema change.
+
+**Lifecycle / Churned bucket revisit:** v2 said use `Current Stage = "Churned"` for the terminal bucket. Live schema has no `Current Stage = "Churned"` value defined (it's a `singleLineText`, so any string is allowed, but no convention). Reconsider: use `Subscription Status = Cancelled` as the existing-field signal for churned customers; `At Risk = false AND Subscription Status = Cancelled` is the kanban "they're gone" filter. This avoids inventing a new convention for a string field that's already overloaded with stage names.
 
 ---
 

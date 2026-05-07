@@ -125,8 +125,13 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     callCompleted: (f['Call Completed'] as boolean) ?? false,
     callDate: (f['Call Date'] as string) ?? '',
     noShowCount: (f['No Show Count'] as number) ?? 0,
-    reminderCount: (f['Reminder Count'] as number) ?? 0,
     otherEmails: (f['Other Emails'] as string) ?? '',
+
+    // Stripe + drop-off (Phase 0 fields)
+    stripeCustomerId: (f['Stripe Customer ID'] as string) ?? '',
+    stripeSubscriptionId: (f['Stripe Subscription ID'] as string) ?? '',
+    atRisk: (f['At Risk'] as boolean) ?? false,
+    atRiskReason: (selectValue(f['At Risk Reason']) as Customer['atRiskReason']) || null,
 
     // System
     accessToken: record.id,
@@ -165,6 +170,7 @@ function mapAirtableToTask(record: AirtableRecord): Task {
     completedAt: (f['Completed At'] as string) ?? '',
     activatedAt: (f['Activated At'] as string) ?? '',
     daysActive: typeof f['Days Active'] === 'number' ? (f['Days Active'] as number) : null,
+    lastReminderAt: (f['Last Reminder At'] as string) ?? '',
     createdAt: (f['Created At'] as string) ?? record.createdTime,
     product: (selectValue(f['Product']) as Product) || 'Core',
   };
@@ -188,10 +194,11 @@ function mapAirtableToWorkflowTemplate(record: AirtableRecord): WorkflowTemplate
     attachmentType: (selectValue(f['Attachment Type']) as WorkflowTemplate['attachmentType']) || 'None',
     embedUrl: (f['Embed URL'] as string) ?? '',
     instructions: (f['Instructions'] as string) ?? '',
-    reminderAfterDays: (f['Reminder After Days'] as number) ?? 0,
-    maxReminders: (f['Max Reminders'] as number) ?? 0,
     dueDaysAfterActivation: (f['Due Days After Activation'] as number) ?? 0,
     product: (selectValue(f['Product']) as Product) || 'Core',
+    paymentMode: (selectValue(f['Payment Mode']) as WorkflowTemplate['paymentMode']) || null,
+    stripePriceId: (f['Stripe Price ID'] as string) ?? '',
+    trialDays: (f['Trial Days'] as number) ?? 0,
   };
 }
 

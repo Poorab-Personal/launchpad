@@ -16,6 +16,10 @@ export type PaymentStatus = 'Paid' | 'Waived';
 
 export type OnboardingStatus = 'Not Started' | 'In Progress' | 'Completed';
 
+export type PaymentMode = 'pre-paid' | 'setup-intent-at-intake' | 'invoice' | 'none';
+
+export type AtRiskReason = 'No CC' | 'No Booking' | 'No Approval' | 'No Form' | 'CSM Flagged';
+
 export type TeamRole =
   | 'Designer'
   | 'Senior Designer'
@@ -73,6 +77,14 @@ export interface Customer {
   productTier: ProductTier | null;
   paymentStatus: PaymentStatus | null;
 
+  // Stripe — populated per Workflow Templates.Payment Mode (see plans/payment-mode-dropoff.md)
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+
+  // Drop-off / At Risk surfacing
+  atRisk: boolean;
+  atRiskReason: AtRiskReason | null;
+
   // Enterprise (B2B)
   brokerage: string[];
   rosterRecord: string[];
@@ -103,7 +115,6 @@ export interface Customer {
   callCompleted: boolean;
   callDate: string;
   noShowCount: number;
-  reminderCount: number;
   otherEmails: string;
 
   // System
@@ -142,6 +153,7 @@ export interface Task {
   completedAt: string;
   activatedAt: string;
   daysActive: number | null;
+  lastReminderAt: string;
   createdAt: string;
   product: Product;
 }
@@ -164,10 +176,11 @@ export interface WorkflowTemplate {
   attachmentType: AttachmentType;
   embedUrl: string;
   instructions: string;
-  reminderAfterDays: number;
-  maxReminders: number;
   dueDaysAfterActivation: number;
   product: Product;
+  paymentMode: PaymentMode | null;
+  stripePriceId: string;
+  trialDays: number;
 }
 
 // ─── Table 4: Team Members ──────────────────────────────────────────

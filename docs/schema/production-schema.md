@@ -71,7 +71,12 @@ One row per customer/agent being onboarded. Fields are populated in stages:
 | Credentials Sent | Checkbox | Automation | Set when "Send Credentials" task completes |
 | Call Booked | Checkbox | Calendly / Zapier | Set when Calendly booking confirmed |
 | Call Completed | Checkbox | CSM | Checked after onboarding call |
-| Reminder Count | Number (integer) | Automation | Tracks reminders sent, max 3 before escalation |
+| **Stripe** (added Phase 0 of payment-mode rollout, 2026-05-06) | | | |
+| Stripe Customer ID | Single line text | System | Created at Customer creation for `setup-intent-at-intake` workflows; lazily backfilled for pre-paid D2C; never set for invoice/none |
+| Stripe Subscription ID | Single line text | System | Set by Calls-driven sub creation (Phase 1) once Onboarding call completes |
+| **Drop-off / At Risk** (added Phase 0, 2026-05-06) | | | |
+| At Risk | Checkbox | Automation / CSM | Set by drop-off cron after 3rd reminder, or by CSM action |
+| At Risk Reason | Single select | Automation / CSM | `No CC`, `No Booking`, `No Approval`, `No Form`, `CSM Flagged`. Cleared when At Risk goes false |
 | **System** | | | |
 | Access Token | Formula | Auto | `RECORD_ID()` — portal URL token |
 | Tasks | Link to Tasks | Auto | Reverse link |
@@ -104,6 +109,9 @@ All tasks per customer — both client-facing and internal.
 | Notes | Long text | Internal notes |
 | Due Date | Date | Optional |
 | Completed At | Date (w/ time) | Set by automation when Status → Completed |
+| Activated At | Date (w/ time) | Set when task first transitions to Active |
+| Days Active | Formula | Days since Active; blank for Draft/Completed/Rejected |
+| Last Reminder At | Date (w/ time) | Set by drop-off cron when a reminder was sent. Reminder number computed as `floor((now − Activated At) / 4d)` |
 | Created At | Created time | Auto |
 
 ### Status Flow
@@ -143,6 +151,12 @@ Blueprint rows. NOT runtime data. One set of rows per workflow key.
 | Attachment Type | Single select | `None`, `Form`, `File Upload`, `Embed`, `Proof` |
 | Embed URL | URL | Default URL for embeds (Calendly, Loom). Copied to task on creation |
 | Instructions | Long text | Default instructions |
+| Due Days After Activation | Number (integer) | Days from activation to due date |
+| Product | Single select | `Core`, `Voice`, `Avatar` — for add-on workflow templates |
+| **Payment-mode config** (added Phase 0, 2026-05-06; denormalized per Workflow Key) | | |
+| Payment Mode | Single select | `pre-paid`, `setup-intent-at-intake`, `invoice`, `none`. Drives whether Capture Payment Method task is generated and when sub creation fires |
+| Stripe Price ID | Single line text | Stripe price ID for the subscription. Required when `Payment Mode = setup-intent-at-intake` |
+| Trial Days | Number (integer) | Days of trial. Required when `Payment Mode = setup-intent-at-intake` |
 
 ---
 
@@ -410,13 +424,16 @@ Same as Keyes minus "Start Your Trial".
 - **Trigger:** Customer.Call Completed changes to checked
 - **Logic:** If current stage depends on call completion, advance stage and activate next tasks
 
-### Auto 8: Reminder — Stuck Customers (Scheduled)
-- **Trigger:** Runs every 6 hours
-- **Logic:**
-  1. Find Customers where Current Stage ≠ Done
-  2. For each: find Active Client tasks
-  3. If oldest active task > 3 days AND Reminder Count < 3 → send email → increment count → create event
-  4. If Reminder Count = 3 → escalate to CSM (look up CSM Assigned → Team Member → Slack handle → notify)
+### Auto 8: Reminder — Stuck Customers (SUPERSEDED)
+**Status: NOT IMPLEMENTED. Replaced by the Vercel cron in `docs/plans/payment-mode-dropoff.md` §5.**
+
+The original v1 design (Airtable scheduled automation, every 6 hours, using `Customers.Reminder Count` + `Workflow Templates.Reminder After Days` + `Max Reminders`) was never built. After architect review (2026-05-06), drop-off reminders moved to:
+- **Where:** Vercel Cron daily (`/api/cron/dropoff-reminders`) — Resend send is JS-side, Vercel cron logs are first-class.
+- **Schedule:** Single global `+3d / +7d / +12d` for all stalled-task types. No per-task variation.
+- **Storage:** `Tasks.Last Reminder At` only. Reminder number is computed (`floor((now − Activated At) / 4d)`).
+- **Escalation:** After 3rd reminder, set `Customers.At Risk = true` + `At Risk Reason`, surfaced in CSM workspace kanban.
+
+The legacy fields (`Customers.Reminder Count`, `Workflow Templates.Reminder After Days`, `Workflow Templates.Max Reminders`) were dead weight (never read by any consumer). Removed in Phase 0 of the payment-mode rollout (Airtable Meta API doesn't support field deletion via REST, so removed manually in the UI; verify in current schema).
 
 ### Auto 9: Task Completed → Log Event
 - **Trigger:** Task.Status changes to Completed
