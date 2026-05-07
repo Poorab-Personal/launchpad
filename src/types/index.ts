@@ -6,7 +6,7 @@ export type TaskType = 'Client' | 'Team';
 
 export type TaskStatus = 'Draft' | 'Active' | 'In Review' | 'Completed' | 'Rejected';
 
-export type AttachmentType = 'None' | 'Form' | 'File Upload' | 'Embed' | 'Proof';
+export type AttachmentType = 'None' | 'Form' | 'File Upload' | 'Embed' | 'Proof' | 'Payment Setup';
 
 export type DesignApproval = 'Pending' | 'Approved' | 'Changes Requested';
 
@@ -80,6 +80,8 @@ export interface Customer {
   // Stripe — populated per Workflow Templates.Payment Mode (see plans/payment-mode-dropoff.md)
   stripeCustomerId: string;
   stripeSubscriptionId: string;
+  selectedStripePriceId: string;
+  selectedPlanName: string;
 
   // Drop-off / At Risk surfacing
   atRisk: boolean;
@@ -253,6 +255,17 @@ export interface Event {
   details: string;
   relatedTask: string[];
   createdAt: string;
+}
+
+// ─── Table: Stripe Plans ────────────────────────────────────────────
+
+export interface StripePlan {
+  id: string;
+  planName: string;
+  workflowKey: string;
+  stripePriceId: string;
+  active: boolean;
+  description: string;
 }
 
 // ─── Table 8: Calls ─────────────────────────────────────────────────

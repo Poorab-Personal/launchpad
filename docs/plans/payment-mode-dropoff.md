@@ -87,7 +87,7 @@ Embed URL: /r/{token}/payment-setup  (Stripe-hosted card collection page)
 Instructions: "Add a payment method to start your free trial. You won't be charged until your onboarding call is complete."
 ```
 
-**Attachment Type decision (resolves v1 Open Question 1):** use `Embed`. The Stripe Elements page is just a normal Next.js route the iframe loads. A new `Stripe Setup` Attachment Type would add a `TaskRenderer` branch with no behavior the existing `EmbedTask` doesn't already handle. Add a new type only if cross-origin trickery later forces it.
+**Attachment Type decision (revised after architect re-review on Phase 1 build kickoff):** use a NEW Attachment Type `Payment Setup`. The original v2 plan said use `Embed`, but Stripe Elements renders inline (it creates its own iframes internally for PCI compliance) — wrapping it in another iframe via the existing `EmbedTask` fights Stripe's expected DOM. More importantly, future payment-shaped tasks (custom design bundle = PaymentIntent for one-time charges, Voice add-on = Subscription) are siblings with different Stripe flows, not variants of one renderer. Establishing the `Payment Setup` enum value now makes the future shape (`Payment Setup | One-Time Charge | Add-On Subscription`) clean from the start. Each gets its own renderer component.
 
 **Workflow template surgery for B2B-Keyes:**
 - Add "Capture Payment Method" (Order 2 in Getting Started).
@@ -314,6 +314,25 @@ Verifying the live base before writing the Phase 0 script surfaced three pre-exi
 The live `Customers` table also has `Subscription Status` (single-select: Active/Trial/Past Due/Cancelled), `MRR`, `Renewal Date`, `Billing Cycle`, etc. These are pre-existing CRM fields, NOT touched by this plan. The Stripe webhook should write `Subscription Status` (Trial → Active, etc.) once we wire it in Phase 1; that's a behavior addition, not a schema change.
 
 **Lifecycle / Churned bucket revisit:** v2 said use `Current Stage = "Churned"` for the terminal bucket. Live schema has no `Current Stage = "Churned"` value defined (it's a `singleLineText`, so any string is allowed, but no convention). Reconsider: use `Subscription Status = Cancelled` as the existing-field signal for churned customers; `At Risk = false AND Subscription Status = Cancelled` is the kanban "they're gone" filter. This avoids inventing a new convention for a string field that's already overloaded with stage names.
+
+---
+
+## Operational notes (don't forget these at deploy time)
+
+### Stripe webhook URL switchover
+
+The Stripe webhook secret is configured against a specific endpoint URL. Today we're on a transient Vercel preview/dev URL (e.g., `launchpad-xxx.vercel.app`); production target is `onboarding.rejig.ai`. **When the production domain switches:**
+
+1. Stripe dashboard → Developers → Webhooks → existing endpoint → update URL to the new domain
+2. Re-copy the signing secret if it changes (Stripe sometimes rotates on URL change; sometimes preserves it — verify)
+3. Update `STRIPE_WEBHOOK_SECRET` in Vercel env vars (Production)
+4. For the dev environment: keep a SEPARATE webhook endpoint in Stripe pointing at the dev URL with its own signing secret in `.env.local`
+
+**Failure mode if missed:** webhooks silently fail signature verification → Capture Payment Method tasks never auto-complete after card capture → customer is stuck → CSM eventually flags via At Risk → manual cleanup required. Cron in Phase 2 doesn't help because there's no "Stripe webhook health check" yet. Worth adding to a deploy checklist.
+
+### Calls webhook URL switchover
+
+Same story for the Airtable automation that POSTs to `/api/webhooks/calls/completed` — the URL is hardcoded in the Airtable automation script and must be updated when the domain changes. **Same checklist applies.**
 
 ---
 

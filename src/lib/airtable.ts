@@ -12,6 +12,7 @@ import type {
   Call,
   CallStatus,
   CallType,
+  StripePlan,
 } from '@/types';
 import {
   getRecords,
@@ -130,6 +131,8 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     // Stripe + drop-off (Phase 0 fields)
     stripeCustomerId: (f['Stripe Customer ID'] as string) ?? '',
     stripeSubscriptionId: (f['Stripe Subscription ID'] as string) ?? '',
+    selectedStripePriceId: (f['Selected Stripe Price ID'] as string) ?? '',
+    selectedPlanName: (f['Selected Plan Name'] as string) ?? '',
     atRisk: (f['At Risk'] as boolean) ?? false,
     atRiskReason: (selectValue(f['At Risk Reason']) as Customer['atRiskReason']) || null,
 
@@ -734,4 +737,36 @@ export async function createCall(fields: Partial<Call>): Promise<Call> {
 export async function updateCall(id: string, fields: Partial<Call>): Promise<Call> {
   const record = await updateRecord('Calls', id, callFieldsToAirtable(fields));
   return mapAirtableToCall(record);
+}
+
+// --- Stripe Plans ---
+
+function mapAirtableToStripePlan(record: AirtableRecord): StripePlan {
+  const f = record.fields;
+  return {
+    id: record.id,
+    planName: (f['Plan Name'] as string) ?? '',
+    workflowKey: (f['Workflow Key'] as string) ?? '',
+    stripePriceId: (f['Stripe Price ID'] as string) ?? '',
+    active: (f['Active'] as boolean) ?? false,
+    description: (f['Description'] as string) ?? '',
+  };
+}
+
+/** Get all active Stripe Plans for a workflow, sorted by Plan Name. */
+export async function getStripePlansByWorkflow(workflowKey: string): Promise<StripePlan[]> {
+  const records = await getRecords('Stripe Plans', {
+    filterByFormula: `AND({Workflow Key} = '${workflowKey}', {Active} = TRUE())`,
+    sort: [{ field: 'Plan Name', direction: 'asc' }],
+  });
+  return records.map(mapAirtableToStripePlan);
+}
+
+/** Look up a single plan by its Stripe Price ID (for sub-creation lookups). */
+export async function getStripePlanByPriceId(priceId: string): Promise<StripePlan | null> {
+  const records = await getRecords('Stripe Plans', {
+    filterByFormula: `{Stripe Price ID} = '${priceId}'`,
+    maxRecords: 1,
+  });
+  return records.length > 0 ? mapAirtableToStripePlan(records[0]) : null;
 }

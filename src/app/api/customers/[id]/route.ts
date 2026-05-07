@@ -56,6 +56,8 @@ const fieldMap: Record<string, string> = {
   avatarStripeId: 'Avatar Stripe ID',
   stripeCustomerId: 'Stripe Customer ID',
   stripeSubscriptionId: 'Stripe Subscription ID',
+  selectedStripePriceId: 'Selected Stripe Price ID',
+  selectedPlanName: 'Selected Plan Name',
   atRisk: 'At Risk',
   atRiskReason: 'At Risk Reason',
 };
