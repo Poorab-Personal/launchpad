@@ -727,6 +727,15 @@ export async function getUpcomingCallsForCSM(
 }
 
 /** Look up a Call by Calendly Event UUID for idempotent webhook upserts. */
+export async function getCallById(id: string): Promise<Call | null> {
+  try {
+    const record = await getRecord('Calls', id);
+    return record ? mapAirtableToCall(record) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getCallByCalendlyUuid(uuid: string): Promise<Call | null> {
   if (!uuid) return null;
   const safe = uuid.replace(/'/g, "\\'");
