@@ -6,6 +6,7 @@ import FormTask from './FormTask';
 import FileUploadTask from './FileUploadTask';
 import EmbedTask from './EmbedTask';
 import ProofTask from './ProofTask';
+import PaymentSetupTask from './PaymentSetupTask';
 
 export default function TaskRenderer({
   task,
@@ -27,6 +28,15 @@ export default function TaskRenderer({
       return <EmbedTask task={task} onComplete={onComplete} />;
     case 'Proof':
       return <ProofTask task={task} customerId={customerId} customer={customer} onComplete={onComplete} />;
+    case 'Payment Setup':
+      return (
+        <PaymentSetupTask
+          task={task}
+          customerId={customerId}
+          workflowKey={customer?.workflowKey ?? ''}
+          onComplete={onComplete}
+        />
+      );
     case 'None':
     default:
       return <PlainTask task={task} onComplete={onComplete} />;
