@@ -38,6 +38,10 @@ export default function EmbedTask({
   const [iframeError, setIframeError] = useState(false);
   const [booked, setBooked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Defer the iframe until after mount so the Calendly embed-params
+  // (which depend on window.location.host) don't cause a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const isVideo =
     task.taskName.toLowerCase().includes('video') ||
@@ -48,9 +52,9 @@ export default function EmbedTask({
   // For Calendly, augment the URL with embed params on the client.
   // For other embeds (videos), pass through unchanged.
   const embedUrl = useMemo(() => {
-    if (!task.embedUrl) return '';
+    if (!mounted || !task.embedUrl) return '';
     return isCalendly ? withCalendlyEmbedParams(task.embedUrl) : task.embedUrl;
-  }, [task.embedUrl, isCalendly]);
+  }, [mounted, task.embedUrl, isCalendly]);
 
   const handleCalendlyBooked = useCallback(async () => {
     setBooked(true);
@@ -163,7 +167,7 @@ export default function EmbedTask({
             <div className="flex items-center justify-center p-10 text-sm text-[#1B2E35]/60">
               Failed to load content. Please try refreshing the page.
             </div>
-          ) : (
+          ) : mounted ? (
             <iframe
               src={embedUrl}
               className="w-full h-full border-0"
@@ -177,7 +181,7 @@ export default function EmbedTask({
               }}
               onError={() => { setIframeLoading(false); setIframeError(true); }}
             />
-          )}
+          ) : null}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#E0DEE4] p-10 text-center">
