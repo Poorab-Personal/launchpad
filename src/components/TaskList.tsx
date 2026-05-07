@@ -35,6 +35,7 @@ export default function TaskList({
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     setTasks(initialTasks);
@@ -86,13 +87,24 @@ export default function TaskList({
     (t) => t.status === 'Active' || t.status === 'Draft',
   );
 
-  // Progress calculations (stage-based, not task-count — avoids exposing internal task counts)
-  const currentStageNum = progressStages.indexOf(currentStage);
-  const completedStagesCount = currentStageNum >= 0 ? currentStageNum : progressStages.length;
-  const progressPercent = progressStages.length > 0
-    ? Math.round((completedStagesCount / progressStages.length) * 100)
-    : 0;
   const completedInStage = currentStageTasks.filter((t) => t.status === 'Completed').length;
+
+  /**
+   * A task is "locked" if it's Draft AND any of its deps in the current stage
+   * are not yet Completed. Using local dep state (not raw task.status) means
+   * the UI unlocks the moment the previous task completes — before Airtable's
+   * Auto 2 promotes Draft → Active.
+   */
+  function isTaskLocked(task: Task): boolean {
+    if (task.status !== 'Draft') return false;
+    if (!task.dependsOn) return false;
+    const deps = task.dependsOn.split(',').map((s) => s.trim()).filter(Boolean);
+    for (const depName of deps) {
+      const dep = currentStageTasks.find((t) => t.taskName === depName);
+      if (!dep || dep.status !== 'Completed') return true;
+    }
+    return false;
+  }
 
   function handleTaskComplete(taskId: string) {
     setTasks((prev) =>
@@ -102,6 +114,10 @@ export default function TaskList({
           : t,
       ),
     );
+    // Auto-advance: jump to the next task in the current stage (if any)
+    const idx = currentStageTasks.findIndex((t) => t.id === taskId);
+    const nextTask = idx >= 0 ? currentStageTasks.slice(idx + 1)[0] : null;
+    if (nextTask) setActiveTaskId(nextTask.id);
     setIsRefreshing(true);
     setTimeout(() => {
       router.refresh();
@@ -317,31 +333,15 @@ export default function TaskList({
           })}
         </ol>
       </nav>
-
-        {/* Stage progress bar */}
-        <div className="mt-3 flex items-center gap-3">
-          <div className="flex-1 h-1.5 rounded-full bg-[#E0DEE4]">
-            <div
-              className="h-1.5 rounded-full bg-[#05C68E] transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-          <span className="text-xs font-medium text-[#1B2E35]/54 shrink-0">
-            Stage {(currentStageNum >= 0 ? currentStageNum : progressStages.length) + 1} of {progressStages.length}
-          </span>
-        </div>
       </div>
 
       {/* Current stage content ONLY */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-[#1B2E35]">{currentStage}</h2>
-          {currentStageTasks.length > 1 && (
-            <span className="text-xs font-medium text-[#1B2E35]/40">
-              {completedInStage} of {currentStageTasks.length} complete
-            </span>
-          )}
-        </div>
+        {currentStageTasks.length > 1 && (
+          <div className="mb-4 text-xs font-medium text-[#1B2E35]/40">
+            {completedInStage} of {currentStageTasks.length} complete
+          </div>
+        )}
 
         {/* If no visible tasks in current stage (e.g., Onboarding Call — team only) */}
         {currentStageTasks.length === 0 && (
@@ -367,70 +367,111 @@ export default function TaskList({
           </div>
         )}
 
-        <div className="space-y-3">
-          {currentStageTasks.map((task) => {
-            if (task.status === 'Completed') {
-              return (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 rounded-lg border border-[#05C68E]/20 bg-[#05C68E]/10 px-5 py-3.5"
-                >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/20">
-                    <CheckIcon className="h-3.5 w-3.5 text-[#05C68E]" />
-                  </span>
-                  <span className="flex-1 text-sm text-[#1B2E35]/70">
-                    {task.taskName}
-                  </span>
-                  <span className="text-[10px] font-medium text-[#05C68E] shrink-0 uppercase tracking-wide">
-                    Completed
-                  </span>
-                </div>
-              );
-            }
+        {currentStageTasks.length > 0 && hasActiveTasks && (() => {
+          // Active tab: explicit selection wins; else first non-completed; else first
+          const explicit = activeTaskId
+            ? currentStageTasks.find((t) => t.id === activeTaskId)
+            : null;
+          const firstUncompleted = currentStageTasks.find((t) => t.status !== 'Completed');
+          const activeTab = explicit ?? firstUncompleted ?? currentStageTasks[0];
+          const activeTabId = activeTab?.id;
 
-            if (task.status === 'Active') {
-              return (
-                <div
-                  key={task.id}
-                  className="rounded-lg border border-[#E0DEE4] border-l-4 border-l-[#6C4AB6] bg-white p-5 shadow-[0px_4px_12px_#1B2E3514]"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-base font-semibold text-[#1B2E35]">
-                      {task.taskName}
-                    </h3>
-                    <span className="inline-flex items-center rounded-full bg-[#6C4AB6]/10 px-2.5 py-0.5 text-[10px] font-medium text-[#6C4AB6] shrink-0 ml-3">
-                      Action Required
-                    </span>
-                  </div>
-                  <TaskRenderer
-                    task={task}
-                    customerId={customerId}
-                    customer={customer}
-                    onComplete={() => handleTaskComplete(task.id)}
-                  />
-                </div>
-              );
-            }
-
-            // Draft = locked
-            return (
-              <div
-                key={task.id}
-                className="rounded-lg border border-[#E0DEE4] bg-white px-5 py-3.5"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#E0DEE4]/50">
-                    <LockIcon className="h-3.5 w-3.5 text-[#1B2E35]/40" />
-                  </span>
-                  <span className="text-sm text-[#1B2E35]/54">{task.taskName}</span>
-                </div>
-                {task.dependsOn && task.instructions && (
-                  <p className="mt-2 ml-9 text-xs text-[#1B2E35]/40">{task.instructions}</p>
-                )}
+          return (
+            <div className="rounded-lg border border-[#E0DEE4] bg-white shadow-[0px_4px_12px_#1B2E3514] overflow-hidden">
+              {/* Tab nav */}
+              <div className="flex border-b border-[#E0DEE4]">
+                {currentStageTasks.map((task, i) => {
+                  const isActive = task.id === activeTabId;
+                  const isLocked = isTaskLocked(task);
+                  const isCompleted = task.status === 'Completed';
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => setActiveTaskId(task.id)}
+                      className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                        isActive
+                          ? 'border-[#6C4AB6] text-[#1B2E35] bg-[#6C4AB6]/5'
+                          : 'border-transparent text-[#1B2E35]/60 hover:text-[#1B2E35] hover:bg-[#F7F4EB]'
+                      }`}
+                    >
+                      <span className="flex items-center justify-center gap-2">
+                        {isCompleted ? (
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/20">
+                            <CheckIcon className="h-3 w-3 text-[#05C68E]" />
+                          </span>
+                        ) : isLocked ? (
+                          <LockIcon className="h-3.5 w-3.5 shrink-0 text-[#1B2E35]/40" />
+                        ) : (
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
+                              isActive
+                                ? 'bg-[#6C4AB6] text-white'
+                                : 'bg-[#E0DEE4] text-[#1B2E35]/60'
+                            }`}
+                          >
+                            {i + 1}
+                          </span>
+                        )}
+                        <span className="truncate">{task.taskName}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+
+              {/* Panels — all mounted (state preserved); only active is visible */}
+              {currentStageTasks.map((task) => {
+                const isActive = task.id === activeTabId;
+                const isLocked = isTaskLocked(task);
+                // Find the blocking task name (best-effort: first listed in Depends On
+                // that's not yet Completed within this stage)
+                const blockerName = (() => {
+                  if (!isLocked || !task.dependsOn) return null;
+                  const deps = task.dependsOn.split(',').map((s) => s.trim());
+                  for (const depName of deps) {
+                    const dep = currentStageTasks.find((t) => t.taskName === depName);
+                    if (dep && dep.status !== 'Completed') return depName;
+                  }
+                  return deps[0] ?? null;
+                })();
+
+                return (
+                  <div
+                    key={task.id}
+                    className={isActive ? 'block' : 'hidden'}
+                    aria-hidden={!isActive}
+                  >
+                    <div className="relative p-5">
+                      <div className={isLocked ? 'opacity-50 pointer-events-none select-none' : ''}>
+                        <TaskRenderer
+                          task={task}
+                          customerId={customerId}
+                          customer={customer}
+                          onComplete={() => handleTaskComplete(task.id)}
+                        />
+                      </div>
+                      {isLocked && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+                          <div className="rounded-lg border border-[#E0DEE4] bg-white px-4 py-3 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514] flex items-center gap-2">
+                            <LockIcon className="h-4 w-4 text-[#1B2E35]/60" />
+                            <span>
+                              Complete{' '}
+                              <span className="font-medium">
+                                &ldquo;{blockerName ?? 'the previous step'}&rdquo;
+                              </span>{' '}
+                              first
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Add-Ons Section ──────────────────────────────────────────── */}

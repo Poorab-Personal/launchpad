@@ -65,7 +65,17 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     name: (f['Name'] as string) ?? '',
     type: (selectValue(f['Type']) as Customer['type']) || 'D2C',
     channel: (f['Channel'] as string) ?? '',
-    workflowKey: (f['Workflow Key'] as string) ?? '',
+    // Workflow Key is conceptually a formula ({Type}-{Channel}) but the
+    // Customers table doesn't actually have the formula field today —
+    // compute it here so callers (PaymentSetupTask, plan lookups, etc.)
+    // get a non-empty value.
+    workflowKey: ((): string => {
+      const fk = (f['Workflow Key'] as string) ?? '';
+      if (fk) return fk;
+      const t = selectValue(f['Type']);
+      const c = (f['Channel'] as string) ?? '';
+      return t && c ? `${t}-${c}` : '';
+    })(),
     contactEmail: (f['Contact Email'] as string) ?? '',
     platformEmail: (f['Platform Email'] as string) ?? '',
     phone: (f['Phone'] as string) ?? '',
