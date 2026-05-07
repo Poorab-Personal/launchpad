@@ -178,7 +178,8 @@ export default function EmbedTask({
       {task.instructions && (
         <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
       )}
-      {testFillEnabled && isCalendly && (
+      {testFillEnabled &&
+        (isCalendly || task.taskName.toLowerCase().includes('schedule your onboarding')) && (
         <div className="flex items-center justify-between rounded-lg border border-dashed border-[#6C4AB6]/40 bg-[#6C4AB6]/5 px-4 py-2 text-xs">
           <span className="text-[#6C4AB6]">
             Test mode — skip Calendly and simulate a completed booking?

@@ -615,6 +615,15 @@ export async function getBrokerageById(id: string): Promise<Brokerage | null> {
   }
 }
 
+export async function getBrokerageByDefaultWorkflowKey(workflowKey: string): Promise<Brokerage | null> {
+  const records = await getRecords('Brokerages', {
+    filterByFormula: `{Default Workflow Key} = '${workflowKey}'`,
+    maxRecords: 1,
+  });
+  if (records.length === 0) return null;
+  return mapAirtableToBrokerage(records[0]);
+}
+
 export async function getBrokerageBySlug(slug: string): Promise<Brokerage | null> {
   const records = await getRecords('Brokerages', {
     filterByFormula: `{Landing Page Slug} = '${slug}'`,

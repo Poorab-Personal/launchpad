@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { createRecord, updateRecord } from '@/lib/airtable-client';
-import { getWorkflowTemplates } from '@/lib/airtable';
+import { getBrokerageByDefaultWorkflowKey, getWorkflowTemplates } from '@/lib/airtable';
 import { createStripeCustomer } from '@/lib/stripe';
 
 export async function POST(request: NextRequest) {
@@ -25,6 +25,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // For B2B, link the Brokerage record so Auto 1 can pull the brokerage's
+  // Default Calendly URL into the Schedule task. We match on Default
+  // Workflow Key (e.g., B2B-Keyes) — the canonical join — instead of
+  // Channel name, since BW's Channel="BW" but Brokerage.Name="Baird & Warner".
+  const workflowKey = `${type}-${channel}`;
+  const brokerage =
+    type === 'B2B' ? await getBrokerageByDefaultWorkflowKey(workflowKey) : null;
+
   // Create the customer record — Airtable Auto 1 handles task generation
   const customerFields: Record<string, unknown> = {
     Name: name,
@@ -38,6 +46,7 @@ export async function POST(request: NextRequest) {
   if (phone) customerFields['Phone'] = phone;
   if (hasVoice) customerFields['Has Voice'] = true;
   if (hasAvatar) customerFields['Has Avatar'] = true;
+  if (brokerage) customerFields['Brokerage'] = [brokerage.id];
 
   const customerRecord = await createRecord('Customers', customerFields);
 
@@ -48,7 +57,6 @@ export async function POST(request: NextRequest) {
   // a transient Stripe outage.
   let stripeCustomerId: string | null = null;
   let stripeSyncPending = false;
-  const workflowKey = `${type}-${channel}`;
   const templates = await getWorkflowTemplates(workflowKey);
   const paymentMode = templates[0]?.paymentMode ?? null;
 
