@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { Task } from '@/types';
 
 /**
@@ -42,6 +43,35 @@ export default function EmbedTask({
   // (which depend on window.location.host) don't cause a hydration mismatch.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Dev-only: ?test=fill exposes a "Simulate booking" button that creates
+  // a synthetic Calls record + marks the task complete in one shot.
+  // Skips Calendly entirely. Test endpoint is gated by env var server-side.
+  const searchParams = useSearchParams();
+  const testFillEnabled = searchParams?.get('test') === 'fill';
+  const customerId = task.customer[0] ?? '';
+  const [simulating, setSimulating] = useState(false);
+  async function handleSimulateBooking() {
+    setSimulating(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/test/simulate-call-booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId, taskId: task.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `Simulate failed (${res.status})`);
+      }
+      setBooked(true);
+      setTimeout(() => onComplete(), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Simulate failed');
+    } finally {
+      setSimulating(false);
+    }
+  }
 
   const isVideo =
     task.taskName.toLowerCase().includes('video') ||
@@ -147,6 +177,21 @@ export default function EmbedTask({
     <div className="space-y-4">
       {task.instructions && (
         <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+      )}
+      {testFillEnabled && isCalendly && (
+        <div className="flex items-center justify-between rounded-lg border border-dashed border-[#6C4AB6]/40 bg-[#6C4AB6]/5 px-4 py-2 text-xs">
+          <span className="text-[#6C4AB6]">
+            Test mode — skip Calendly and simulate a completed booking?
+          </span>
+          <button
+            type="button"
+            onClick={handleSimulateBooking}
+            disabled={simulating || !customerId}
+            className="rounded-full bg-[#6C4AB6] px-3 py-1 font-medium text-white hover:bg-[#5A3DA5] disabled:opacity-50"
+          >
+            {simulating ? 'Simulating…' : 'Simulate booking'}
+          </button>
+        </div>
       )}
       {task.embedUrl ? (
         <div className={`relative overflow-hidden rounded-lg border border-[#E0DEE4] ${isCalendly ? 'h-[800px]' : 'h-[700px]'}`}>
