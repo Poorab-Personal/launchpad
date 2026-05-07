@@ -467,14 +467,21 @@ export default function FormTask({
   const searchParams = useSearchParams();
   const testFillEnabled = searchParams?.get('test') === 'fill';
   const handleAutoFill = useCallback(() => {
-    setForm(TEST_STUB);
+    // Use the customer's actual contact email for platformEmail so it passes
+    // the "real email" validation (the stub email isn't deliverable)
+    setForm({
+      ...TEST_STUB,
+      platformEmail: customer?.contactEmail || TEST_STUB.platformEmail,
+    });
     setTouched(new Set(Object.keys(TEST_STUB)));
     setFiles({
       agentPhoto: [makeStubImage('Agent')],
       businessLogo: [makeStubImage('Logo')],
       otherAssets: [],
     });
-  }, []);
+    // Jump to last step so the user can submit immediately
+    setStep(STEPS.length - 1);
+  }, [customer]);
 
   const update = useCallback((field: keyof FormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
