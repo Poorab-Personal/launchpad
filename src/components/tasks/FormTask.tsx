@@ -84,6 +84,39 @@ function emptyForm(): FormData {
   };
 }
 
+/**
+ * Generate a labeled placeholder PNG (200×200) as a real File. Used by the
+ * ?test=fill auto-fill so agentPhoto / businessLogo (required uploads)
+ * pass validation without manually picking a file.
+ */
+function makeStubImage(label: string): File {
+  const canvas = document.createElement('canvas');
+  canvas.width = 200;
+  canvas.height = 200;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return new File([new Uint8Array()], `test-${label.toLowerCase()}.png`, { type: 'image/png' });
+  }
+  // Random pastel background so the two images look distinct
+  const hue = Math.floor(Math.random() * 360);
+  ctx.fillStyle = `hsl(${hue}, 60%, 80%)`;
+  ctx.fillRect(0, 0, 200, 200);
+  ctx.fillStyle = '#1B2E35';
+  ctx.font = 'bold 28px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, 100, 100);
+  ctx.font = '14px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(27, 46, 53, 0.5)';
+  ctx.fillText('test', 100, 130);
+  // Canvas → blob → File (synchronous via toDataURL + atob)
+  const dataUrl = canvas.toDataURL('image/png');
+  const binary = atob(dataUrl.split(',')[1]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], `test-${label.toLowerCase()}.png`, { type: 'image/png' });
+}
+
 /** Stub data for testing — used by the ?test=fill URL param. */
 const TEST_STUB: FormData = {
   businessName: 'Test Realty Group',
@@ -436,6 +469,11 @@ export default function FormTask({
   const handleAutoFill = useCallback(() => {
     setForm(TEST_STUB);
     setTouched(new Set(Object.keys(TEST_STUB)));
+    setFiles({
+      agentPhoto: [makeStubImage('Agent')],
+      businessLogo: [makeStubImage('Logo')],
+      otherAssets: [],
+    });
   }, []);
 
   const update = useCallback((field: keyof FormData, value: string) => {
