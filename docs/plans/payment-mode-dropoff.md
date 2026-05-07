@@ -259,13 +259,26 @@ CSM action panel on `/workspace/customers/[id]` for at-risk customers:
 - Lint, typecheck, smoke test.
 - **No behavior change yet.**
 
-### Phase 1 — SetupIntent flow + Calls-trigger sub creation + workflow gating (3-4 days)
-- Stripe lib setup; `POST /api/customers/[id]/payment-setup` route; `/r/[token]/payment-setup` portal page (Stripe Elements).
-- Stripe Customer creation at B2B agent intake (for `setup-intent-at-intake` workflows).
-- Add "Capture Payment Method" task to `B2B-Keyes` template; remove "Start Your Trial".
-- Stripe webhook (`POST /api/webhooks/stripe`) for `setup_intent.succeeded` → marks task Completed (idempotent: no-op if already Completed).
-- Auto 2 unblocks any downstream `Depends On = "Capture Payment Method"` tasks.
-- Calls-driven sub creation: Airtable automation on `Calls.Status` change → calls `POST /api/webhooks/calls/completed` → LaunchPad re-checks guards → calls Stripe → writes `Customers.Stripe Subscription ID` (idempotent: no-op if already non-empty).
+### Phase 1 — SetupIntent flow + Calls-trigger sub creation + workflow gating ✓ DONE 2026-05-07
+
+Shipped sub-phases:
+- **1.1** B2B-Keyes + B2B-BW template surgery (Capture Payment Method, Create Designs, dep wiring)
+- **1.2** Stripe Plans table + 2 Keyes plans seeded
+- **1.3** Customer.Selected Stripe Price ID + Selected Plan Name fields
+- **1.4** Stripe SDK + `src/lib/stripe.ts` helpers (createStripeCustomer, createSetupIntent, createSubscription, verifyWebhookSignature) — all idempotent on Airtable customer ID
+- **1.5** Auto-create Stripe Customer at admin Customer creation (gated on Workflow.Payment Mode)
+- **1.6** PaymentSetupTask renderer + `/api/stripe/plans` + `/api/customers/[id]/payment-setup` + `/payment-setup/confirm` + new `Payment Setup` AttachmentType
+- **1.7** Stripe webhook (`/api/webhooks/stripe`) — server-side fallback for setup_intent.succeeded + sub status sync
+- **1.8** Calls-driven sub creation (`/api/webhooks/calls/completed`)
+- **1.9** Airtable automation `auto5-calls-completed-webhook.js`
+
+Pending env vars (set before turning on):
+- `STRIPE_WEBHOOK_SECRET` — set after creating the Stripe webhook endpoint in dashboard
+- `AIRTABLE_WEBHOOK_SECRET` — generate a strong random value, mirror in Airtable Automation 5's `webhookSecret` input
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` — already set per Poorab (2026-05-07)
+
+Pending Airtable automation activation:
+- Automation 5 ("Onboarding Call Completed → Create Sub") — paste auto5-calls-completed-webhook.js, configure inputs, turn on
 
 ### Phase 2 — Reminder cron + At Risk fields (2 days)
 - `vercel.json` cron config.
