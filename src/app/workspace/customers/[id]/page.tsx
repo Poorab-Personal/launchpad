@@ -9,6 +9,7 @@ import {
 import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from '@/types';
 import MarkCompleteButton from './MarkCompleteButton';
 import ProofTaskAction from './ProofTaskAction';
+import ReviewDesignsAction from './ReviewDesignsAction';
 import CallsSection from './CallsSection';
 import LogCallButton, { type CSMOption } from './LogCallButton';
 import CreateAccountAction from './CreateAccountAction';
@@ -228,6 +229,8 @@ function TaskActionPanel({
           proofRequired={requiresProof(task.taskName)}
           ctaLabel={ctaLabelForTask(task.taskName)}
         />
+      ) : task.taskName === 'Review Designs' ? (
+        <ReviewDesignsAction customerId={customerId} taskId={task.id} />
       ) : (
         <MarkCompleteButton taskId={task.id} customerId={customerId} />
       )}
