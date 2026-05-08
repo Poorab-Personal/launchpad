@@ -351,6 +351,31 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus): Prom
   return mapAirtableToTask(record);
 }
 
+/**
+ * Fetch every Active task in one round-trip and group by customer id.
+ * For dashboards/admin lists that need to show each customer's current task
+ * without making N requests.
+ */
+export async function getActiveTasksByCustomer(): Promise<Map<string, Task[]>> {
+  const records = await getRecords('Tasks', {
+    filterByFormula: `{Status} = 'Active'`,
+    sort: [
+      { field: 'Stage Order', direction: 'asc' },
+      { field: 'Task Order', direction: 'asc' },
+    ],
+  });
+  const byCustomer = new Map<string, Task[]>();
+  for (const r of records) {
+    const t = mapAirtableToTask(r);
+    for (const cid of t.customer) {
+      const list = byCustomer.get(cid) ?? [];
+      list.push(t);
+      byCustomer.set(cid, list);
+    }
+  }
+  return byCustomer;
+}
+
 // --- Workflow Templates ---
 
 export async function getWorkflowTemplates(workflowKey: string): Promise<WorkflowTemplate[]> {
