@@ -211,6 +211,7 @@ function mapAirtableToWorkflowTemplate(record: AirtableRecord): WorkflowTemplate
     product: (selectValue(f['Product']) as Product) || 'Core',
     paymentMode: (selectValue(f['Payment Mode']) as WorkflowTemplate['paymentMode']) || null,
     trialDays: (f['Trial Days'] as number) ?? 0,
+    planFeatures: (f['Plan Features'] as string) ?? '',
   };
 }
 
@@ -246,6 +247,7 @@ function mapAirtableToBrokerage(record: AirtableRecord): Brokerage {
     active: (f['Active'] as boolean) ?? false,
     includesVoice: (f['Includes Voice'] as boolean) ?? false,
     includesAvatar: (f['Includes Avatar'] as boolean) ?? false,
+    pricingTagline: (f['Pricing Tagline'] as string) ?? '',
     createdAt: (f['Created At'] as string) ?? record.createdTime,
   };
 }
@@ -770,6 +772,7 @@ export async function updateCall(id: string, fields: Partial<Call>): Promise<Cal
 
 function mapAirtableToStripePlan(record: AirtableRecord): StripePlan {
   const f = record.fields;
+  const order = f['Display Order'];
   return {
     id: record.id,
     planName: (f['Plan Name'] as string) ?? '',
@@ -777,16 +780,32 @@ function mapAirtableToStripePlan(record: AirtableRecord): StripePlan {
     stripePriceId: (f['Stripe Price ID'] as string) ?? '',
     active: (f['Active'] as boolean) ?? false,
     description: (f['Description'] as string) ?? '',
+    priceDisplay: (f['Price Display'] as string) ?? '',
+    pricePeriod: (f['Price Period'] as string) ?? '',
+    billingDetail: (f['Billing Detail'] as string) ?? '',
+    footnote: (f['Footnote'] as string) ?? '',
+    highlight: (f['Highlight'] as string) ?? '',
+    displayOrder: typeof order === 'number' ? order : null,
   };
 }
 
-/** Get all active Stripe Plans for a workflow, sorted by Plan Name. */
+/**
+ * Get all active Stripe Plans for a workflow.
+ * Sorted by Display Order ascending when set, then by Plan Name as a stable fallback.
+ * Plans without Display Order sort after plans that have one.
+ */
 export async function getStripePlansByWorkflow(workflowKey: string): Promise<StripePlan[]> {
   const records = await getRecords('Stripe Plans', {
     filterByFormula: `AND({Workflow Key} = '${workflowKey}', {Active} = TRUE())`,
     sort: [{ field: 'Plan Name', direction: 'asc' }],
   });
-  return records.map(mapAirtableToStripePlan);
+  const plans = records.map(mapAirtableToStripePlan);
+  return plans.sort((a, b) => {
+    const ao = a.displayOrder ?? Number.POSITIVE_INFINITY;
+    const bo = b.displayOrder ?? Number.POSITIVE_INFINITY;
+    if (ao !== bo) return ao - bo;
+    return a.planName.localeCompare(b.planName);
+  });
 }
 
 /** Look up a single plan by its Stripe Price ID (for sub-creation lookups). */

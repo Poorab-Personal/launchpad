@@ -182,6 +182,8 @@ export interface WorkflowTemplate {
   product: Product;
   paymentMode: PaymentMode | null;
   trialDays: number;
+  /** Newline-separated bullets, denormalized onto every WT row sharing a Workflow Key. Single writer = seed. */
+  planFeatures: string;
 }
 
 // ─── Table 4: Team Members ──────────────────────────────────────────
@@ -215,6 +217,8 @@ export interface Brokerage {
   active: boolean;
   includesVoice: boolean;
   includesAvatar: boolean;
+  /** Pricing-page subhead. Supports `{Name}` substitution. Empty = caller falls back to default. */
+  pricingTagline: string;
   createdAt: string;
 }
 
@@ -265,6 +269,13 @@ export interface StripePlan {
   stripePriceId: string;
   active: boolean;
   description: string;
+  priceDisplay: string;
+  pricePeriod: string;
+  billingDetail: string;
+  footnote: string;
+  highlight: string;
+  /** Optional. If set, used for ascending sort. Otherwise falls back to Plan Name alpha. */
+  displayOrder: number | null;
 }
 
 // ─── Table 8: Calls ─────────────────────────────────────────────────
