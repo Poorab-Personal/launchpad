@@ -78,11 +78,14 @@ export async function POST(request: NextRequest) {
 
   // Append all to Customer.Design Proof — preserves history of all proof revisions.
   // Customer-portal ProofTask renders the full set as a gallery.
+  // Also stamp Design Proofs Updated At so the gallery can show "Updated today / N days ago"
+  // (we can't get per-attachment timestamps from Airtable, so this is one-per-batch).
   const customerRecord = await getRecord('Customers', customerId);
   const existingProofs = customerRecord.fields['Design Proof'];
   const proofs = Array.isArray(existingProofs) ? existingProofs : [];
   await updateRecord('Customers', customerId, {
     'Design Proof': [...proofs, ...uploaded],
+    'Design Proofs Updated At': new Date().toISOString(),
   });
 
   // Mark task complete — triggers Auto 2 to activate Review & Approve customer task

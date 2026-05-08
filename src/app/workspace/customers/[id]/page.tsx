@@ -118,6 +118,23 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * "Updated today" / "Updated 3 days ago" / "Updated on May 12" — coarse,
+ * one-stamp-per-batch precision. We deliberately don't track per-attachment
+ * timestamps (Airtable doesn't expose them); the round-grouped gallery is
+ * deferred until customers actually need it.
+ */
+function relativeUpdatedLabel(iso: string): string | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  const days = Math.floor((Date.now() - t) / 86_400_000);
+  if (days <= 0) return 'Updated today';
+  if (days === 1) return 'Updated yesterday';
+  if (days < 14) return `Updated ${days} days ago`;
+  return `Updated on ${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
+
 function BioField({ value }: { value: string }) {
   if (!value) {
     return <Field label="Bio" value={value} />;
@@ -444,16 +461,23 @@ export default async function CustomerDetailPage({
           </section>
 
           <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
-            <div className="mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70">
-                Design Proofs
-              </h2>
-              <p className="text-xs text-[#1B2E35]/50 mt-0.5">
-                Files uploaded by the design team.{' '}
-                <strong className="text-[#6C4AB6]">
-                  The latest version is shown to the customer in their portal.
-                </strong>
-              </p>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70">
+                  Design Proofs
+                </h2>
+                <p className="text-xs text-[#1B2E35]/50 mt-0.5">
+                  Files uploaded by the design team.{' '}
+                  <strong className="text-[#6C4AB6]">
+                    The latest version is shown to the customer in their portal.
+                  </strong>
+                </p>
+              </div>
+              {customer.designProofsUpdatedAt && customer.designProof.length > 0 && (
+                <span className="shrink-0 rounded-full bg-[#F7F4EB] px-2.5 py-0.5 text-[11px] font-medium text-[#1B2E35]/60">
+                  {relativeUpdatedLabel(customer.designProofsUpdatedAt)}
+                </span>
+              )}
             </div>
             {customer.designProof.length === 0 ? (
               <p className="text-sm text-[#1B2E35]/40 italic">

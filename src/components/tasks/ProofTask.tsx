@@ -26,6 +26,19 @@ export default function ProofTask({
   // reviews the full set. Newest is last in array.
   const proofs = customer?.designProof ?? [];
   const hasProofs = proofs.length > 0;
+  // One stamp per upload batch (we don't have per-attachment timestamps).
+  // Tells the customer how fresh the latest set is. Round-grouping deferred.
+  const updatedAtIso = customer?.designProofsUpdatedAt ?? '';
+  const updatedLabel = (() => {
+    if (!updatedAtIso) return null;
+    const t = new Date(updatedAtIso).getTime();
+    if (isNaN(t)) return null;
+    const days = Math.floor((Date.now() - t) / 86_400_000);
+    if (days <= 0) return 'Updated today';
+    if (days === 1) return 'Updated yesterday';
+    if (days < 14) return `Updated ${days} days ago`;
+    return `Updated on ${new Date(updatedAtIso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  })();
 
   async function handleApprove() {
     setLoading('approve');
@@ -88,6 +101,11 @@ export default function ProofTask({
               {hasProofs && proofs.length > 1 ? `Design Proofs (${proofs.length})` : 'Design Proof'}
             </span>
           </div>
+          {hasProofs && updatedLabel && (
+            <span className="rounded-full bg-[#F7F4EB] px-2.5 py-0.5 text-[11px] font-medium text-[#1B2E35]/60">
+              {updatedLabel}
+            </span>
+          )}
         </div>
         <div className="p-4">
           {hasProofs ? (

@@ -98,6 +98,8 @@ export interface Customer {
   designFeedback: string;
   designRevisionCount: number;
   designProof: AirtableAttachment[];
+  /** Set on every workspace design-proof upload. Drives the "Updated N days ago" label on the gallery. */
+  designProofsUpdatedAt: string;
 
   // Add-ons
   hasVoice: boolean;

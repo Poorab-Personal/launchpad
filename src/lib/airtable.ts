@@ -126,6 +126,7 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     designFeedback: (f['Design Feedback'] as string) ?? '',
     designRevisionCount: (f['Design Revision Count'] as number) ?? 0,
     designProof: attachments(f['Design Proof']),
+    designProofsUpdatedAt: (f['Design Proofs Updated At'] as string) ?? '',
 
     // Status Tracking
     currentStage: (f['Current Stage'] as string) ?? '',
