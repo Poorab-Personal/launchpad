@@ -293,11 +293,13 @@ export default async function CustomerDetailPage({
     ? memberMap.get(headerCurrentTask.assignedTo[0])?.name
     : undefined;
 
-  // CSM/Admin can edit calls (notes, recording URL) and log ad-hoc calls.
+  // CSM/Admin can see + edit calls (notes, recording URL) and log ad-hoc calls.
+  // Use the effective role (ctx) so an Admin viewing-as a Designer sees the
+  // Designer's UI, not the Admin's.
   const canEditCalls =
-    session.role === 'Admin' ||
-    session.role === 'CSM' ||
-    session.role === 'Senior CSM';
+    ctx.role === 'Admin' ||
+    ctx.role === 'CSM' ||
+    ctx.role === 'Senior CSM';
   const csmOptions: CSMOption[] = members
     .filter((m) => (m.role === 'CSM' || m.role === 'Senior CSM') && m.active)
     .map((m) => ({ id: m.id, name: m.name }));
@@ -503,7 +505,9 @@ export default async function CustomerDetailPage({
             </dl>
           </section>
 
-          <CallsSection customerId={customerId} canEdit={canEditCalls} />
+          {canEditCalls && (
+            <CallsSection customerId={customerId} canEdit={canEditCalls} />
+          )}
         </div>
 
         {/* Right rail: Action panel + Tasks */}
