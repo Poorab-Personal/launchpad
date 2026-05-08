@@ -223,7 +223,7 @@ function mapAirtableToTeamMember(record: AirtableRecord): TeamMember {
     email: (f['Email'] as string) ?? '',
     slackHandle: (f['Slack Handle'] as string) ?? '',
     calendlyUrl: (f['Calendly URL'] as string) ?? '',
-    role: (selectValue(f['Role']) as TeamMember['role']) || 'Onboarding Ops',
+    role: (selectValue(f['Role']) as TeamMember['role']) || 'Account Creator',
     active: (f['Active'] as boolean) ?? false,
     isDefault: (f['Default'] as boolean) ?? false,
     createdAt: (f['Created At'] as string) ?? record.createdTime,

@@ -26,7 +26,6 @@ export type TeamRole =
   | 'CSM'
   | 'Senior CSM'
   | 'Account Creator'
-  | 'Onboarding Ops'
   | 'Sales'
   | 'Admin';
 
