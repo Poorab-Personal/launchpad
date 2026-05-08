@@ -33,7 +33,12 @@ export default function ProofTaskAction({
 
   function addFiles(newFiles: FileList | null) {
     if (!newFiles || newFiles.length === 0) return;
-    const oversized = Array.from(newFiles).find((f) => f.size > MAX_FILE_SIZE);
+    // Snapshot the FileList to a plain array immediately. We clear the input
+    // value below so the user can re-pick the same file later, but clearing
+    // also empties the live FileList ref — anything captured into a setState
+    // updater would then see zero files. Snapshot up front to avoid that.
+    const additions = Array.from(newFiles);
+    const oversized = additions.find((f) => f.size > MAX_FILE_SIZE);
     if (oversized) {
       setError(
         `${oversized.name} is ${(oversized.size / 1_000_000).toFixed(1)}MB — max is 3.5MB per file.`,
@@ -44,10 +49,10 @@ export default function ProofTaskAction({
     // Append, dedupe by name+size+lastModified (avoid double-pick of the same file)
     setPickedFiles((prev) => {
       const seen = new Set(prev.map((f) => `${f.name}::${f.size}::${f.lastModified}`));
-      const additions = Array.from(newFiles).filter(
+      const fresh = additions.filter(
         (f) => !seen.has(`${f.name}::${f.size}::${f.lastModified}`),
       );
-      return [...prev, ...additions];
+      return [...prev, ...fresh];
     });
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
