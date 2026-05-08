@@ -21,7 +21,9 @@ function allowsProofUpload(name: string): boolean {
   return (
     name === 'Create Designs' ||
     name === 'Upload Proof to Customer' ||
-    /^(Revise Design|Upload Revised Proof) \(Round/i.test(name)
+    // Customer-driven revision rounds: "Revise Design (Round N)" + "Upload Revised Proof (Round N)"
+    // Senior-driven internal revisions: "Revise Design (Internal Round N)"
+    /^(Revise Design|Upload Revised Proof) \((Internal )?Round/i.test(name)
   );
 }
 

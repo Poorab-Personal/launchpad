@@ -61,9 +61,10 @@ export async function POST(
       });
 
       // Auto-complete any pending revision tasks (Revise Design, Review Revision,
-      // Upload Revised Proof — across all rounds). Once the customer approves,
-      // these are stale and would otherwise sit in designers' queues forever.
-      const REVISION_TASK_RE = /^(Revise Design|Review Revision|Upload Revised Proof) \(Round /;
+      // Upload Revised Proof — across all rounds, customer-driven OR senior-driven
+      // internal). Once the customer approves, these are stale and would otherwise
+      // sit in designers' queues forever.
+      const REVISION_TASK_RE = /^(Revise Design|Review Revision|Upload Revised Proof) \((Internal )?Round /;
       const pendingRevisions = allTaskRecords.filter(
         (t) =>
           linkedId(t.fields['Customer']) === customerId &&
