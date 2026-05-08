@@ -154,8 +154,14 @@ export default async function AdminPage({
                         </div>
                         <div className="text-[11px] text-[#1B2E35]/50 ml-4">
                           {days === 0 ? 'today' : `${days}d active`}
-                          {currentTask.taskType === 'Team' && (
-                            <span className="ml-1.5 text-[#1B2E35]/40">· team</span>
+                          {currentTask.taskType === 'Team' ? (
+                            <span className="ml-1.5 text-[#1B2E35]/60">
+                              · {currentTask.assignedTo.length > 0
+                                ? currentTask.assignedTo.map((id) => memberNameMap.get(id) ?? id).join(', ')
+                                : <span className="text-[#EC531A]">unassigned</span>}
+                            </span>
+                          ) : (
+                            <span className="ml-1.5 text-[#1B2E35]/40 italic">· awaiting customer</span>
                           )}
                         </div>
                       </div>
