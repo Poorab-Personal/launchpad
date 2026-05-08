@@ -21,6 +21,94 @@ function LockIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Stage-specific "what happens next" guidance shown when the customer is
+ * waiting for the team. Keys are stage names matching Workflow Templates.
+ * If a stage isn't here, we fall back to the generic message.
+ *
+ * `etaDays` is intentionally hardcoded — we don't track real SLAs yet, but
+ * customers want to know roughly when to expect movement, not silence.
+ */
+const STAGE_GUIDANCE: Record<string, { etaDays: string; bullets: string[] }> = {
+  'Getting Started': {
+    etaDays: '1–3 business days',
+    bullets: [
+      'Our designers create your custom brand kit from your photo, logo, and bio',
+      'A senior designer reviews and approves the final look',
+      'You’ll get an email when your proof is ready to review',
+    ],
+  },
+  'Prepare for Onboarding': {
+    etaDays: '1–2 business days',
+    bullets: [
+      'We create your Rejig.ai account using the email you provided',
+      'Login credentials are sent to your inbox',
+      'Your onboarding call lead will reach out before the scheduled time',
+    ],
+  },
+  'Book Your Call': {
+    etaDays: '1–2 business days',
+    bullets: [
+      'Final design touch-ups happen on our side',
+      'Your account gets provisioned and credentialed',
+      'You’ll receive an email with everything you need before the call',
+    ],
+  },
+  'Review & Grow': {
+    etaDays: 'Within the next 2 weeks',
+    bullets: [
+      'Your CSM checks in to make sure everything’s working',
+      'You’ll be invited to share quick onboarding feedback',
+      'Two follow-up calls scheduled over the coming weeks',
+    ],
+  },
+};
+
+function WaitingPanel({ stage }: { stage: string }) {
+  const guidance = STAGE_GUIDANCE[stage];
+  if (!guidance) {
+    return (
+      <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35]/74 shadow-[0px_4px_12px_#1B2E3514]">
+        <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <span>Our team is working on the next step. We&apos;ll email you when something needs your attention.</span>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 shadow-[0px_4px_12px_#1B2E3514] space-y-4">
+      <div className="flex items-start gap-3">
+        <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <div>
+          <p className="text-sm font-semibold text-[#1B2E35]">Here&apos;s what happens next</p>
+          <p className="mt-0.5 text-xs text-[#1B2E35]/60">
+            Estimated turnaround: <span className="font-medium text-[#1B2E35]/80">{guidance.etaDays}</span>
+          </p>
+        </div>
+      </div>
+
+      <ul className="space-y-2 ml-8">
+        {guidance.bullets.map((b) => (
+          <li key={b} className="flex items-start gap-2 text-sm text-[#1B2E35]/80">
+            <svg className="h-4 w-4 shrink-0 text-[#05C68E] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+            </svg>
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="ml-8 text-xs text-[#1B2E35]/60 border-t border-[#E0DEE4] pt-3">
+        We&apos;ll email you the moment your next step is ready. If anything stalls on our side,
+        you&apos;ll get a gentle reminder so nothing slips through the cracks.
+      </div>
+    </div>
+  );
+}
+
 export default function TaskList({
   initialTasks,
   customerId,
@@ -345,25 +433,24 @@ export default function TaskList({
 
         {/* If no visible tasks in current stage (e.g., Onboarding Call — team only) */}
         {currentStageTasks.length === 0 && (
-          <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514]">
-            <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-            </svg>
-            <span>
-              {customer.callDate
-                ? `Your onboarding call is scheduled for ${new Date(customer.callDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`
-                : "Our team is working on the next step. We'll notify you when something needs your attention."}
-            </span>
-          </div>
+          customer.callDate ? (
+            <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514]">
+              <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+              <span>
+                Your onboarding call is scheduled for {new Date(customer.callDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </span>
+            </div>
+          ) : (
+            <WaitingPanel stage={currentStage} />
+          )
         )}
 
         {/* If all visible tasks are completed and team is working (waiting state) */}
         {currentStageTasks.length > 0 && !hasActiveTasks && (
-          <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35]/74 mb-4 shadow-[0px_4px_12px_#1B2E3514]">
-            <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-            </svg>
-            <span>Our team is working on the next step. We&apos;ll email you when something needs your attention.</span>
+          <div className="mb-4">
+            <WaitingPanel stage={currentStage} />
           </div>
         )}
 

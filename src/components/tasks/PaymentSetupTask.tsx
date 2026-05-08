@@ -195,9 +195,17 @@ function PricingPage({
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
-      <header className="text-center space-y-2">
+      <header className="text-center space-y-3">
         <h2 className="text-3xl font-semibold tracking-tight text-[#1B2E35]">{heading}</h2>
         <p className="text-[#1B2E35]/70">{tagline}</p>
+        {trialDays > 0 && (
+          <p className="inline-flex items-center gap-1.5 text-xs font-medium text-[#EC531A]">
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            No charge today · {trialDays}-day free trial
+          </p>
+        )}
       </header>
 
       <div className={`grid gap-4 ${gridCols}`}>
@@ -485,7 +493,9 @@ function CardForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement />
+      {/* layout="tabs" puts each payment method side-by-side with Card pre-selected
+          (no extra click to expand). Default accordion collapses everything. */}
+      <PaymentElement options={{ layout: 'tabs' }} />
       {error && (
         <div className="rounded-lg border border-[#EC531A]/30 bg-[#EC531A]/5 px-4 py-3 text-sm text-[#EC531A]">
           {error}
