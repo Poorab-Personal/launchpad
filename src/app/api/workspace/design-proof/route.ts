@@ -25,24 +25,28 @@ export async function POST(request: NextRequest) {
   const session = await requireSession();
 
   const formData = await request.formData();
-  const file = formData.get('file') as File | null;
+  const files = formData.getAll('file').filter((v): v is File => v instanceof File);
   const customerId = formData.get('customerId') as string | null;
   const taskId = formData.get('taskId') as string | null;
 
-  if (!file || !customerId || !taskId) {
+  if (files.length === 0 || !customerId || !taskId) {
     return Response.json(
-      { error: 'Missing required fields: file, customerId, taskId' },
+      { error: 'Missing required fields: at least one file, customerId, taskId' },
       { status: 400 },
     );
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    return Response.json(
-      {
-        error: `File too large (${(file.size / 1_000_000).toFixed(1)}MB). Maximum is 3.5MB.`,
-      },
-      { status: 413 },
-    );
+  // Per-file size guard. Reject the whole batch on the first oversize file —
+  // we don't want to half-upload and leave the designer guessing what made it.
+  for (const f of files) {
+    if (f.size > MAX_FILE_SIZE) {
+      return Response.json(
+        {
+          error: `${f.name} is ${(f.size / 1_000_000).toFixed(1)}MB. Max is 3.5MB per file.`,
+        },
+        { status: 413 },
+      );
+    }
   }
 
   // Verify the task is assigned to the current user (or admin)
@@ -63,17 +67,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Upload to Blob with random suffix — prevents collisions when the same
-  // filename is uploaded multiple times (e.g. designer iterating on proof.pdf).
-  const blob = await put(file.name, file, { access: 'public', addRandomSuffix: true });
+  // Upload all files in parallel. Random suffix prevents collisions when the
+  // same filename is uploaded again (e.g. designer iterating on proof.pdf).
+  const uploaded = await Promise.all(
+    files.map(async (f) => {
+      const blob = await put(f.name, f, { access: 'public', addRandomSuffix: true });
+      return { url: blob.url, filename: f.name };
+    }),
+  );
 
-  // Append to Customer.Design Proof — preserves history of all proof revisions.
-  // Newest is last; customer-portal ProofTask reads the latest.
+  // Append all to Customer.Design Proof — preserves history of all proof revisions.
+  // Customer-portal ProofTask renders the full set as a gallery.
   const customerRecord = await getRecord('Customers', customerId);
   const existingProofs = customerRecord.fields['Design Proof'];
   const proofs = Array.isArray(existingProofs) ? existingProofs : [];
   await updateRecord('Customers', customerId, {
-    'Design Proof': [...proofs, { url: blob.url, filename: file.name }],
+    'Design Proof': [...proofs, ...uploaded],
   });
 
   // Mark task complete — triggers Auto 2 to activate Review & Approve customer task
@@ -86,11 +95,13 @@ export async function POST(request: NextRequest) {
   // The file was uploaded and the task was marked complete; don't punish the user
   // for an audit-log issue.
   try {
+    const fileNames = uploaded.map((u) => u.filename).join(', ');
+    const fileWord = uploaded.length === 1 ? 'proof' : 'proofs';
     await createEvent(
       customerId,
       'Task Completed',
       'Team Member',
-      `Design proof uploaded (${file.name}) and task marked complete.`,
+      `Design ${fileWord} uploaded (${fileNames}) and task marked complete.`,
       taskId,
       session.memberId,
     );
@@ -125,7 +136,7 @@ export async function POST(request: NextRequest) {
 
   return Response.json({
     ok: true,
-    url: blob.url,
-    filename: file.name,
+    uploaded,
+    count: uploaded.length,
   });
 }

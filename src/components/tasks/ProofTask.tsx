@@ -21,10 +21,11 @@ export default function ProofTask({
   const [feedbackText, setFeedbackText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // Show the LATEST proof (last in array). Append-only history of revisions
-  // means the most recent upload is what the customer should review.
+  // Render every uploaded proof as a gallery. Designers can submit multiple
+  // mockups per round (e.g. Instagram post + Story + Reel cover); customer
+  // reviews the full set. Newest is last in array.
   const proofs = customer?.designProof ?? [];
-  const proofUrl = proofs[proofs.length - 1]?.url;
+  const hasProofs = proofs.length > 0;
 
   async function handleApprove() {
     setLoading('approve');
@@ -76,24 +77,49 @@ export default function ProofTask({
         <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
       )}
 
-      {/* Proof image */}
+      {/* Proof gallery */}
       <div className="overflow-hidden rounded-lg border border-[#E0DEE4] bg-[#F7F4EB]">
-        <div className="flex items-center gap-2 border-b border-[#E0DEE4] bg-white px-4 py-3">
-          <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
-          </svg>
-          <span className="text-sm font-medium text-[#1B2E35]">Design Proof</span>
+        <div className="flex items-center justify-between gap-2 border-b border-[#E0DEE4] bg-white px-4 py-3">
+          <div className="flex items-center gap-2">
+            <svg className="h-5 w-5 text-[#6C4AB6]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+            </svg>
+            <span className="text-sm font-medium text-[#1B2E35]">
+              {hasProofs && proofs.length > 1 ? `Design Proofs (${proofs.length})` : 'Design Proof'}
+            </span>
+          </div>
         </div>
-        <div className="flex flex-col items-center justify-center p-4">
-          {proofUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={proofUrl}
-              alt="Design proof"
-              className="max-w-full rounded-lg"
-            />
+        <div className="p-4">
+          {hasProofs ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {proofs.map((proof, i) => (
+                <a
+                  key={`${proof.url}-${i}`}
+                  href={proof.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group block overflow-hidden rounded-lg bg-white border border-[#E0DEE4] hover:border-[#6C4AB6]/40 transition-colors"
+                >
+                  <div className="aspect-[4/3] bg-[#F7F4EB] flex items-center justify-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={proof.url}
+                      alt={proof.filename ?? `Design proof ${i + 1}`}
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                  {proof.filename && (
+                    <div className="px-3 py-2 border-t border-[#E0DEE4]">
+                      <p className="text-xs text-[#1B2E35]/70 truncate group-hover:text-[#6C4AB6]">
+                        {proof.filename}
+                      </p>
+                    </div>
+                  )}
+                </a>
+              ))}
+            </div>
           ) : (
-            <div className="w-full max-w-md">
+            <div className="w-full max-w-md mx-auto">
               <div className="aspect-[4/3] rounded-lg bg-gradient-to-br from-[#6C4AB6]/10 via-[#F7F4EB] to-[#05C68E]/10 flex items-center justify-center">
                 <div className="text-center space-y-3 p-6">
                   <div className="mx-auto h-16 w-16 rounded-full bg-white/60 flex items-center justify-center">
@@ -199,7 +225,7 @@ export default function ProofTask({
         <div className="flex flex-wrap gap-3">
           <button
             onClick={() => setMode('confirming-approve')}
-            disabled={loading !== null || !proofUrl}
+            disabled={loading !== null || !hasProofs}
             className="inline-flex items-center gap-2 rounded-full bg-[#05C68E] px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#04946A] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -209,7 +235,7 @@ export default function ProofTask({
           </button>
           <button
             onClick={() => setMode('requesting-changes')}
-            disabled={loading !== null || !proofUrl}
+            disabled={loading !== null || !hasProofs}
             className="inline-flex items-center gap-2 rounded-full border border-[#1B2E35]/20 bg-white px-6 py-2.5 text-sm font-medium text-[#1B2E35] transition-colors hover:bg-[#F7F4EB] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Request Changes

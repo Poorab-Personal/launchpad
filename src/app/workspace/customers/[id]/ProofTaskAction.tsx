@@ -4,6 +4,8 @@ import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { markTaskComplete } from './actions';
 
+const MAX_FILE_SIZE = 3_500_000;
+
 export default function ProofTaskAction({
   customerId,
   taskId,
@@ -14,30 +16,54 @@ export default function ProofTaskAction({
   customerId: string;
   taskId: string;
   hasExistingProof: boolean;
-  /** When true, must have either an existing proof or a newly-picked file before marking complete */
+  /** When true, must have either an existing proof or at least one newly-picked file before marking complete */
   proofRequired: boolean;
   ctaLabel: string;
 }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pickedFile, setPickedFile] = useState<File | null>(null);
+  const [pickedFiles, setPickedFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [pendingTransition, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const pending = busy || pendingTransition;
-  const canSubmit = !proofRequired || hasExistingProof || pickedFile !== null;
+  const canSubmit = !proofRequired || hasExistingProof || pickedFiles.length > 0;
   const buttonDisabled = pending || !canSubmit;
+
+  function addFiles(newFiles: FileList | null) {
+    if (!newFiles || newFiles.length === 0) return;
+    const oversized = Array.from(newFiles).find((f) => f.size > MAX_FILE_SIZE);
+    if (oversized) {
+      setError(
+        `${oversized.name} is ${(oversized.size / 1_000_000).toFixed(1)}MB — max is 3.5MB per file.`,
+      );
+      return;
+    }
+    setError(null);
+    // Append, dedupe by name+size+lastModified (avoid double-pick of the same file)
+    setPickedFiles((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}::${f.size}::${f.lastModified}`));
+      const additions = Array.from(newFiles).filter(
+        (f) => !seen.has(`${f.name}::${f.size}::${f.lastModified}`),
+      );
+      return [...prev, ...additions];
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function removeFile(index: number) {
+    setPickedFiles((prev) => prev.filter((_, i) => i !== index));
+  }
 
   async function handleSubmit() {
     setError(null);
 
-    // Path A: a new file was picked → upload then mark complete (server route does both)
-    if (pickedFile) {
+    if (pickedFiles.length > 0) {
       setBusy(true);
       try {
         const fd = new FormData();
-        fd.append('file', pickedFile);
+        for (const file of pickedFiles) fd.append('file', file);
         fd.append('customerId', customerId);
         fd.append('taskId', taskId);
         const res = await fetch('/api/workspace/design-proof', {
@@ -56,7 +82,7 @@ export default function ProofTaskAction({
       return;
     }
 
-    // Path B: no new file → just mark complete (proof already exists for required tasks)
+    // No new files picked → just mark complete (existing proof must already satisfy proofRequired)
     startTransition(async () => {
       const res = await markTaskComplete(taskId, customerId);
       if (!res.ok) {
@@ -67,57 +93,64 @@ export default function ProofTaskAction({
     });
   }
 
+  const fileCount = pickedFiles.length;
+
   return (
     <div className="space-y-2">
       <div>
         <label className="block text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold mb-1.5">
-          {hasExistingProof ? 'Replace proof (optional)' : `Attach proof${proofRequired ? '' : ' (optional)'}`}
+          {hasExistingProof
+            ? `Add more files${proofRequired ? '' : ' (optional)'}`
+            : `Attach proofs${proofRequired ? '' : ' (optional)'}`}
         </label>
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*,application/pdf"
+          multiple
           className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) setPickedFile(f);
-          }}
+          onChange={(e) => addFiles(e.target.files)}
         />
-        {pickedFile ? (
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-[#6C4AB6]/30 bg-[#6C4AB6]/5 px-3 py-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-[#6C4AB6] truncate">
-                {pickedFile.name}
-              </p>
-              <p className="text-[10px] text-[#1B2E35]/50">
-                {(pickedFile.size / 1_000_000).toFixed(1)}MB
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setPickedFile(null);
-                if (fileInputRef.current) fileInputRef.current.value = '';
-              }}
-              className="text-xs text-[#1B2E35]/50 hover:text-[#EC531A]"
-            >
-              Remove
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full rounded-lg border border-dashed border-[#E0DEE4] bg-white px-3 py-2 text-xs text-[#1B2E35]/60 hover:border-[#6C4AB6]/50 hover:text-[#6C4AB6] transition-colors"
-          >
-            Choose file… (PNG, JPG, PDF · max 3.5MB)
-          </button>
+
+        {fileCount > 0 && (
+          <ul className="space-y-1.5 mb-2">
+            {pickedFiles.map((f, i) => (
+              <li
+                key={`${f.name}-${f.size}-${f.lastModified}`}
+                className="flex items-center justify-between gap-2 rounded-lg border border-[#6C4AB6]/30 bg-[#6C4AB6]/5 px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-[#6C4AB6] truncate">{f.name}</p>
+                  <p className="text-[10px] text-[#1B2E35]/50">
+                    {(f.size / 1_000_000).toFixed(1)}MB
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeFile(i)}
+                  className="text-xs text-[#1B2E35]/50 hover:text-[#EC531A]"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
+
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full rounded-lg border border-dashed border-[#E0DEE4] bg-white px-3 py-2 text-xs text-[#1B2E35]/60 hover:border-[#6C4AB6]/50 hover:text-[#6C4AB6] transition-colors"
+        >
+          {fileCount > 0
+            ? '+ Add more files'
+            : 'Choose files… (PNG, JPG, PDF · max 3.5MB each)'}
+        </button>
       </div>
 
-      {proofRequired && !hasExistingProof && !pickedFile && (
+      {proofRequired && !hasExistingProof && fileCount === 0 && (
         <p className="text-xs text-[#1B2E35]/50">
-          A proof must be attached before sending to the customer.
+          At least one file must be attached before sending to the customer.
         </p>
       )}
 
@@ -128,11 +161,11 @@ export default function ProofTaskAction({
         className="w-full rounded-full bg-[#05C68E] px-4 py-2 text-sm font-medium text-white hover:bg-[#04946A] disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {pending
-          ? pickedFile
-            ? 'Uploading…'
+          ? fileCount > 0
+            ? `Uploading ${fileCount} file${fileCount === 1 ? '' : 's'}…`
             : 'Saving…'
-          : pickedFile
-            ? `Upload & ${ctaLabel}`
+          : fileCount > 0
+            ? `Upload ${fileCount} file${fileCount === 1 ? '' : 's'} & ${ctaLabel}`
             : ctaLabel}
       </button>
 
