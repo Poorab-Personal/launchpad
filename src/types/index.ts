@@ -32,6 +32,8 @@ export type TeamRole =
 export type ActorType = 'Customer' | 'Team Member' | 'System';
 
 export interface AirtableAttachment {
+  /** Airtable-assigned attachment id (`att...`). Present on reads, omitted when writing new attachments. */
+  id?: string;
   url: string;
   filename?: string;
 }
@@ -98,7 +100,9 @@ export interface Customer {
   designFeedback: string;
   designRevisionCount: number;
   designProof: AirtableAttachment[];
-  /** Set on every workspace design-proof upload. Drives the "Updated N days ago" label on the gallery. */
+  /** Internal design work-in-progress. Append-only by internal upload tasks. Customer never sees this. */
+  designDrafts: AirtableAttachment[];
+  /** Stamped only when Kaushal sends a curated set to the customer (Upload Proof to Customer or Upload Revised Proof). */
   designProofsUpdatedAt: string;
 
   // Add-ons

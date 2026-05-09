@@ -10,6 +10,7 @@ import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from 
 import MarkCompleteButton from './MarkCompleteButton';
 import ProofTaskAction from './ProofTaskAction';
 import ReviewDesignsAction from './ReviewDesignsAction';
+import SendToCustomerAction from './SendToCustomerAction';
 import CallsSection from './CallsSection';
 import LogCallButton, { type CSMOption } from './LogCallButton';
 import CreateAccountAction from './CreateAccountAction';
@@ -17,29 +18,26 @@ import SendCredentialsAction from './SendCredentialsAction';
 
 const BIO_COLLAPSE_THRESHOLD = 180;
 
-function allowsProofUpload(name: string): boolean {
-  return (
-    name === 'Create Designs' ||
-    name === 'Upload Proof to Customer' ||
-    // Customer-driven revision rounds: "Revise Design (Round N)" + "Upload Revised Proof (Round N)"
-    // Senior-driven internal revisions: "Revise Design (Internal Round N)"
-    /^(Revise Design|Upload Revised Proof) \((Internal )?Round/i.test(name)
-  );
+/**
+ * Internal upload tasks — designer adds work-in-progress to Design Drafts.
+ * Uses the inline ProofTaskAction (multi-file picker, marks task complete on submit).
+ */
+function isInternalUploadTask(name: string): boolean {
+  return name === 'Create Designs' || /^Revise Design \((Internal )?Round/i.test(name);
 }
 
 /**
- * "Send to customer" tasks where a proof is required before completing.
- * These activate the customer's review/email step downstream.
+ * Send-to-customer tasks — Kaushal curates which Drafts to ship + can add new files.
+ * Uses the SendToCustomerAction modal. The API replaces Customer.Design Proof.
  */
-function requiresProof(name: string): boolean {
-  return (
-    name === 'Upload Proof to Customer' ||
-    /^Upload Revised Proof \(Round/i.test(name)
-  );
+function isSendToCustomerTask(name: string): boolean {
+  return name === 'Upload Proof to Customer' || /^Upload Revised Proof \(Round/i.test(name);
 }
 
 function ctaLabelForTask(name: string): string {
-  return requiresProof(name) ? 'Send to Customer' : 'Mark Complete';
+  if (isSendToCustomerTask(name)) return 'Send to Customer';
+  if (isInternalUploadTask(name)) return 'Upload & Mark Complete';
+  return 'Mark Complete';
 }
 
 function StatusDot({ status }: { status: TaskStatus }) {
@@ -202,8 +200,17 @@ function TaskActionPanel({
   }
 
   const showFeedback = /Revis(e|ion)|Round/i.test(task.taskName) && customer.designFeedback;
-  const isProofTask = allowsProofUpload(task.taskName);
-  const latestProof = customer.designProof[customer.designProof.length - 1];
+  const isInternal = isInternalUploadTask(task.taskName);
+  const isSendTask = isSendToCustomerTask(task.taskName);
+  // For internal tasks (incl. Review Designs) the latest activity is in Drafts.
+  // For send tasks and downstream the latest activity is what was sent (Design Proof).
+  const previewSet = isSendTask ? customer.designProof : customer.designDrafts;
+  const previewLatest = previewSet[previewSet.length - 1];
+  const previewLabel = isSendTask
+    ? 'Last sent to customer'
+    : customer.designDrafts.length > 0
+      ? 'Latest draft'
+      : '';
 
   return (
     <div className="space-y-3">
@@ -225,27 +232,35 @@ function TaskActionPanel({
           <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">{task.notes}</p>
         </div>
       )}
-      {isProofTask && latestProof && (
+      {(isInternal || isSendTask) && previewLatest && previewLabel && (
         <div className="rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] p-3 space-y-1">
           <p className="text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold">
-            Current proof
+            {previewLabel}
           </p>
           <a
-            href={latestProof.url}
+            href={previewLatest.url}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-[#6C4AB6] hover:underline line-clamp-1"
           >
-            {latestProof.filename ?? 'View proof'}
+            {previewLatest.filename ?? 'View file'}
           </a>
         </div>
       )}
-      {isProofTask ? (
+      {isSendTask ? (
+        <SendToCustomerAction
+          customerId={customerId}
+          taskId={task.id}
+          ctaLabel={ctaLabelForTask(task.taskName)}
+          drafts={customer.designDrafts}
+          currentlySent={customer.designProof}
+        />
+      ) : isInternal ? (
         <ProofTaskAction
           customerId={customerId}
           taskId={task.id}
-          hasExistingProof={!!latestProof}
-          proofRequired={requiresProof(task.taskName)}
+          hasExistingProof={false}
+          proofRequired={false}
           ctaLabel={ctaLabelForTask(task.taskName)}
         />
       ) : task.taskName === 'Review Designs' ? (
@@ -461,16 +476,43 @@ export default async function CustomerDetailPage({
           </section>
 
           <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70">
+                Design Drafts
+              </h2>
+              <p className="text-xs text-[#1B2E35]/50 mt-0.5">
+                Internal work-in-progress from the design team. Customer does not see these.
+              </p>
+            </div>
+            {customer.designDrafts.length === 0 ? (
+              <p className="text-sm text-[#1B2E35]/40 italic">
+                No drafts uploaded yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 max-w-md">
+                {[...customer.designDrafts].reverse().map((a, i) => {
+                  const total = customer.designDrafts.length;
+                  const versionNum = total - i;
+                  return (
+                    <AssetThumb
+                      key={`draft-${i}`}
+                      attachment={a}
+                      label={i === 0 ? `Draft ${versionNum} · Latest` : `Draft ${versionNum}`}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70">
-                  Design Proofs
+                  Sent to Customer
                 </h2>
                 <p className="text-xs text-[#1B2E35]/50 mt-0.5">
-                  Files uploaded by the design team.{' '}
-                  <strong className="text-[#6C4AB6]">
-                    The latest version is shown to the customer in their portal.
-                  </strong>
+                  The curated set the customer is currently reviewing in their portal.
                 </p>
               </div>
               {customer.designProofsUpdatedAt && customer.designProof.length > 0 && (
@@ -481,29 +523,17 @@ export default async function CustomerDetailPage({
             </div>
             {customer.designProof.length === 0 ? (
               <p className="text-sm text-[#1B2E35]/40 italic">
-                No proof uploaded yet.
+                Nothing sent to the customer yet.
               </p>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 max-w-md">
-                {/* Reverse so latest (what customer sees) shows first */}
-                {[...customer.designProof].reverse().map((a, i) => {
-                  const total = customer.designProof.length;
-                  const versionNum = total - i;
-                  const isLatest = i === 0;
-                  return (
-                    <AssetThumb
-                      key={`proof-${i}`}
-                      attachment={a}
-                      label={
-                        isLatest
-                          ? total === 1
-                            ? 'Current'
-                            : `v${versionNum} · Latest`
-                          : `v${versionNum}`
-                      }
-                    />
-                  );
-                })}
+                {customer.designProof.map((a, i) => (
+                  <AssetThumb
+                    key={`sent-${i}`}
+                    attachment={a}
+                    label={a.filename ?? `File ${i + 1}`}
+                  />
+                ))}
               </div>
             )}
           </section>

@@ -41,6 +41,7 @@ function linkedIds(field: unknown): string[] {
 function attachments(field: unknown): AirtableAttachment[] {
   if (!Array.isArray(field)) return [];
   return field.map((a) => ({
+    id: (a as { id?: string }).id,
     url: (a as { url: string }).url,
     filename: (a as { filename?: string }).filename,
   }));
@@ -126,6 +127,7 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     designFeedback: (f['Design Feedback'] as string) ?? '',
     designRevisionCount: (f['Design Revision Count'] as number) ?? 0,
     designProof: attachments(f['Design Proof']),
+    designDrafts: attachments(f['Design Drafts']),
     designProofsUpdatedAt: (f['Design Proofs Updated At'] as string) ?? '',
 
     // Status Tracking
