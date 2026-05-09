@@ -15,6 +15,7 @@ import CallsSection from './CallsSection';
 import LogCallButton, { type CSMOption } from './LogCallButton';
 import CreateAccountAction from './CreateAccountAction';
 import SendCredentialsAction from './SendCredentialsAction';
+import { tempPasswordFromName } from '@/lib/temp-password';
 
 const BIO_COLLAPSE_THRESHOLD = 180;
 
@@ -184,17 +185,12 @@ function TaskActionPanel({
     );
   }
   if (task.taskName === 'Send Credentials') {
-    const portalBase =
-      customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
-    const portalUrl = `${portalBase}/r/${customer.id}`;
-    const firstName = customer.name.trim().split(/\s+/)[0] || 'there';
     return (
       <SendCredentialsAction
         taskId={task.id}
         customerId={customerId}
         platformEmail={customer.platformEmail}
-        firstName={firstName}
-        portalUrl={portalUrl}
+        derivedPassword={tempPasswordFromName(customer.name)}
       />
     );
   }

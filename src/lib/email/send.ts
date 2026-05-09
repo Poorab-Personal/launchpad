@@ -18,6 +18,8 @@ interface BaseData {
 interface CredentialsData extends BaseData {
   platformEmail: string;
   password: string;
+  /** ISO date of the booked onboarding call. Empty when not yet booked. */
+  callDate: string;
 }
 
 type TemplateDataMap = {
