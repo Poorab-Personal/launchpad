@@ -170,10 +170,12 @@ export default function TaskList({
     .filter((t) => t.stage === currentStage)
     .sort((a, b) => a.taskOrder - b.taskOrder);
 
-  // Does the current stage have any active or draft tasks for the customer?
-  const hasActiveTasks = currentStageTasks.some(
-    (t) => t.status === 'Active' || t.status === 'Draft',
-  );
+  // Does the current stage have anything for the customer to act on?
+  // Draft tasks don't count — they're either upcoming or locked behind a
+  // team task. Without this, after design approval the customer landed on
+  // a locked Watch Setup Video tab waiting for Send Credentials, instead
+  // of the friendlier "here's what happens next" WaitingPanel.
+  const hasActiveTasks = currentStageTasks.some((t) => t.status === 'Active');
 
   const completedInStage = currentStageTasks.filter((t) => t.status === 'Completed').length;
 
