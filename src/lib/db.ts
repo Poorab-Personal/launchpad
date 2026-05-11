@@ -805,6 +805,20 @@ export async function updateCall(id: string, fields: Partial<Call>): Promise<Cal
     .where(eq(schema.calls.id, id))
     .returning();
   if (!row) throw new Error(`Call ${id} not found`);
+
+  // Auto 8 hook: Onboarding call flipped to Completed → create Stripe sub
+  // for setup-intent-at-intake workflows. Idempotency guards inside
+  // handleCallCompleted prevent double-creation on re-fire.
+  if (row.status === 'Completed' && row.type === 'Onboarding') {
+    const { handleCallCompleted } = await import(
+      '@/lib/automations/handle-call-completed'
+    );
+    const result = await handleCallCompleted(row.id);
+    if (result.kind === 'error') {
+      console.error(`[updateCall] Auto 8 error for call ${row.id}: ${result.error}`);
+    }
+  }
+
   return mapDbCall(row);
 }
 

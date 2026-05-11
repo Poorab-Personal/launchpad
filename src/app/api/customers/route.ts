@@ -8,6 +8,7 @@ import {
   updateCustomerFields,
 } from '@/lib/db';
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
+import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { createStripeCustomer } from '@/lib/stripe';
 import type { Customer } from '@/types';
 
@@ -83,6 +84,10 @@ export async function POST(request: NextRequest) {
 
     return inserted;
   });
+
+  // Auto 5: Welcome email, fire-and-forget post-tx. Errors logged but
+  // don't fail the response — the Customer + Tasks already landed.
+  void triggerCustomerEmail('welcome', customer.id);
 
   // For setup-intent-at-intake workflows (e.g., B2B-Keyes), create the
   // Stripe Customer up-front so the SetupIntent route can assume it exists.

@@ -13,6 +13,9 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
+import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
+
+const REVIEW_BRAND_KIT_TASK = 'Review & Approve Your Brand Kit';
 
 const NEXT_STAGE_BY_PRODUCT: Record<'Core' | 'Voice' | 'Avatar', { stageField: 'currentStage' | 'voiceStage' | 'avatarStage'; workflowKeyForCustomer: (custType: 'D2C' | 'B2B', channel: string) => string }> = {
   Core: {
@@ -87,6 +90,11 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
         details: `Task "${draft.taskName}" [${product}] activated.`,
         relatedTaskId: draft.id,
       });
+      // Auto 6: Design Ready email when the customer-facing review task
+      // becomes Active. Best-effort fire-and-forget.
+      if (draft.taskName === REVIEW_BRAND_KIT_TASK) {
+        void triggerCustomerEmail('design-ready', customerId);
+      }
     }
   }
 
@@ -274,6 +282,11 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
         details: `Task "${t.taskName}" [${product}] activated (new stage).`,
         relatedTaskId: t.id,
       });
+      // Auto 6 also fires from the new-stage activation path (the review
+      // task can become Active when the stage advances to Review Your Designs).
+      if (t.taskName === REVIEW_BRAND_KIT_TASK) {
+        void triggerCustomerEmail('design-ready', customerId);
+      }
     }
   }
 }
