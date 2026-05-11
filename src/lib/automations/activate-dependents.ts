@@ -32,9 +32,18 @@ const NEXT_STAGE_BY_PRODUCT: Record<'Core' | 'Voice' | 'Avatar', { stageField: '
  * and conditional stage advancement.
  */
 export async function handleTaskCompleted(taskId: string): Promise<void> {
+  const t0 = Date.now();
+  const tt = (label: string, prev: number) => {
+    const now = Date.now();
+    if (now - prev > 30) console.log(`[Auto 2] ${label}: ${now - prev}ms`);
+    return now;
+  };
+  let cursor = t0;
+
   const completedTask = await db.query.tasks.findFirst({
     where: eq(schema.tasks.id, taskId),
   });
+  cursor = tt('lookup completed task', cursor);
   if (!completedTask) return;
   if (completedTask.status !== 'Completed') return;
 
@@ -47,6 +56,7 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     .select()
     .from(schema.tasks)
     .where(and(eq(schema.tasks.customerId, customerId), eq(schema.tasks.product, product)));
+  cursor = tt('fetch product tasks', cursor);
 
   const completedTaskIds = new Set(
     productTasks.filter((t) => t.status === 'Completed').map((t) => t.id),
@@ -60,6 +70,7 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
         .from(schema.taskDependencies)
         .where(inArray(schema.taskDependencies.taskId, taskIdsHere))
     : [];
+  cursor = tt('fetch task dependencies', cursor);
   const depsByTask = new Map<string, string[]>();
   for (const d of allDeps) {
     const arr = depsByTask.get(d.taskId) ?? [];
@@ -138,6 +149,8 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     }
   }
 
+  cursor = tt('section 1+2 (activate + flags)', cursor);
+
   // ── 3. Log Task Completed event ────────────────────────────────────
   await db.insert(schema.events).values({
     customerId,
@@ -146,6 +159,7 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     details: `Task "${completedTask.taskName}" [${product}] completed.`,
     relatedTaskId: completedTask.id,
   });
+  cursor = tt('log Task Completed event', cursor);
 
   // ── 4. Stage advancement check ─────────────────────────────────────
   // Re-fetch product tasks to see fresh statuses after activations.
@@ -153,11 +167,15 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     .select()
     .from(schema.tasks)
     .where(and(eq(schema.tasks.customerId, customerId), eq(schema.tasks.product, product)));
+  cursor = tt('re-fetch fresh tasks', cursor);
   const stageTasks = fresh.filter((t) => t.stage === completedTaskStage);
   const allStageComplete =
     stageTasks.length > 0 && stageTasks.every((t) => t.status === 'Completed');
 
-  if (!allStageComplete) return;
+  if (!allStageComplete) {
+    console.log(`[Auto 2] TOTAL (no stage advance): ${Date.now() - t0}ms`);
+    return;
+  }
 
   // Determine workflow_key + stage field
   const config = NEXT_STAGE_BY_PRODUCT[product];

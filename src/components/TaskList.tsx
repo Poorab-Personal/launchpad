@@ -312,12 +312,15 @@ export default function TaskList({
   const [tasks, setTasks] = useState(initialTasks);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
-  // Post-submit window: client task completes → API marks Completed → Auto 2
-  // promotes dependents Draft→Active. That promotion is async (typical 1–3s,
-  // p99 ~15s under load). Without this state, the gap renders the wrong UI
-  // because hasActiveTasks goes false → WaitingPanel renders instead of the
-  // next tab. We optimistically pre-activate dependents locally and poll
-  // router.refresh() until the server catches up (cap 20s).
+  // Post-submit window: client task completes → API marks Completed →
+  // handleTaskCompleted (Auto 2 port) promotes dependents Draft→Active.
+  // Post-migration this is SYNCHRONOUS inside the PATCH handler — by the
+  // time the PATCH returns, the server state is already correct. The
+  // optimistic activation here masks the ~200ms router.refresh() round
+  // trip so the UI feels instant; the polling fallback exists as a safety
+  // net for unusual cases (slow Postgres query, etc.) — short cadence,
+  // short cap. Pre-migration this loop ran on a 1.5s tick for up to 20s
+  // because Airtable Auto 2 was async (1-3s typical, p99 ~15s).
   const [pollingState, setPollingState] = useState<'idle' | 'polling' | 'capped'>('idle');
   const [pollingDeadline, setPollingDeadline] = useState<number | null>(null);
   const [optimisticActive, setOptimisticActive] = useState<Set<string>>(new Set());
@@ -424,9 +427,9 @@ export default function TaskList({
         return;
       }
       router.refresh();
-      timerId = setTimeout(tick, 1500);
+      timerId = setTimeout(tick, 400);
     };
-    timerId = setTimeout(tick, 1500);
+    timerId = setTimeout(tick, 400);
     return () => {
       cancelled = true;
       clearTimeout(timerId);
@@ -509,8 +512,12 @@ export default function TaskList({
       // editable-looking form via FormTask).
       setActiveTaskId(taskId);
     }
+    // Refresh immediately — Auto 2 is sync, server state is correct.
+    router.refresh();
+    // Keep the polling state machine on as a safety net for unusual delays
+    // (very brief cap; sync Auto 2 should settle within 1 cadence).
     setPollingState('polling');
-    setPollingDeadline(Date.now() + 20_000);
+    setPollingDeadline(Date.now() + 3_000);
   }
 
   function handleManualRefresh() {
