@@ -101,6 +101,33 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
       .update(schema.customers)
       .set({ credentialsSent: true })
       .where(eq(schema.customers.id, customerId));
+  } else if (completedTask.taskName === 'Mark Onboarding Call Complete') {
+    // Auto 4 port: the actual CSM (whoever the task was routed to) becomes
+    // the Customer's csm_team_member_id. Look up that CSM's calendlyUrl
+    // and stamp it onto Check-In 1 and Check-In 2 tasks so the customer
+    // books with the right person.
+    if (completedTask.assignedToTeamMemberId) {
+      await db
+        .update(schema.customers)
+        .set({ csmTeamMemberId: completedTask.assignedToTeamMemberId })
+        .where(eq(schema.customers.id, customerId));
+
+      const csm = await db.query.teamMembers.findFirst({
+        where: eq(schema.teamMembers.id, completedTask.assignedToTeamMemberId),
+        columns: { calendlyUrl: true },
+      });
+      if (csm?.calendlyUrl) {
+        await db
+          .update(schema.tasks)
+          .set({ embedUrl: csm.calendlyUrl })
+          .where(
+            and(
+              eq(schema.tasks.customerId, customerId),
+              inArray(schema.tasks.taskName, ['Schedule Check-In 1', 'Schedule Check-In 2']),
+            ),
+          );
+      }
+    }
   }
 
   // ── 3. Log Task Completed event ────────────────────────────────────
