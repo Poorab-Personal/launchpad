@@ -1,6 +1,5 @@
 /**
- * Quick verifier: list tables and basic column counts in the connected DB.
- * Useful after `npm run db:migrate` to confirm what landed.
+ * Quick verifier: list tables, column counts, and row counts.
  *
  * Run: npm run db:list
  */
@@ -15,9 +14,17 @@ async function main() {
     WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
     ORDER BY table_name
   `);
+
   console.log('Tables in public schema:');
   for (const row of tables.rows) {
-    console.log(`  ${String(row.table_name).padEnd(40)} ${row.col_count} cols`);
+    const t = String(row.table_name);
+    // Skip drizzle's bookkeeping table from row counts
+    if (t === '__drizzle_migrations') continue;
+    const countRes = await db.execute<{ count: string }>(
+      sql`SELECT count(*)::text AS count FROM ${sql.raw(`"${t}"`)}`,
+    );
+    const rowCount = countRes.rows[0]?.count ?? '?';
+    console.log(`  ${t.padEnd(25)} ${String(row.col_count).padStart(3)} cols  ${rowCount.padStart(5)} rows`);
   }
 
   const constraints = await db.execute<{ name: string; type: string }>(sql`
@@ -27,10 +34,7 @@ async function main() {
       AND contype IN ('c', 'u', 'f')
     ORDER BY conname
   `);
-  console.log('\nConstraints (c=check, u=unique, f=fk):');
-  for (const row of constraints.rows) {
-    console.log(`  [${row.type}] ${row.name}`);
-  }
+  console.log(`\nConstraints (c=check, u=unique, f=fk): ${constraints.rows.length} total`);
 
   process.exit(0);
 }
