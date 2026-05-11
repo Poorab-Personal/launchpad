@@ -110,11 +110,10 @@ function WaitingPanel({ stage }: { stage: string }) {
 }
 
 /**
- * Days a completed stage took: from the earliest task activation to the
- * latest task completion within that stage. Includes team tasks (the stage
- * was "in flight" the whole time, even if customer only saw part of it).
- * Returns null when not all tasks in the stage are Completed (so we don't
- * show duration for stages still in progress).
+ * Compact "Mar 5 → Mar 8 · 3 days" subtitle for a completed stage.
+ * Span is earliest task activation → latest task completion across all
+ * tasks in the stage (team + client). Returns null when not all tasks in
+ * the stage are Completed so we don't show partial durations.
  */
 function completedStageDurationLabel(stage: string, tasks: Task[]): string | null {
   const stageTasks = tasks.filter((t) => t.stage === stage);
@@ -131,11 +130,13 @@ function completedStageDurationLabel(stage: string, tasks: Task[]): string | nul
     .map((d) => new Date(d).getTime())
     .filter((n) => !isNaN(n));
   if (starts.length === 0 || ends.length === 0) return null;
-  const span = Math.max(...ends) - Math.min(...starts);
-  const days = Math.max(0, Math.round(span / 86_400_000));
-  if (days === 0) return 'same day';
-  if (days === 1) return '1 day';
-  return `${days} days`;
+  const startMs = Math.min(...starts);
+  const endMs = Math.max(...ends);
+  const days = Math.max(0, Math.round((endMs - startMs) / 86_400_000));
+  const fmt = (ms: number) =>
+    new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (days === 0) return `${fmt(endMs)} · same day`;
+  return `${fmt(startMs)} → ${fmt(endMs)} · ${days === 1 ? '1 day' : `${days} days`}`;
 }
 
 export default function TaskList({
@@ -427,29 +428,33 @@ export default function TaskList({
             const durationLabel =
               status === 'completed' ? completedStageDurationLabel(stage, tasks) : null;
             return (
-              <li key={stage} className="flex items-center gap-2">
+              <li key={stage} className="flex items-start gap-2">
                 {i > 0 && (
                   <div
-                    className={`h-px w-4 sm:w-6 shrink-0 ${
+                    className={`mt-3 h-px w-4 sm:w-6 shrink-0 ${
                       prevStatus === 'completed' && status !== 'upcoming'
                         ? 'bg-[#05C68E]'
                         : 'bg-[#E0DEE4]'
                     }`}
                   />
                 )}
-                <div
-                  className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors ${
-                    status === 'completed'
-                      ? 'bg-[#05C68E] text-white'
-                      : status === 'active'
-                        ? 'bg-[#6C4AB6] text-white'
-                        : 'bg-white text-[#1B2E35]/54 border border-[#E0DEE4]'
-                  }`}
-                >
-                  {status === 'completed' && <CheckIcon className="h-3.5 w-3.5" />}
-                  <span>{stage}</span>
+                <div className="flex flex-col items-center gap-1">
+                  <div
+                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors ${
+                      status === 'completed'
+                        ? 'bg-[#05C68E] text-white'
+                        : status === 'active'
+                          ? 'bg-[#6C4AB6] text-white'
+                          : 'bg-white text-[#1B2E35]/54 border border-[#E0DEE4]'
+                    }`}
+                  >
+                    {status === 'completed' && <CheckIcon className="h-3.5 w-3.5" />}
+                    {stage}
+                  </div>
                   {durationLabel && (
-                    <span className="text-white/70 font-normal">· {durationLabel}</span>
+                    <span className="text-[10px] text-[#1B2E35]/50 whitespace-nowrap">
+                      {durationLabel}
+                    </span>
                   )}
                 </div>
               </li>
