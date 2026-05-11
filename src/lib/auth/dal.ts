@@ -5,6 +5,12 @@ import { readSessionCookie, type SessionPayload } from './session';
 import { readViewAs } from './view-as';
 import { getTeamMemberById } from '@/lib/db';
 
+// Sessions issued pre-Postgres-migration stored Airtable rec IDs as
+// memberId (`recXXXXXXXXXXXXX`). Post-migration, memberId is a Postgres
+// UUID. Reject old-format sessions so stale cookies fall back to /signin
+// instead of throwing "invalid input syntax for type uuid" downstream.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Verify the current request has a valid session. Redirects to /signin if not.
  * Memoized per-request via React cache().
@@ -12,6 +18,10 @@ import { getTeamMemberById } from '@/lib/db';
 export const requireSession = cache(async (): Promise<SessionPayload> => {
   const session = await readSessionCookie();
   if (!session) {
+    redirect('/signin');
+  }
+  if (!UUID_RE.test(session.memberId)) {
+    // Stale session from pre-migration era; force re-signin
     redirect('/signin');
   }
   return session;
