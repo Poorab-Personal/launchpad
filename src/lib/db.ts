@@ -146,6 +146,9 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
     callDate: iso(row.callDate),
     noShowCount: row.noShowCount,
     otherEmails: row.otherEmails ?? '',
+    // feedbackRating / feedbackComments aren't in the legacy Customer
+    // interface; we read them off the row directly when needed. Not part
+    // of mapper output to keep the public Customer type unchanged.
 
     // Stripe + drop-off (Phase 0 fields)
     stripeCustomerId: row.stripeCustomerId ?? '',

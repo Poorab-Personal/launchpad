@@ -137,6 +137,11 @@ export const customers = pgTable(
     noShowCount: integer('no_show_count').notNull().default(0),
     otherEmails: text('other_emails'),
 
+    // Onboarding feedback (collected at the "Provide Onboarding Feedback"
+    // task — last step of Review & Grow stage)
+    feedbackRating: integer('feedback_rating'),                                    // 1–5
+    feedbackComments: text('feedback_comments'),
+
     // System
     environment: text('environment').array(),                                      // test/prod isolation
     rejigAccountId: text('rejig_account_id'),                                      // engagement-data join target

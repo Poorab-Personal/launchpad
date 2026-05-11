@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
   }
 
   const portalBase = customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
-  const portalUrl = `${portalBase}/r/${customer.id}`;
+  const portalUrl = `${portalBase}/r/${customer.accessToken}`;
 
   const fname = firstName(customer.name);
 

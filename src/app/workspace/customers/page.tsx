@@ -107,7 +107,7 @@ export default async function CustomersPage() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <PortalLinkActions
-                      customerId={c.id}
+                      accessToken={c.accessToken}
                       portalBaseUrl={c.portalBaseUrl || undefined}
                     />
                   </td>

@@ -95,13 +95,10 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
 
   // Find this customer's Capture Payment Method task. If it's already
   // Completed, no-op (the client-side /confirm flow already handled it).
-  const tasks = customer.tasks; // array of task IDs
-  if (!tasks || tasks.length === 0) {
-    console.log(`[stripe webhook] customer ${customer.id} has no tasks; skipping`);
-    return;
-  }
-
-  // Fetch tasks for the customer and find the Capture Payment Method one.
+  // (Earlier short-circuit on customer.tasks.length removed: post-Phase-2
+  // the mapper hardcodes that array to [] per architect Q2 signoff —
+  // checking it here would silently kill the server-side fallback for
+  // every customer. The getTasksForCustomer() call below handles empty.)
   const allTasks = await getTasksForCustomer(customer.id);
   const captureTask = allTasks.find((t) => t.taskName === 'Capture Payment Method');
   if (!captureTask) {

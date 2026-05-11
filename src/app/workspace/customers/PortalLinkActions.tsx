@@ -3,10 +3,10 @@
 import { useState } from 'react';
 
 export default function PortalLinkActions({
-  customerId,
+  accessToken,
   portalBaseUrl,
 }: {
-  customerId: string;
+  accessToken: string;
   portalBaseUrl?: string;
 }) {
   const [copied, setCopied] = useState(false);
@@ -14,7 +14,7 @@ export default function PortalLinkActions({
   function buildUrl() {
     if (typeof window === 'undefined') return '';
     const base = portalBaseUrl || window.location.origin;
-    return `${base}/r/${customerId}`;
+    return `${base}/r/${accessToken}`;
   }
 
   async function handleCopy() {

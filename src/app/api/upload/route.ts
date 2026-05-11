@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server';
 import { put } from '@vercel/blob';
-import { getCustomerById, updateCustomerFields } from '@/lib/db';
+import { eq } from 'drizzle-orm';
+import { db } from '@/db';
+import { customers } from '@/db/schema';
+import { updateCustomerFields } from '@/lib/db';
 
 // Per-field append limits. null = no limit. Fields not in this map are rejected.
 // Keys are the request fieldName values; mapped to schema camelCase fields below.
@@ -46,16 +49,19 @@ export async function POST(request: NextRequest) {
   }
 
   const column = FIELD_NAME_TO_COLUMN[fieldName];
-  const customer = await getCustomerById(customerId);
-  if (!customer) {
+
+  // Read jsonb directly (NOT via the mapper) so we round-trip the storage
+  // shape — {url, filename, size, contentType} — without the mapper's
+  // synthesized {id, type, width, height} fields polluting the next write.
+  // Auditor 2026-05-11.
+  const row = await db.query.customers.findFirst({
+    where: eq(customers.id, customerId),
+    columns: { agentPhoto: true, businessLogo: true, otherAssets: true },
+  });
+  if (!row) {
     return Response.json({ error: `Customer ${customerId} not found` }, { status: 404 });
   }
-
-  // The mapper in db.ts hydrates jsonb rows into AirtableAttachment shape
-  // ({id, url, filename}) for the Customer type, but the underlying jsonb
-  // also carries size/contentType for downloads. Read the legacy-typed
-  // attachments and round-trip them as the richer jsonb shape on write.
-  const existing = (customer[column] ?? []) as unknown as Array<Record<string, unknown>>;
+  const existing = (row[column] ?? []) as Array<Record<string, unknown>>;
   const limit = FIELD_LIMITS[fieldName];
   if (limit !== null && existing.length >= limit) {
     return Response.json(

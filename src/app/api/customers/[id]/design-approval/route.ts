@@ -1,13 +1,18 @@
 import { NextRequest } from 'next/server';
 import { getRecords, updateRecord, createRecord } from '@/lib/airtable-client';
-import { createEvent, checkAndAdvanceStage } from '@/lib/db';
+import { createEvent, checkAndAdvanceStage } from '@/lib/airtable';
 
 // PHASE 3 TODO: this route is the design-approval automation (Auto 4/5
 // equivalent). Body needs the full Auto 2 stage-advance logic which Phase 3
-// will port to src/lib/automations/. Until then, this route still imports
-// from @/lib/airtable-client and uses checkAndAdvanceStage as a no-op stub —
-// approvals won't advance stage on the postgres-migration branch until
-// Phase 3 ships. Main branch (Airtable Auto 4/5) continues to work.
+// will port to src/lib/automations/. Until then, this route still uses
+// the legacy Airtable stack end-to-end — including createEvent and
+// checkAndAdvanceStage from @/lib/airtable (NOT @/lib/db). Reason: passing
+// Airtable rec IDs (`recXXX`) into the Postgres events.customer_id /
+// related_task_id columns (typed `uuid`) throws on every write. Keeping
+// the whole route on the Airtable side until Phase 3 ports it as a unit.
+//
+// Approvals won't advance stage on the postgres-migration branch in
+// Phase 2 — Auto 4/5 still runs in Airtable's automations on main branch.
 
 /** Airtable single select fields may be strings or { name: string } objects */
 function selectVal(field: unknown): string {

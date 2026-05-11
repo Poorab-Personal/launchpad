@@ -55,6 +55,8 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'selectedPlanName',
   'atRisk',
   'atRiskReason',
+  'feedbackRating',
+  'feedbackComments',
 ]);
 
 export async function PATCH(
