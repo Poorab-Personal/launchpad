@@ -169,7 +169,46 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
   };
 }
 
-function mapDbTask(row: TaskRow): Task {
+/**
+ * Build a `taskId → "Dep One, Dep Two"` map for a set of tasks. Reads the
+ * junction table once and joins by task name (matching the legacy
+ * comma-separated `Depends On` field the client expects). The customer
+ * portal's optimistic-activation logic + isTaskLocked + tooltips read
+ * Task.dependsOn — without this, those features silently no-op.
+ */
+async function buildDependsOnMap(taskRows: TaskRow[]): Promise<Map<string, string>> {
+  if (taskRows.length === 0) return new Map();
+  const taskIds = taskRows.map((t) => t.id);
+  const deps = await db
+    .select()
+    .from(schema.taskDependencies)
+    .where(inArray(schema.taskDependencies.taskId, taskIds));
+  // Need names of source tasks. They may or may not be in taskRows (cross-customer
+  // shouldn't happen in practice, but be safe). Build a name lookup from taskRows
+  // first; fall back to a row query if any source is missing.
+  const nameById = new Map(taskRows.map((t) => [t.id, t.taskName]));
+  const missing = deps.filter((d) => !nameById.has(d.dependsOnTaskId)).map((d) => d.dependsOnTaskId);
+  if (missing.length > 0) {
+    const extra = await db
+      .select({ id: schema.tasks.id, taskName: schema.tasks.taskName })
+      .from(schema.tasks)
+      .where(inArray(schema.tasks.id, missing));
+    for (const e of extra) nameById.set(e.id, e.taskName);
+  }
+  const byTask = new Map<string, string[]>();
+  for (const d of deps) {
+    const name = nameById.get(d.dependsOnTaskId);
+    if (!name) continue;
+    const arr = byTask.get(d.taskId) ?? [];
+    arr.push(name);
+    byTask.set(d.taskId, arr);
+  }
+  const result = new Map<string, string>();
+  for (const [taskId, names] of byTask) result.set(taskId, names.join(', '));
+  return result;
+}
+
+function mapDbTask(row: TaskRow, dependsOnString = ''): Task {
   return {
     id: row.id,
     taskName: row.taskName,
@@ -181,7 +220,7 @@ function mapDbTask(row: TaskRow): Task {
     stageOrder: row.stageOrder,
     assignedTo: arrFromId(row.assignedToTeamMemberId),
     visibleToClient: row.visibleToClient,
-    dependsOn: '',                                // legacy text field — junction table replaces it; consumers reading this get ''
+    dependsOn: dependsOnString,                   // comma-separated task names, rebuilt from junction table by callers
     hasTeamReview: row.hasTeamReview,
     attachmentType: row.attachmentType as Task['attachmentType'],
     embedUrl: row.embedUrl ?? '',
@@ -448,12 +487,15 @@ export async function getTasksForCustomer(customerId: string): Promise<Task[]> {
     .from(schema.tasks)
     .where(eq(schema.tasks.customerId, customerId))
     .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
-  return rows.map(mapDbTask);
+  const depsMap = await buildDependsOnMap(rows);
+  return rows.map((r) => mapDbTask(r, depsMap.get(r.id) ?? ''));
 }
 
 export async function getTaskById(taskId: string): Promise<Task | null> {
   const row = await db.query.tasks.findFirst({ where: eq(schema.tasks.id, taskId) });
-  return row ? mapDbTask(row) : null;
+  if (!row) return null;
+  const depsMap = await buildDependsOnMap([row]);
+  return mapDbTask(row, depsMap.get(row.id) ?? '');
 }
 
 /**
@@ -485,7 +527,8 @@ export async function getAllTasks(): Promise<Task[]> {
     .select()
     .from(schema.tasks)
     .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
-  return rows.map(mapDbTask);
+  const depsMap = await buildDependsOnMap(rows);
+  return rows.map((r) => mapDbTask(r, depsMap.get(r.id) ?? ''));
 }
 
 export async function createTask(
@@ -520,9 +563,10 @@ export async function getActiveTasksByCustomer(): Promise<Map<string, Task[]>> {
     .from(schema.tasks)
     .where(inArray(schema.tasks.status, ['Active', 'In Review']))
     .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
+  const depsMap = await buildDependsOnMap(rows);
   const result = new Map<string, Task[]>();
   for (const r of rows) {
-    const t = mapDbTask(r);
+    const t = mapDbTask(r, depsMap.get(r.id) ?? '');
     const arr = result.get(r.customerId) ?? [];
     arr.push(t);
     result.set(r.customerId, arr);
@@ -544,7 +588,8 @@ export async function getTasksAssignedTo(
       ),
     )
     .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
-  return rows.map(mapDbTask);
+  const depsMap = await buildDependsOnMap(rows);
+  return rows.map((r) => mapDbTask(r, depsMap.get(r.id) ?? ''));
 }
 
 /**
@@ -559,7 +604,8 @@ export async function getAllCoreTasks(
     .from(schema.tasks)
     .where(and(eq(schema.tasks.product, 'Core'), inArray(schema.tasks.status, statuses)))
     .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
-  return rows.map(mapDbTask);
+  const depsMap = await buildDependsOnMap(rows);
+  return rows.map((r) => mapDbTask(r, depsMap.get(r.id) ?? ''));
 }
 
 // ─── Public API: Workflow Templates ─────────────────────────────────────
