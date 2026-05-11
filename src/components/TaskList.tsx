@@ -90,12 +90,16 @@ function WaitingPanel({ stage }: { stage: string }) {
         </div>
       </div>
 
+      {/* Hollow-circle markers (not green checks) — these are upcoming steps,
+          not completed ones. Matches the addon-stage row pattern lower in
+          this file. Green checks read as "Completed" everywhere else on the
+          portal and were creating a false signal here. */}
       <ul className="space-y-2 ml-8">
         {guidance.bullets.map((b) => (
           <li key={b} className="flex items-start gap-2 text-sm text-[#1B2E35]/80">
-            <svg className="h-4 w-4 shrink-0 text-[#05C68E] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-            </svg>
+            <span className="shrink-0 mt-0.5 text-base leading-none text-[#1B2E35]/40" aria-hidden="true">
+              {'○'}
+            </span>
             <span>{b}</span>
           </li>
         ))}
