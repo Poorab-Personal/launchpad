@@ -1,170 +1,163 @@
-# Airtable Automation Setup
+# Airtable Automations
 
 These scripts run inside Airtable's built-in automation scripting environment. They are **not** Node.js scripts — paste them directly into Airtable's "Run a script" action editor.
 
 > **Important:** These scripts reference specific table and field names from the production schema. If you rename any tables or fields, update the scripts to match.
 
+## Current automation lineup
+
+| Airtable name | File | Status |
+|---|---|---|
+| Auto 1 — Generate Tasks | `auto1-generate-tasks.js` | ON |
+| Auto 2 — Activate Dependents | `auto2-activate-dependents.js` | ON |
+| Auto 3 — In Review Interception | `auto3-in-review-intercept.js` | OFF |
+| Auto 4 — Set CSM + Check-In Links | `auto4-call-complete.js` | ON |
+| Auto 5 — Email: Welcome | `auto5-7-email-send.js` (shared) | ON |
+| Auto 6 — Email: Design Ready | `auto5-7-email-send.js` (shared) | ON |
+| Auto 7 — Email: Credentials Sent | `auto5-7-email-send.js` (shared) | **PAUSED — obsolete, see note below** |
+| Auto 8 — Stripe Sub Creation | `auto8-stripe-sub-creation.js` | **NOT YET CREATED — see Auto 8 below** |
+
 ---
 
-## Automation 1: New Customer → Generate Tasks
+## Auto 1 — New Customer → Generate Tasks
 
 Creates tasks from workflow templates whenever a new customer record is added.
 
-### Setup Steps
+**Trigger:** When a record is created → **Customers** table
 
-1. Go to the **Automations** tab in your Airtable base
-2. Click **Create automation**, name it **"New Customer → Generate Tasks"**
-3. **Trigger:** "When a record is created" → select **Customers** table
-4. **Action:** "Run a script"
-5. Add input variables:
+**Input variables:**
 
-   | Variable name | Value (click + to select) |
-   |---|---|
-   | `recordId` | Record → Airtable record ID |
-   | `type` | Record → Type |
-   | `channel` | Record → Channel |
+| Name | Value |
+|---|---|
+| `recordId` | Record → Airtable record ID |
+| `type` | Record → Type |
+| `channel` | Record → Channel |
+| `firstName` | Record → First Name (optional, for HubSpot path) |
+| `lastName` | Record → Last Name (optional) |
+| `dealId` | Record → HubSpot Deal ID (optional) |
+| `hasVoice` | Record → Has Voice |
+| `hasAvatar` | Record → Has Avatar |
 
-6. Paste the contents of **`auto1-generate-tasks.js`**
-7. Test with a sample customer, then turn on
+**Script:** `auto1-generate-tasks.js`
 
-### What it does
-- Builds workflow key: `{Type}-{Channel}` (e.g., `D2C-Standard`)
-- Queries Workflow Templates for matching rows
-- Looks up Team Members by Assigned Role for task assignment
-- Creates Task records with all template fields (including Stage Order, Has Team Review, Embed URL)
-- Sets customer's Current Stage + Stage Entered At
-- Logs "Customer Created" event
+What it does: builds workflow key `{Type}-{Channel}`, queries Workflow Templates, looks up Team Members by Assigned Role, creates Task records, sets Current Stage + Stage Entered At, links the Customer to the Production Settings row, and resolves the onboarding Calendly URL (Brokerage default → Settings default fallback) onto the Schedule Your Onboarding Call task.
 
 ---
 
-## Automation 2: Task Completed → Activate Dependents & Advance Stage
+## Auto 2 — Task Completed → Activate Dependents & Advance Stage
 
 Activates downstream tasks and advances the customer's stage when tasks are completed.
 
-### Setup Steps
+**Trigger:** When record matches conditions → **Tasks** table → `Status = Completed`
 
-1. Click **Create automation**, name it **"Task Completed → Activate Dependents"**
-2. **Trigger:** "When a record matches conditions" → **Tasks** table
-3. Condition: **Status** is **"Completed"**
-4. **Action:** "Run a script"
-5. Add input variables:
+**Input variables:**
 
-   | Variable name | Value (click + to select) |
-   |---|---|
-   | `taskRecordId` | Record → Airtable record ID |
-   | `taskName` | Record → Task Name |
-   | `customerRecordId` | Record → Customer → Airtable record ID (first linked record) |
-   | `taskStage` | Record → Stage |
+| Name | Value |
+|---|---|
+| `taskRecordId` | Record → Airtable record ID |
+| `taskName` | Record → Task Name |
+| `customerRecordId` | Record → Customer → Airtable record ID (first linked record) |
+| `taskStage` | Record → Stage |
 
-6. Paste the contents of **`auto2-activate-dependents.js`**
-7. Test by marking a task Completed, then turn on
+**Script:** `auto2-activate-dependents.js`
 
-### What it does
-- **Multi-dependency support:** splits Depends On by comma, checks ALL are completed before activating
-- Activates dependent tasks (Draft → Active)
-- Updates customer flags: "Create Customer Account" → Account Created, "Send Credentials" → Credentials Sent
-- Logs Task Completed and Task Activated events
-- Checks if all stage tasks are completed → advances to next stage
-- On stage advance: activates eligible new-stage tasks (no dependencies, or all cross-stage deps met)
-- Logs Stage Changed event
+What it does: splits Depends On by comma, checks ALL listed prerequisites are completed, activates dependent tasks (Draft → Active, sets Activated At), updates customer flags (Account Created / Credentials Sent), checks if all stage tasks are completed → advances stage, logs Task Completed / Task Activated / Stage Changed events.
 
 ---
 
-## Automation 3: In Review Interception
+## Auto 3 — In Review Interception (currently OFF)
 
-Prevents Has Team Review tasks from being completed directly — redirects to In Review for senior approval.
+Prevents `Has Team Review` tasks from completing directly — redirects them to In Review for senior approval.
 
-### Setup Steps
+**Trigger:** When record matches conditions → **Tasks** table → `Status = Completed AND Has Team Review = true`
 
-1. Click **Create automation**, name it **"In Review Interception"**
-2. **Trigger:** "When a record matches conditions" → **Tasks** table
-3. Conditions (ALL must be true):
-   - **Status** is **"Completed"**
-   - **Has Team Review** is **checked**
-4. **Action:** "Run a script"
-5. Add input variables:
+**Input variables:**
 
-   | Variable name | Value (click + to select) |
-   |---|---|
-   | `taskRecordId` | Record → Airtable record ID |
-   | `taskName` | Record → Task Name |
-   | `customerRecordId` | Record → Customer → Airtable record ID (first linked record) |
+| Name | Value |
+|---|---|
+| `taskRecordId` | Record → Airtable record ID |
+| `taskName` | Record → Task Name |
+| `customerRecordId` | Record → Customer → Airtable record ID |
 
-6. Paste the contents of **`auto3-in-review-intercept.js`**
-7. Test: set a Has Team Review task to Completed → should redirect to In Review
-8. Turn on
+**Script:** `auto3-in-review-intercept.js`
 
-### What it does
-- When a Has Team Review task is set to Completed, redirects it to "In Review"
-- Logs "Task Sent to Review" event
-- Senior designer then sets status to Completed (from In Review) to approve — this triggers Automation 2
+> Currently OFF in production. The Senior Designer review loop is now handled in-app via `ReviewDesignsAction` + `/api/workspace/design-review-reject` (see Plan section in `docs/plans/payment-mode-dropoff.md`). Re-enable only if you bring back the in-Airtable review flow.
 
-### Important: Automation Order
-**This automation MUST run BEFORE Automation 2.** If Automation 2 fires first on a Completed status, it will activate dependents before the In Review intercept can catch it.
-
-In the Automations tab, drag this automation above "Task Completed → Activate Dependents" to ensure correct execution order. Alternatively, Airtable may handle this by checking conditions — since Auto 3 will change the status from Completed to In Review, Auto 2's condition (Status = Completed) won't match after the redirect.
+> **Order matters when ON:** must run BEFORE Auto 2 so the status flips to In Review before Auto 2's "Status = Completed" condition matches.
 
 ---
 
-## Automation 5: Onboarding Call Completed → Create Stripe Subscription
+## Auto 4 — Mark Onboarding Call Complete → Set CSM + Check-In Links
 
-Notifies LaunchPad when a Calls record reaches `Status = Completed` for an `Onboarding`-type call. LaunchPad then creates the Stripe trial subscription using the customer's saved card + selected plan.
+When the CSM marks the Onboarding Call complete, sets `Customer.CSM Assigned` to whoever completed the task and writes their personal Calendly URL onto the Schedule Check-In 1 / 2 tasks.
 
-### Setup Steps
+**Trigger:** When record matches conditions → **Tasks** table → `Task Name = "Mark Onboarding Call Complete" AND Status = "Completed"`
 
-1. Click **Create automation**, name it **"Onboarding Call Completed → Create Sub"**
-2. **Trigger:** "When a record matches conditions" → **Calls** table
-3. Conditions:
-   - **Status** is **"Completed"**
-   - **Type** is **"Onboarding"**
-4. **Action:** "Run a script"
-5. Add input variables:
+**Input variables:**
 
-   | Variable name | Value |
-   |---|---|
-   | `recordId` | Trigger record → Airtable record ID |
-   | `webhookUrl` | Static text: `https://<your-vercel-domain>/api/webhooks/calls/completed` |
-   | `webhookSecret` | Static text: matches `AIRTABLE_WEBHOOK_SECRET` in Vercel env |
+| Name | Value |
+|---|---|
+| `taskRecordId` | Record → Airtable record ID |
+| `customerRecordId` | Record → Customer → Airtable record ID |
 
-6. Paste the contents of **`auto5-calls-completed-webhook.js`**
-7. Test with a manually-created Calls record (Status=Completed, Type=Onboarding) for a Keyes test customer that has Stripe Customer ID + Selected Stripe Price ID set
-8. Turn on
+**Script:** `auto4-call-complete.js`
 
-### What it does
-- POSTs the Calls record ID to LaunchPad's webhook endpoint
-- LaunchPad re-validates state and creates a Stripe subscription with trial period
-- Customer record is updated with Stripe Subscription ID + Subscription Status
-
-### Important: switch the webhook URL between dev/prod
-The Vercel preview URL changes per branch. The production target is `onboarding.rejig.ai`. When promoting, **update the `webhookUrl` input variable on this automation** (and the `STRIPE_WEBHOOK_SECRET` if applicable for the Stripe webhook). See `docs/plans/payment-mode-dropoff.md` Operational Notes for the full checklist.
+What it does: pulls the assignee from the completed task (the CSM who actually ran the call — may differ from the default CSM via Calendly host re-routing), updates Customer.CSM Assigned, looks up that CSM's personal Calendly URL from Team Members, and stamps it onto Schedule Check-In 1 / 2.
 
 ---
 
-## Testing Checklist
+## Auto 5 / 6 / 7 — Customer Emails (shared script)
 
-### D2C Standard Flow
-1. **Create a D2C-Standard customer** → 17 tasks generated, stage = "Getting Started"
-2. **Check initial state** → "Complete Your Onboarding Form" and "Upload Logos and Headshots" = Active, all others = Draft
-3. **Complete both Getting Started client tasks** → "Create Designs" should activate (multi-dependency: both must complete)
-4. **Set "Create Designs" to Completed** → should redirect to "In Review" (Has Team Review)
-5. **Set "Create Designs" to Completed again (from In Review)** → actually completes, "Upload Proof to Customer" activates
-6. **Continue through stages** → verify stage advances and tasks activate correctly
+Three separate Airtable automations using the same script body — different trigger + different `template` input.
 
-### B2B Keyes Flow
-1. **Create a B2B-Keyes customer** → 11 tasks generated, stage = "Getting Started"
-2. **All 3 Getting Started tasks are Active** (no dependencies)
-3. **Complete all 3** → stage advances to "Prepare for Onboarding", "Create Customer Account" activates
+**Script:** `auto5-7-email-send.js` (paste the same content into all three "Run a script" actions)
 
-### Customer Flags
-- Complete "Create Customer Account" → Customer.Account Created = true
-- Complete "Send Credentials" → Customer.Credentials Sent = true
+| # | Airtable name | Trigger | `template` value |
+|---|---|---|---|
+| 5 | Auto 5 — Email: Welcome | When a Customers record is created | `welcome` |
+| 6 | Auto 6 — Email: Design Ready | When a Tasks record matches: `Task Name = "Review & Approve Your Brand Kit" AND Status = "Active"` | `design-ready` |
+| 7 | Auto 7 — Email: Credentials Sent | (paused — see note) | `credentials-sent` |
+
+**Common input variables on each:**
+
+| Name | Value |
+|---|---|
+| `customerId` | Trigger record → Airtable record ID (Auto 5) **or** Trigger record → Customer (linked) → Airtable record ID (Auto 6/7) |
+| `template` | Static text — value from the table above |
+
+What it does: POSTs `{ template, customerId }` to LaunchPad's `/api/email/send`. LaunchPad fetches the customer, renders the React Email template, and sends via Resend.
+
+> **Auto 7 is obsolete and should be deleted.** Credentials emails are now sent server-side from `SendCredentialsAction` (Account Creator hits Send → `/api/workspace/send-credentials` → Resend). The Airtable trigger duplicates work and could double-send.
+
+---
+
+## Auto 8 — Onboarding Call Completed → Create Stripe Subscription
+
+**STATUS: NOT YET CREATED IN AIRTABLE.** Add this when you're ready to test/run the B2B-Keyes payment flow end-to-end.
+
+**Trigger:** When record matches conditions → **Calls** table → `Status = "Completed" AND Type = "Onboarding"`
+
+**Input variables:**
+
+| Name | Value |
+|---|---|
+| `recordId` | Trigger record → Airtable record ID |
+| `webhookUrl` | Static text: `https://launchpad-indol-ten.vercel.app/api/webhooks/calls/completed` |
+| `webhookSecret` | Static text: matches `AIRTABLE_WEBHOOK_SECRET` in Vercel env (generate with `openssl rand -hex 32`) |
+
+**Script:** `auto8-stripe-sub-creation.js`
+
+What it does: POSTs the Calls record ID + Bearer secret to the LaunchPad webhook. LaunchPad re-validates the call state, then creates the Stripe subscription (with workflow trial days) using the customer's saved card. Writes back `Stripe Subscription ID` + `Subscription Status`.
+
+Idempotent — re-runs are safe (the endpoint no-ops if a sub already exists).
 
 ---
 
 ## Troubleshooting
 
-- **"No workflow templates found"** — Check Workflow Key matches `{Type}-{Channel}` format (e.g., `D2C-Standard`, not `Standard-D2C`)
-- **Tasks not activating** — Depends On field must exactly match Task Name (case-sensitive). For multi-dependency, use comma-space: `"Task A, Task B"`
-- **Stage not advancing** — ALL tasks in the stage must be Completed (including team tasks)
-- **In Review not firing** — Check Has Team Review is checked on the task. Check automation order (Auto 3 before Auto 2)
-- **Input variable errors** — customerRecordId must be the linked record's Airtable record ID, not the display value. Click the Customer field → select "Airtable record ID" (not the name)
+- **"No workflow templates found"** — Check Workflow Key matches `{Type}-{Channel}` (e.g., `D2C-Standard`, not `Standard-D2C`).
+- **Tasks not activating** — Depends On must exactly match Task Name (case-sensitive). For multi-dependency, comma-space: `"Task A, Task B"`.
+- **Stage not advancing** — ALL tasks in the stage must be Completed (including team tasks).
+- **Auto 8 returns 401** — `webhookSecret` and Vercel `AIRTABLE_WEBHOOK_SECRET` don't match. Re-paste both sides.
+- **Email automation fails with "No Portal Base URL"** — the Settings.Production row is missing or the Portal Base URL field is empty. Open the Settings table and check.
+- **Input variable errors** — `customerRecordId` must be the linked record's Airtable record ID, not the display value. Click the Customer field → select "Airtable record ID" (not Name).

@@ -1,6 +1,8 @@
-// Airtable Automation Script: Onboarding Call Completed → Notify LaunchPad
+// Airtable Automation 8: Onboarding Call Completed → Create Stripe Subscription
 //
-// Trigger: When a record in Calls is updated to match:
+// In your Airtable base, name this automation: "Auto 8 - Stripe Sub Creation"
+//
+// Trigger: When a record in Calls matches:
 //   Status = "Completed" AND Type = "Onboarding"
 //   (configure both as conditions in the "When record matches conditions" trigger)
 //
@@ -13,9 +15,8 @@
 //
 // Input variables (configure these in the automation script step):
 //   - recordId      → Insert > Trigger record > Airtable record ID
-//   - webhookUrl    → e.g., https://launchdeck.vercel.app/api/webhooks/calls/completed
-//                     (or onboarding.rejig.ai/... in prod — see plan doc for switchover note)
-//   - webhookSecret → matches AIRTABLE_WEBHOOK_SECRET in Vercel env
+//   - webhookUrl    → Static text: https://launchpad-indol-ten.vercel.app/api/webhooks/calls/completed
+//   - webhookSecret → Static text: matches AIRTABLE_WEBHOOK_SECRET in Vercel env
 //
 // Idempotent: LaunchPad's endpoint is a no-op if the customer already has a
 // Stripe Subscription ID, so re-runs are safe.
