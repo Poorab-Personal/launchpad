@@ -109,6 +109,35 @@ function WaitingPanel({ stage }: { stage: string }) {
   );
 }
 
+/**
+ * Days a completed stage took: from the earliest task activation to the
+ * latest task completion within that stage. Includes team tasks (the stage
+ * was "in flight" the whole time, even if customer only saw part of it).
+ * Returns null when not all tasks in the stage are Completed (so we don't
+ * show duration for stages still in progress).
+ */
+function completedStageDurationLabel(stage: string, tasks: Task[]): string | null {
+  const stageTasks = tasks.filter((t) => t.stage === stage);
+  if (stageTasks.length === 0) return null;
+  if (stageTasks.some((t) => t.status !== 'Completed')) return null;
+  const starts = stageTasks
+    .map((t) => t.activatedAt || t.createdAt)
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .filter((n) => !isNaN(n));
+  const ends = stageTasks
+    .map((t) => t.completedAt)
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .filter((n) => !isNaN(n));
+  if (starts.length === 0 || ends.length === 0) return null;
+  const span = Math.max(...ends) - Math.min(...starts);
+  const days = Math.max(0, Math.round(span / 86_400_000));
+  if (days === 0) return 'same day';
+  if (days === 1) return '1 day';
+  return `${days} days`;
+}
+
 export default function TaskList({
   initialTasks,
   customerId,
@@ -395,6 +424,8 @@ export default function TaskList({
           {progressStages.map((stage, i) => {
             const status = getStageStatus(stage);
             const prevStatus = i > 0 ? getStageStatus(progressStages[i - 1]) : null;
+            const durationLabel =
+              status === 'completed' ? completedStageDurationLabel(stage, tasks) : null;
             return (
               <li key={stage} className="flex items-center gap-2">
                 {i > 0 && (
@@ -416,7 +447,10 @@ export default function TaskList({
                   }`}
                 >
                   {status === 'completed' && <CheckIcon className="h-3.5 w-3.5" />}
-                  {stage}
+                  <span>{stage}</span>
+                  {durationLabel && (
+                    <span className="text-white/70 font-normal">· {durationLabel}</span>
+                  )}
                 </div>
               </li>
             );
