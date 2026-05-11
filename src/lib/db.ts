@@ -456,7 +456,12 @@ export async function getTaskById(taskId: string): Promise<Task | null> {
   return row ? mapDbTask(row) : null;
 }
 
-/** Generic partial Task update. Accepts camelCase fields matching the Drizzle schema. */
+/**
+ * Generic partial Task update. Accepts camelCase fields matching the Drizzle
+ * schema. If the update flips status to Completed, fires Auto 2 (activate
+ * dependents + advance stage) post-write. The Auto 2 trigger is dynamically
+ * imported to avoid a circular dep with src/lib/automations/.
+ */
 export async function updateTaskFields(
   taskId: string,
   fields: Partial<typeof schema.tasks.$inferInsert>,
@@ -467,6 +472,10 @@ export async function updateTaskFields(
     .where(eq(schema.tasks.id, taskId))
     .returning();
   if (!row) throw new Error(`Task ${taskId} not found`);
+  if (row.status === 'Completed') {
+    const { handleTaskCompleted } = await import('@/lib/automations/activate-dependents');
+    await handleTaskCompleted(row.id);
+  }
   return mapDbTask(row);
 }
 
@@ -497,6 +506,10 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus): Prom
     .where(eq(schema.tasks.id, taskId))
     .returning();
   if (!row) throw new Error(`Task ${taskId} not found`);
+  if (status === 'Completed') {
+    const { handleTaskCompleted } = await import('@/lib/automations/activate-dependents');
+    await handleTaskCompleted(row.id);
+  }
   return mapDbTask(row);
 }
 
@@ -825,32 +838,6 @@ export async function getSetting(key: string): Promise<string | null> {
     where: eq(schema.settings.key, key),
   });
   return row?.value ?? null;
-}
-
-// ─── checkAndAdvanceStage — kept as a thin shim until Phase 3 ───────────
-// The real Auto 2 port (activate dependents + advance stage) lands in
-// Phase 3 under src/lib/automations/. For Phase 2 the function exists so
-// routes that import it can be swapped without breaking; behavior is a
-// no-op stub. Phase 3 replaces the body.
-
-/**
- * Stage-advance shim. Real implementation lands in Phase 3 (Auto 2 port).
- * Accepts the legacy positional signature for call-site compatibility:
- *   (customerId, completedTaskStage, allTasks, completedNames, justCompletedTaskId?, product?)
- * Currently a no-op returning false — callers on the postgres-migration
- * branch won't see stage advancement until Phase 3 ships. Main branch
- * (Airtable Auto 2) remains unaffected.
- */
-export async function checkAndAdvanceStage(
-  _customerId: string,
-  _completedTaskStage?: string,
-  _allTasks?: unknown[],
-  _completedNames?: Set<string>,
-  _justCompletedTaskId?: string,
-  _product?: string,
-): Promise<boolean> {
-  // TODO Phase 3: port Auto 2 logic.
-  return false;
 }
 
 // ─── Cache invalidation hook ────────────────────────────────────────────
