@@ -67,7 +67,7 @@ Don't build the same reminder twice:
 
 | Category | When | Mechanism | Plan |
 |---|---|---|---|
-| Pre-verification | Agent never enters email at `/b/{slug}`, OR enters email but never clicks magic link | Sales-driven SQL nudges via Neon SQL console, querying `roster_agents WHERE customer_record_id IS NULL` | Roster plan §4.3 |
+| Pre-verification | Agent never enters email at `/{slug}`, OR enters email but never clicks magic link | Sales-driven SQL nudges via Neon SQL console, querying `roster_agents WHERE customer_record_id IS NULL` | Roster plan §4.3 |
 | Post-verification | Customer record created, but stalls on Capture Payment Method / Schedule Onboarding Call / form submission / design approval | Vercel cron `/api/cron/dropoff-reminders` + `Customers.At Risk` flag | Payment-mode plan §5–§7 |
 
 These don't overlap. A pre-verification agent has no Customer record, so no Active tasks for the reminder cron to find. A post-verification customer is gone from the "unboarded" Postgres view (`customer_record_id IS NOT NULL`). Each mechanism has its own surface.

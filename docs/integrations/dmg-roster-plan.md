@@ -37,10 +37,35 @@ Two B2B brokerages (Keyes, Baird & Warner) onboard via a different app today: `r
 We are folding that flow into LaunchPad. The replacement must:
 
 - Pull agent data from DMG for each brokerage.
-- Verify an agent at the brokerage landing page (`/b/{slug}`).
+- Verify an agent at the brokerage landing page (`/{slug}`).
 - Pre-fill the onboarding form from roster data.
-- Hand off to the existing customer portal (`/r/{token}`).
+- Hand off to the customer portal (`/app/r/{token}`).
 - Be cheap, fast, and reasonable to extend to a 3rd brokerage.
+
+### URL structure (locked 2026-05-08)
+
+Single subdomain — `onboarding.rejig.ai` — for everything. Brokerage landing slugs live at the root; everything LaunchPad owns lives under `/app/*` so brokerage slugs can never collide with internal routes.
+
+```
+Brokerage landings (root, must match live legacy URLs verbatim):
+  onboarding.rejig.ai/keyes
+  onboarding.rejig.ai/b&w
+  onboarding.rejig.ai/ipre
+
+Magic-link landing (per-brokerage, under the slug):
+  onboarding.rejig.ai/{slug}/start?t={jwt}
+
+Internal / app routes (under /app):
+  onboarding.rejig.ai/app/r/{token}     ← customer portal (link in emails)
+  onboarding.rejig.ai/app/admin
+  onboarding.rejig.ai/app/workspace
+  onboarding.rejig.ai/app/signin
+  onboarding.rejig.ai/api/*              ← Vercel-reserved, stays at root
+```
+
+Note: existing LaunchPad routes today are `/r/[token]`, `/admin`, `/workspace`, `/signin` (no `/app` prefix). They have not been shared with any real customer yet, so the migration to `/app/*` is a one-time directory move with no redirects required. Sequencing into the rollout phases is open — see §8.
+
+`b&w` is the literal slug — the legacy app's QR codes and brokerage internal links use `onboarding.rejig.ai/b&w` verbatim. Ampersand-in-path is unusual but valid; Next.js dynamic routes URL-decode it transparently.
 
 The legacy app stays running in parallel until LaunchPad's B2B path is verified, then is sunset.
 
@@ -287,7 +312,7 @@ The change from v1: the live DMG refresh and all Airtable writes move OFF the cl
 ```
 === STAGE 1: Lookup (POST /api/agent-lookup) ===
 
-Agent visits /b/keyes
+Agent visits /keyes
   ↓ (server component)
   Fetch Brokerages record by slug → render landing page (logo, copy, support contact)
   ↓
@@ -329,19 +354,19 @@ Agent enters email → POST /api/agent-lookup { email, slug }
   │  HS256, SESSION_SECRET (reuses existing key var).     │
   │                                                       │
   │  Send magic link via Resend to matched_email:         │
-  │    https://launchpad.rejig.ai/b/{slug}/start?t={jwt}  │
+  │    https://onboarding.rejig.ai/{slug}/start?t={jwt}   │
   │                                                       │
   │  Render "check your email at {matched_email}" page.   │
   │  (Showing the matched email back is fine — user just  │
   │   typed it. No enumeration risk.)                     │
   └───────────────────────────────────────────────────────┘
 
-=== STAGE 2: Click (GET /b/{slug}/start?t={jwt}) ===
+=== STAGE 2: Click (GET /{slug}/start?t={jwt}) ===
 
-Agent clicks magic link → GET /b/keyes/start?t={jwt}
+Agent clicks magic link → GET /keyes/start?t={jwt}
   ↓ (server component)
   Verify JWT signature + expiry (15 min)
-    invalid/expired → render "link expired, request a new one" + back to /b/keyes
+    invalid/expired → render "link expired, request a new one" + back to /keyes
   ↓
   BEGIN postgres transaction
     SELECT pg_advisory_xact_lock(hashtext($brokerage || ':' || $user_id))
@@ -350,7 +375,7 @@ Agent clicks magic link → GET /b/keyes/start?t={jwt}
     ↓
     ┌─ customer_record_id IS NOT NULL (resume) ─────────┐
     │  COMMIT (releases lock)                            │
-    │  Redirect to /r/{customer_record_id}               │
+    │  Redirect to /app/r/{customer_record_id}           │
     └────────────────────────────────────────────────────┘
     ┌─ customer_record_id IS NULL (first click) ────────┐
     │  1. Re-SELECT full roster_agents row for field    │
@@ -365,7 +390,7 @@ Agent clicks magic link → GET /b/keyes/start?t={jwt}
     │  4. UPDATE roster_agents SET customer_record_id =  │
     │       <new Airtable rec ID> WHERE id = $1          │
     │  5. COMMIT (releases lock)                         │
-    │  6. Redirect to /r/{customer_record_id}            │
+    │  6. Redirect to /app/r/{customer_record_id}        │
     └────────────────────────────────────────────────────┘
   
   If steps 2–4 throw after Roster create succeeds but before
@@ -383,7 +408,7 @@ Agent clicks magic link → GET /b/keyes/start?t={jwt}
 
 **JWT, not DB-stored token.** Stateless. Payload `{ agent_id, brokerage, matched_email, iat, exp }`, HS256 signed with `SESSION_SECRET` (same key as `magic-link.ts`). 15-min expiry **(standardized to match the existing `MAGIC_LINK_TTL_MINUTES = 15` in `src/lib/auth/magic-link.ts`)**. Re-clicks within window are idempotent: the advisory lock serializes them, and the `customer_record_id` check makes duplicate attempts return the existing Customer.
 
-**Different from the existing magic-link helper.** The agent verification flow does NOT issue a session cookie. The existing magic link redirects to `/workspace` with a session — the agent flow performs a one-shot side effect (create Customer) and redirects to the customer portal at `/r/{token}`. Implementer must NOT call `setSessionCookie` on the agent. We'll either (a) extend `magic-link.ts` with a second `subject: 'agent-verification'` tagged variant, or (b) write a sibling `agent-magic-link.ts` that reuses the JWT helpers but no session code. Lean (a) for less code duplication.
+**Different from the existing magic-link helper.** The agent verification flow does NOT issue a session cookie. The existing magic link redirects to `/app/workspace` with a session — the agent flow performs a one-shot side effect (create Customer) and redirects to the customer portal at `/app/r/{token}`. Implementer must NOT call `setSessionCookie` on the agent. We'll either (a) extend `magic-link.ts` with a second `subject: 'agent-verification'` tagged variant, or (b) write a sibling `agent-magic-link.ts` that reuses the JWT helpers but no session code. Lean (a) for less code duplication.
 
 **Postgres advisory lock.** `pg_advisory_xact_lock(hashtext(brokerage || ':' || user_id))` is per-transaction (auto-released on COMMIT/ROLLBACK), zero-config, and exactly suited for "serialize concurrent writes for one entity." Two browsers clicking the same link at T=0 will execute serially: the second waits for the first's COMMIT, then SELECTs the now-set `customer_record_id` and redirects to the existing portal. No duplicate Customer rows, no double Auto-1 fan-out.
 
@@ -440,12 +465,17 @@ src/
   types/
     dmg.ts                   -- DMGUser, DMGOffice, DMGUsersResponse types
   app/
-    b/
-      [slug]/
-        page.tsx             -- landing page (server component, fetches Brokerages record)
-        EmailForm.tsx        -- client component, posts to /api/agent-lookup
-        start/
-          page.tsx           -- magic-link landing: verify JWT, advisory lock, create-or-resume
+    [slug]/                  -- brokerage landings live at root: /keyes, /b&w, /ipre
+      page.tsx               -- landing page (server component, fetches Brokerages record by slug)
+      EmailForm.tsx          -- client component, posts to /api/agent-lookup
+      start/
+        page.tsx             -- magic-link landing: verify JWT, advisory lock, create-or-resume
+                                redirects to /app/r/{customer_record_id}
+    app/                     -- everything LaunchPad-internal moves under /app/* (Phase 1 migration)
+      r/[token]/page.tsx     -- customer portal (was /r/[token])
+      admin/                 -- (was /admin)
+      workspace/             -- (was /workspace)
+      signin/                -- (was /signin)
     api/
       agent-lookup/
         route.ts             -- POST: lookup + (live refresh) + send magic link via Resend
@@ -602,8 +632,8 @@ Phased so each step is reversible. The legacy app keeps working at every phase.
 1. Add Brokerages support-contact fields in Airtable.
 2. Decide and execute the `Brokerages.Roster API URL` / `Roster API Key` / `Roster Refresh Interval` cleanup (delete vs rename — see Decisions for Poorab below).
 3. Update `docs/schema/production-schema.md`, `docs/architecture.md`, `docs/flows/b2b-keyes.md`, `docs/flows/b2b-bw.md` per the doc-update task list in §3.2. Same PR.
-4. Build `/b/[slug]` landing page + `/api/agent-lookup` (lookup runs the live DMG refresh).
-5. Build `/b/[slug]/start` magic-link handler (advisory-lock create-or-resume).
+4. Build `/[slug]` landing page + `/api/agent-lookup` (lookup runs the live DMG refresh).
+5. Build `/[slug]/start` magic-link handler (advisory-lock create-or-resume).
 6. Test end-to-end with a single test agent in DMG sandbox (or ourselves added to the roster).
 7. Confirm Postgres advisory lock works under concurrent click test (two curls in parallel → exactly one Customer row).
 
