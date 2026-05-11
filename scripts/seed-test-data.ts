@@ -226,7 +226,6 @@ interface CustDef {
   noShowCount?: number;
   accountCreated?: boolean;
   credentialsSent?: boolean;
-  reminderCount?: number;
   hasVoice?: boolean;
   hasAvatar?: boolean;
   voiceStage?: string;
@@ -280,7 +279,6 @@ const CUSTOMERS: CustDef[] = [
     name: 'Derek Test', channel: 'Webinar', email: 'derek.test@example.com',
     tier: 'Premium', payment: 'Waived', stage: 'Getting Started',
     stageEnteredDaysAgo: 9, createdDaysAgo: 9,
-    reminderCount: 2,
     core: { active: [C.FORM] },
   },
 
@@ -727,10 +725,6 @@ function buildEventRecords(def: CustDef, custId: string): Array<{ fields: Record
   if (def.noShowCount) {
     for (let i = 1; i <= def.noShowCount; i++) evt('Stage Changed', 'System', `No-show for onboarding call (occurrence ${i}). Reschedule task created.`);
   }
-  if (def.reminderCount) {
-    for (let i = 1; i <= def.reminderCount; i++) evt('Reminder Sent', 'System', `Reminder ${i} sent — onboarding form stalled.`);
-  }
-
   return records;
 }
 
@@ -872,7 +866,6 @@ async function seed() {
     if (def.noShowCount) update['No Show Count'] = def.noShowCount;
     if (def.accountCreated) update['Account Created'] = true;
     if (def.credentialsSent) update['Credentials Sent'] = true;
-    if (def.reminderCount) update['Reminder Count'] = def.reminderCount;
     if (def.voiceStage) update['Voice Stage'] = def.voiceStage;
     if (def.avatarStage) update['Avatar Stage'] = def.avatarStage;
     if (def.csm && csms[def.csm]) update['CSM Assigned'] = [csms[def.csm]];

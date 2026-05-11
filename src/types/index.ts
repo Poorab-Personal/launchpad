@@ -6,7 +6,7 @@ export type TaskType = 'Client' | 'Team';
 
 export type TaskStatus = 'Draft' | 'Active' | 'In Review' | 'Completed' | 'Rejected';
 
-export type AttachmentType = 'None' | 'Form' | 'File Upload' | 'Embed' | 'Proof';
+export type AttachmentType = 'None' | 'Form' | 'File Upload' | 'Embed' | 'Proof' | 'Payment Setup';
 
 export type DesignApproval = 'Pending' | 'Approved' | 'Changes Requested';
 
@@ -16,19 +16,24 @@ export type PaymentStatus = 'Paid' | 'Waived';
 
 export type OnboardingStatus = 'Not Started' | 'In Progress' | 'Completed';
 
+export type PaymentMode = 'pre-paid' | 'setup-intent-at-intake' | 'invoice' | 'none';
+
+export type AtRiskReason = 'No CC' | 'No Booking' | 'No Approval' | 'No Form' | 'CSM Flagged';
+
 export type TeamRole =
   | 'Designer'
   | 'Senior Designer'
   | 'CSM'
   | 'Senior CSM'
   | 'Account Creator'
-  | 'Onboarding Ops'
   | 'Sales'
   | 'Admin';
 
 export type ActorType = 'Customer' | 'Team Member' | 'System';
 
 export interface AirtableAttachment {
+  /** Airtable-assigned attachment id (`att...`). Present on reads, omitted when writing new attachments. */
+  id?: string;
   url: string;
   filename?: string;
 }
@@ -73,6 +78,16 @@ export interface Customer {
   productTier: ProductTier | null;
   paymentStatus: PaymentStatus | null;
 
+  // Stripe — populated per Workflow Templates.Payment Mode (see plans/payment-mode-dropoff.md)
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  selectedStripePriceId: string;
+  selectedPlanName: string;
+
+  // Drop-off / At Risk surfacing
+  atRisk: boolean;
+  atRiskReason: AtRiskReason | null;
+
   // Enterprise (B2B)
   brokerage: string[];
   rosterRecord: string[];
@@ -85,6 +100,10 @@ export interface Customer {
   designFeedback: string;
   designRevisionCount: number;
   designProof: AirtableAttachment[];
+  /** Internal design work-in-progress. Append-only by internal upload tasks. Customer never sees this. */
+  designDrafts: AirtableAttachment[];
+  /** Stamped only when Kaushal sends a curated set to the customer (Upload Proof to Customer or Upload Revised Proof). */
+  designProofsUpdatedAt: string;
 
   // Add-ons
   hasVoice: boolean;
@@ -103,7 +122,6 @@ export interface Customer {
   callCompleted: boolean;
   callDate: string;
   noShowCount: number;
-  reminderCount: number;
   otherEmails: string;
 
   // System
@@ -142,6 +160,7 @@ export interface Task {
   completedAt: string;
   activatedAt: string;
   daysActive: number | null;
+  lastReminderAt: string;
   createdAt: string;
   product: Product;
 }
@@ -164,10 +183,12 @@ export interface WorkflowTemplate {
   attachmentType: AttachmentType;
   embedUrl: string;
   instructions: string;
-  reminderAfterDays: number;
-  maxReminders: number;
   dueDaysAfterActivation: number;
   product: Product;
+  paymentMode: PaymentMode | null;
+  trialDays: number;
+  /** Newline-separated bullets, denormalized onto every WT row sharing a Workflow Key. Single writer = seed. */
+  planFeatures: string;
 }
 
 // ─── Table 4: Team Members ──────────────────────────────────────────
@@ -201,6 +222,8 @@ export interface Brokerage {
   active: boolean;
   includesVoice: boolean;
   includesAvatar: boolean;
+  /** Pricing-page subhead. Supports `{Name}` substitution. Empty = caller falls back to default. */
+  pricingTagline: string;
   createdAt: string;
 }
 
@@ -240,6 +263,24 @@ export interface Event {
   details: string;
   relatedTask: string[];
   createdAt: string;
+}
+
+// ─── Table: Stripe Plans ────────────────────────────────────────────
+
+export interface StripePlan {
+  id: string;
+  planName: string;
+  workflowKey: string;
+  stripePriceId: string;
+  active: boolean;
+  description: string;
+  priceDisplay: string;
+  pricePeriod: string;
+  billingDetail: string;
+  footnote: string;
+  highlight: string;
+  /** Optional. If set, used for ascending sort. Otherwise falls back to Plan Name alpha. */
+  displayOrder: number | null;
 }
 
 // ─── Table 8: Calls ─────────────────────────────────────────────────

@@ -4,9 +4,6 @@ import { revalidatePath } from 'next/cache';
 import { requireSession } from '@/lib/auth/dal';
 import { getRecord, updateRecord } from '@/lib/airtable-client';
 import { createEvent } from '@/lib/airtable';
-import { render } from '@react-email/render';
-import * as React from 'react';
-import CredentialsSentEmail from '@/lib/email/templates/credentials-sent';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -87,26 +84,3 @@ export async function markAccountCreated(
   return { ok: true as const };
 }
 
-/**
- * Render the credentials-sent email template to HTML server-side.
- * Used by the SendCredentialsAction component to show a live preview
- * before sending. Returns HTML string for `dangerouslySetInnerHTML`.
- */
-export async function renderCredentialsPreview(args: {
-  firstName: string;
-  portalUrl: string;
-  platformEmail: string;
-  password: string;
-}): Promise<string> {
-  // Gate to authenticated workspace users — the action is exposed via the
-  // browser otherwise (Next.js server actions are POST-able from anywhere).
-  await requireSession();
-  return render(
-    React.createElement(CredentialsSentEmail, {
-      firstName: args.firstName,
-      portalUrl: args.portalUrl,
-      platformEmail: args.platformEmail,
-      password: args.password,
-    }),
-  );
-}

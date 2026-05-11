@@ -3,6 +3,7 @@ import { requireSession } from '@/lib/auth/dal';
 import { getRecord, updateRecord } from '@/lib/airtable-client';
 import { createEvent, getCustomerById } from '@/lib/airtable';
 import { sendEmail } from '@/lib/email/send';
+import { tempPasswordFromName } from '@/lib/temp-password';
 
 function linkedId(field: unknown): string | null {
   if (!Array.isArray(field) || field.length === 0) return null;
@@ -25,24 +26,17 @@ function assignedIdsOf(field: unknown): string[] {
 export async function POST(request: NextRequest) {
   const session = await requireSession();
 
-  let body: { taskId?: string; customerId?: string; password?: string };
+  let body: { taskId?: string; customerId?: string };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return Response.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
-  const { taskId, customerId, password } = body;
-  if (!taskId || !customerId || !password) {
+  const { taskId, customerId } = body;
+  if (!taskId || !customerId) {
     return Response.json(
-      { error: 'Missing required fields: taskId, customerId, password' },
-      { status: 400 },
-    );
-  }
-
-  if (password.length < 6) {
-    return Response.json(
-      { error: 'Password must be at least 6 characters.' },
+      { error: 'Missing required fields: taskId, customerId' },
       { status: 400 },
     );
   }
@@ -88,6 +82,7 @@ export async function POST(request: NextRequest) {
   const portalBase = customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
   const portalUrl = `${portalBase}/r/${customer.id}`;
   const firstName = customer.name.trim().split(/\s+/)[0] || 'there';
+  const password = tempPasswordFromName(customer.name);
 
   await sendEmail({
     template: 'credentials-sent',
@@ -97,6 +92,7 @@ export async function POST(request: NextRequest) {
       portalUrl,
       platformEmail: customer.platformEmail,
       password,
+      callDate: customer.callDate || '',
     },
   });
 

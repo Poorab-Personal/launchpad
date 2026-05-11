@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { Task } from '@/types';
 
 /**
@@ -38,6 +39,39 @@ export default function EmbedTask({
   const [iframeError, setIframeError] = useState(false);
   const [booked, setBooked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Defer the iframe until after mount so the Calendly embed-params
+  // (which depend on window.location.host) don't cause a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Dev-only: ?test=fill exposes a "Simulate booking" button that creates
+  // a synthetic Calls record + marks the task complete in one shot.
+  // Skips Calendly entirely. Test endpoint is gated by env var server-side.
+  const searchParams = useSearchParams();
+  const testFillEnabled = searchParams?.get('test') === 'fill';
+  const customerId = task.customer[0] ?? '';
+  const [simulating, setSimulating] = useState(false);
+  async function handleSimulateBooking() {
+    setSimulating(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/test/simulate-call-booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId, taskId: task.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `Simulate failed (${res.status})`);
+      }
+      setBooked(true);
+      setTimeout(() => onComplete(), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Simulate failed');
+    } finally {
+      setSimulating(false);
+    }
+  }
 
   const isVideo =
     task.taskName.toLowerCase().includes('video') ||
@@ -48,9 +82,9 @@ export default function EmbedTask({
   // For Calendly, augment the URL with embed params on the client.
   // For other embeds (videos), pass through unchanged.
   const embedUrl = useMemo(() => {
-    if (!task.embedUrl) return '';
+    if (!mounted || !task.embedUrl) return '';
     return isCalendly ? withCalendlyEmbedParams(task.embedUrl) : task.embedUrl;
-  }, [task.embedUrl, isCalendly]);
+  }, [mounted, task.embedUrl, isCalendly]);
 
   const handleCalendlyBooked = useCallback(async () => {
     setBooked(true);
@@ -144,6 +178,22 @@ export default function EmbedTask({
       {task.instructions && (
         <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
       )}
+      {testFillEnabled &&
+        (isCalendly || task.taskName.toLowerCase().includes('schedule your onboarding')) && (
+        <div className="flex items-center justify-between rounded-lg border border-dashed border-[#6C4AB6]/40 bg-[#6C4AB6]/5 px-4 py-2 text-xs">
+          <span className="text-[#6C4AB6]">
+            Test mode — skip Calendly and simulate a completed booking?
+          </span>
+          <button
+            type="button"
+            onClick={handleSimulateBooking}
+            disabled={simulating || !customerId}
+            className="rounded-full bg-[#6C4AB6] px-3 py-1 font-medium text-white hover:bg-[#5A3DA5] disabled:opacity-50"
+          >
+            {simulating ? 'Simulating…' : 'Simulate booking'}
+          </button>
+        </div>
+      )}
       {task.embedUrl ? (
         <div className={`relative overflow-hidden rounded-lg border border-[#E0DEE4] ${isCalendly ? 'h-[800px]' : 'h-[700px]'}`}>
           {iframeLoading && (
@@ -163,7 +213,7 @@ export default function EmbedTask({
             <div className="flex items-center justify-center p-10 text-sm text-[#1B2E35]/60">
               Failed to load content. Please try refreshing the page.
             </div>
-          ) : (
+          ) : mounted ? (
             <iframe
               src={embedUrl}
               className="w-full h-full border-0"
@@ -177,7 +227,7 @@ export default function EmbedTask({
               }}
               onError={() => { setIframeLoading(false); setIframeError(true); }}
             />
-          )}
+          ) : null}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#E0DEE4] p-10 text-center">

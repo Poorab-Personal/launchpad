@@ -129,10 +129,16 @@ function getMembersByRole(role) {
 }
 
 // ── Resolve onboarding Calendly URL (B2B brokerage URL > Settings default) ──
+//
+// Independent try/catch per source: a brokerage-lookup failure must NOT
+// prevent the Settings fallback from running (we hit this bug on a BW
+// customer where the brokerage block threw silently and the task ended
+// up with no Embed URL at all).
 
 let onboardingCalendlyUrl = '';
+
+// B2B path: read brokerage's default Calendly URL
 try {
-    // B2B path: read brokerage's default Calendly URL
     if (custRecord) {
         const brokerages = custRecord.getCellValue('Brokerage');
         if (brokerages && brokerages.length > 0) {
@@ -144,20 +150,26 @@ try {
             }
         }
     }
-    // Fallback: Settings.Default Onboarding Calendly URL (used by D2C, and B2B if brokerage has none)
-    if (!onboardingCalendlyUrl) {
+} catch (e) {
+    console.log(`Brokerage Calendly URL lookup failed: ${e.message}`);
+}
+
+// Fallback: Settings.Default Onboarding Calendly URL (D2C, and B2B if brokerage has none)
+if (!onboardingCalendlyUrl) {
+    try {
         const settingsTable = base.getTable('Settings');
         const sq = await settingsTable.selectRecordsAsync({ fields: ['Name', 'Default Onboarding Calendly URL'] });
         const prod = sq.records.find(r => r.getCellValueAsString('Name') === 'Production');
         if (prod) onboardingCalendlyUrl = prod.getCellValueAsString('Default Onboarding Calendly URL') || '';
+    } catch (e) {
+        console.log(`Settings Calendly URL fallback failed: ${e.message}`);
     }
-    if (onboardingCalendlyUrl) {
-        console.log(`Onboarding Calendly URL resolved: ${onboardingCalendlyUrl}`);
-    } else {
-        console.log('No onboarding Calendly URL found — Schedule task will have empty Embed URL.');
-    }
-} catch (e) {
-    console.log(`Could not resolve onboarding Calendly URL: ${e.message}`);
+}
+
+if (onboardingCalendlyUrl) {
+    console.log(`Onboarding Calendly URL resolved: ${onboardingCalendlyUrl}`);
+} else {
+    console.log('No onboarding Calendly URL found — Schedule task will have empty Embed URL.');
 }
 
 // ── Helper: Create tasks from a list of templates with a given Product ──

@@ -195,6 +195,29 @@ export async function POST(request: NextRequest) {
     await updateRecord('Customers', custId, customerUpdate);
   }
 
+  // ── Re-route "Mark Onboarding Call Complete" to the booking host ──
+  // Auto 1 assigned this task to the default CSM at customer-creation time.
+  // The actual host (round-robin pick or direct booking) may differ — make
+  // sure the task lands in their queue, not the default CSM's. Skip if the
+  // task is already Completed (don't rewrite history).
+  if (callType === 'Onboarding' && csmMemberId) {
+    const markTask = allTasks.find((t) => {
+      const linked = t.fields['Customer'];
+      const isCustomer = Array.isArray(linked) && JSON.stringify(linked).includes(custId);
+      const name = (t.fields['Task Name'] as string) ?? '';
+      const status =
+        typeof t.fields['Status'] === 'object'
+          ? (t.fields['Status'] as { name: string }).name
+          : t.fields['Status'];
+      return isCustomer && name === 'Mark Onboarding Call Complete' && status !== 'Completed';
+    });
+    if (markTask) {
+      await updateRecord('Tasks', markTask.id, {
+        'Assigned To': [csmMemberId],
+      });
+    }
+  }
+
   return Response.json({
     ok: true,
     customerId: custId,

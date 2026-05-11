@@ -12,6 +12,7 @@ import type {
   Call,
   CallStatus,
   CallType,
+  StripePlan,
 } from '@/types';
 import {
   getRecords,
@@ -40,6 +41,7 @@ function linkedIds(field: unknown): string[] {
 function attachments(field: unknown): AirtableAttachment[] {
   if (!Array.isArray(field)) return [];
   return field.map((a) => ({
+    id: (a as { id?: string }).id,
     url: (a as { url: string }).url,
     filename: (a as { filename?: string }).filename,
   }));
@@ -64,7 +66,17 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     name: (f['Name'] as string) ?? '',
     type: (selectValue(f['Type']) as Customer['type']) || 'D2C',
     channel: (f['Channel'] as string) ?? '',
-    workflowKey: (f['Workflow Key'] as string) ?? '',
+    // Workflow Key is conceptually a formula ({Type}-{Channel}) but the
+    // Customers table doesn't actually have the formula field today —
+    // compute it here so callers (PaymentSetupTask, plan lookups, etc.)
+    // get a non-empty value.
+    workflowKey: ((): string => {
+      const fk = (f['Workflow Key'] as string) ?? '';
+      if (fk) return fk;
+      const t = selectValue(f['Type']);
+      const c = (f['Channel'] as string) ?? '';
+      return t && c ? `${t}-${c}` : '';
+    })(),
     contactEmail: (f['Contact Email'] as string) ?? '',
     platformEmail: (f['Platform Email'] as string) ?? '',
     phone: (f['Phone'] as string) ?? '',
@@ -115,6 +127,8 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     designFeedback: (f['Design Feedback'] as string) ?? '',
     designRevisionCount: (f['Design Revision Count'] as number) ?? 0,
     designProof: attachments(f['Design Proof']),
+    designDrafts: attachments(f['Design Drafts']),
+    designProofsUpdatedAt: (f['Design Proofs Updated At'] as string) ?? '',
 
     // Status Tracking
     currentStage: (f['Current Stage'] as string) ?? '',
@@ -125,8 +139,15 @@ function mapAirtableToCustomer(record: AirtableRecord): Customer {
     callCompleted: (f['Call Completed'] as boolean) ?? false,
     callDate: (f['Call Date'] as string) ?? '',
     noShowCount: (f['No Show Count'] as number) ?? 0,
-    reminderCount: (f['Reminder Count'] as number) ?? 0,
     otherEmails: (f['Other Emails'] as string) ?? '',
+
+    // Stripe + drop-off (Phase 0 fields)
+    stripeCustomerId: (f['Stripe Customer ID'] as string) ?? '',
+    stripeSubscriptionId: (f['Stripe Subscription ID'] as string) ?? '',
+    selectedStripePriceId: (f['Selected Stripe Price ID'] as string) ?? '',
+    selectedPlanName: (f['Selected Plan Name'] as string) ?? '',
+    atRisk: (f['At Risk'] as boolean) ?? false,
+    atRiskReason: (selectValue(f['At Risk Reason']) as Customer['atRiskReason']) || null,
 
     // System
     accessToken: record.id,
@@ -165,6 +186,7 @@ function mapAirtableToTask(record: AirtableRecord): Task {
     completedAt: (f['Completed At'] as string) ?? '',
     activatedAt: (f['Activated At'] as string) ?? '',
     daysActive: typeof f['Days Active'] === 'number' ? (f['Days Active'] as number) : null,
+    lastReminderAt: (f['Last Reminder At'] as string) ?? '',
     createdAt: (f['Created At'] as string) ?? record.createdTime,
     product: (selectValue(f['Product']) as Product) || 'Core',
   };
@@ -188,10 +210,11 @@ function mapAirtableToWorkflowTemplate(record: AirtableRecord): WorkflowTemplate
     attachmentType: (selectValue(f['Attachment Type']) as WorkflowTemplate['attachmentType']) || 'None',
     embedUrl: (f['Embed URL'] as string) ?? '',
     instructions: (f['Instructions'] as string) ?? '',
-    reminderAfterDays: (f['Reminder After Days'] as number) ?? 0,
-    maxReminders: (f['Max Reminders'] as number) ?? 0,
     dueDaysAfterActivation: (f['Due Days After Activation'] as number) ?? 0,
     product: (selectValue(f['Product']) as Product) || 'Core',
+    paymentMode: (selectValue(f['Payment Mode']) as WorkflowTemplate['paymentMode']) || null,
+    trialDays: (f['Trial Days'] as number) ?? 0,
+    planFeatures: (f['Plan Features'] as string) ?? '',
   };
 }
 
@@ -203,7 +226,7 @@ function mapAirtableToTeamMember(record: AirtableRecord): TeamMember {
     email: (f['Email'] as string) ?? '',
     slackHandle: (f['Slack Handle'] as string) ?? '',
     calendlyUrl: (f['Calendly URL'] as string) ?? '',
-    role: (selectValue(f['Role']) as TeamMember['role']) || 'Onboarding Ops',
+    role: (selectValue(f['Role']) as TeamMember['role']) || 'Account Creator',
     active: (f['Active'] as boolean) ?? false,
     isDefault: (f['Default'] as boolean) ?? false,
     createdAt: (f['Created At'] as string) ?? record.createdTime,
@@ -227,6 +250,7 @@ function mapAirtableToBrokerage(record: AirtableRecord): Brokerage {
     active: (f['Active'] as boolean) ?? false,
     includesVoice: (f['Includes Voice'] as boolean) ?? false,
     includesAvatar: (f['Includes Avatar'] as boolean) ?? false,
+    pricingTagline: (f['Pricing Tagline'] as string) ?? '',
     createdAt: (f['Created At'] as string) ?? record.createdTime,
   };
 }
@@ -328,6 +352,31 @@ export async function getTasksForCustomer(customerId: string): Promise<Task[]> {
 export async function updateTaskStatus(taskId: string, status: TaskStatus): Promise<Task> {
   const record = await updateRecord('Tasks', taskId, { Status: status });
   return mapAirtableToTask(record);
+}
+
+/**
+ * Fetch every Active task in one round-trip and group by customer id.
+ * For dashboards/admin lists that need to show each customer's current task
+ * without making N requests.
+ */
+export async function getActiveTasksByCustomer(): Promise<Map<string, Task[]>> {
+  const records = await getRecords('Tasks', {
+    filterByFormula: `{Status} = 'Active'`,
+    sort: [
+      { field: 'Stage Order', direction: 'asc' },
+      { field: 'Task Order', direction: 'asc' },
+    ],
+  });
+  const byCustomer = new Map<string, Task[]>();
+  for (const r of records) {
+    const t = mapAirtableToTask(r);
+    for (const cid of t.customer) {
+      const list = byCustomer.get(cid) ?? [];
+      list.push(t);
+      byCustomer.set(cid, list);
+    }
+  }
+  return byCustomer;
 }
 
 // --- Workflow Templates ---
@@ -596,6 +645,15 @@ export async function getBrokerageById(id: string): Promise<Brokerage | null> {
   }
 }
 
+export async function getBrokerageByDefaultWorkflowKey(workflowKey: string): Promise<Brokerage | null> {
+  const records = await getRecords('Brokerages', {
+    filterByFormula: `{Default Workflow Key} = '${workflowKey}'`,
+    maxRecords: 1,
+  });
+  if (records.length === 0) return null;
+  return mapAirtableToBrokerage(records[0]);
+}
+
 export async function getBrokerageBySlug(slug: string): Promise<Brokerage | null> {
   const records = await getRecords('Brokerages', {
     filterByFormula: `{Landing Page Slug} = '${slug}'`,
@@ -708,6 +766,15 @@ export async function getUpcomingCallsForCSM(
 }
 
 /** Look up a Call by Calendly Event UUID for idempotent webhook upserts. */
+export async function getCallById(id: string): Promise<Call | null> {
+  try {
+    const record = await getRecord('Calls', id);
+    return record ? mapAirtableToCall(record) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getCallByCalendlyUuid(uuid: string): Promise<Call | null> {
   if (!uuid) return null;
   const safe = uuid.replace(/'/g, "\\'");
@@ -727,4 +794,53 @@ export async function createCall(fields: Partial<Call>): Promise<Call> {
 export async function updateCall(id: string, fields: Partial<Call>): Promise<Call> {
   const record = await updateRecord('Calls', id, callFieldsToAirtable(fields));
   return mapAirtableToCall(record);
+}
+
+// --- Stripe Plans ---
+
+function mapAirtableToStripePlan(record: AirtableRecord): StripePlan {
+  const f = record.fields;
+  const order = f['Display Order'];
+  return {
+    id: record.id,
+    planName: (f['Plan Name'] as string) ?? '',
+    workflowKey: (f['Workflow Key'] as string) ?? '',
+    stripePriceId: (f['Stripe Price ID'] as string) ?? '',
+    active: (f['Active'] as boolean) ?? false,
+    description: (f['Description'] as string) ?? '',
+    priceDisplay: (f['Price Display'] as string) ?? '',
+    pricePeriod: (f['Price Period'] as string) ?? '',
+    billingDetail: (f['Billing Detail'] as string) ?? '',
+    footnote: (f['Footnote'] as string) ?? '',
+    highlight: (f['Highlight'] as string) ?? '',
+    displayOrder: typeof order === 'number' ? order : null,
+  };
+}
+
+/**
+ * Get all active Stripe Plans for a workflow.
+ * Sorted by Display Order ascending when set, then by Plan Name as a stable fallback.
+ * Plans without Display Order sort after plans that have one.
+ */
+export async function getStripePlansByWorkflow(workflowKey: string): Promise<StripePlan[]> {
+  const records = await getRecords('Stripe Plans', {
+    filterByFormula: `AND({Workflow Key} = '${workflowKey}', {Active} = TRUE())`,
+    sort: [{ field: 'Plan Name', direction: 'asc' }],
+  });
+  const plans = records.map(mapAirtableToStripePlan);
+  return plans.sort((a, b) => {
+    const ao = a.displayOrder ?? Number.POSITIVE_INFINITY;
+    const bo = b.displayOrder ?? Number.POSITIVE_INFINITY;
+    if (ao !== bo) return ao - bo;
+    return a.planName.localeCompare(b.planName);
+  });
+}
+
+/** Look up a single plan by its Stripe Price ID (for sub-creation lookups). */
+export async function getStripePlanByPriceId(priceId: string): Promise<StripePlan | null> {
+  const records = await getRecords('Stripe Plans', {
+    filterByFormula: `{Stripe Price ID} = '${priceId}'`,
+    maxRecords: 1,
+  });
+  return records.length > 0 ? mapAirtableToStripePlan(records[0]) : null;
 }

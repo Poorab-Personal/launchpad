@@ -2,8 +2,10 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireSession } from '@/lib/auth/dal';
-import { getRecord, updateRecord } from '@/lib/airtable-client';
+import { getRecord, getRecords, updateRecord } from '@/lib/airtable-client';
 import { createEvent } from '@/lib/airtable';
+
+const REVISE_INTERNAL_PATTERN = /^Revise Design \(Internal Round \d+\)$/;
 
 function linkedId(field: unknown): string | null {
   if (!Array.isArray(field) || field.length === 0) return null;
@@ -55,7 +57,37 @@ export async function markTaskComplete(taskId: string, customerId: string) {
     console.warn('Event log failed (non-fatal):', err);
   }
 
+  // Internal revision loop: completing "Revise Design (Internal Round N)"
+  // means the designer addressed the senior's feedback. Re-activate the
+  // parked Review Designs task so it lands back in the senior's queue.
+  // Auto 2 doesn't handle this because Review Designs has no Depends On
+  // pointing at the dynamic revise task.
+  const taskName = (task.fields['Task Name'] as string) ?? '';
+  if (REVISE_INTERNAL_PATTERN.test(taskName)) {
+    try {
+      await reactivateReviewDesigns(customerId);
+    } catch (err) {
+      console.warn('Failed to re-activate Review Designs (non-fatal):', err);
+    }
+  }
+
   revalidatePath(`/workspace/customers/${customerId}`);
   revalidatePath('/workspace/queue');
   return { ok: true as const };
+}
+
+async function reactivateReviewDesigns(customerId: string) {
+  // Find the customer's Review Designs task (regardless of its current status).
+  // We expect at most one — it's the canonical gate for Upload Proof to Customer.
+  const allTasks = await getRecords('Tasks', {
+    filterByFormula: `{Task Name} = 'Review Designs'`,
+  });
+  const reviewTask = allTasks.find((t) =>
+    JSON.stringify(t.fields['Customer'] ?? '').includes(customerId),
+  );
+  if (!reviewTask) return;
+  await updateRecord('Tasks', reviewTask.id, {
+    Status: 'Active',
+    'Activated At': new Date().toISOString(),
+  });
 }

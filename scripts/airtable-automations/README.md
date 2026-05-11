@@ -106,6 +106,40 @@ In the Automations tab, drag this automation above "Task Completed → Activate 
 
 ---
 
+## Automation 5: Onboarding Call Completed → Create Stripe Subscription
+
+Notifies LaunchPad when a Calls record reaches `Status = Completed` for an `Onboarding`-type call. LaunchPad then creates the Stripe trial subscription using the customer's saved card + selected plan.
+
+### Setup Steps
+
+1. Click **Create automation**, name it **"Onboarding Call Completed → Create Sub"**
+2. **Trigger:** "When a record matches conditions" → **Calls** table
+3. Conditions:
+   - **Status** is **"Completed"**
+   - **Type** is **"Onboarding"**
+4. **Action:** "Run a script"
+5. Add input variables:
+
+   | Variable name | Value |
+   |---|---|
+   | `recordId` | Trigger record → Airtable record ID |
+   | `webhookUrl` | Static text: `https://<your-vercel-domain>/api/webhooks/calls/completed` |
+   | `webhookSecret` | Static text: matches `AIRTABLE_WEBHOOK_SECRET` in Vercel env |
+
+6. Paste the contents of **`auto5-calls-completed-webhook.js`**
+7. Test with a manually-created Calls record (Status=Completed, Type=Onboarding) for a Keyes test customer that has Stripe Customer ID + Selected Stripe Price ID set
+8. Turn on
+
+### What it does
+- POSTs the Calls record ID to LaunchPad's webhook endpoint
+- LaunchPad re-validates state and creates a Stripe subscription with trial period
+- Customer record is updated with Stripe Subscription ID + Subscription Status
+
+### Important: switch the webhook URL between dev/prod
+The Vercel preview URL changes per branch. The production target is `onboarding.rejig.ai`. When promoting, **update the `webhookUrl` input variable on this automation** (and the `STRIPE_WEBHOOK_SECRET` if applicable for the Stripe webhook). See `docs/plans/payment-mode-dropoff.md` Operational Notes for the full checklist.
+
+---
+
 ## Testing Checklist
 
 ### D2C Standard Flow

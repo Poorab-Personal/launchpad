@@ -21,7 +21,8 @@ const COLUMNS: Column[] = [
     key: 'design',
     title: 'To Design',
     emoji: '🎨',
-    match: (n) => n === 'Create Designs' || /^Revise Design \(Round/i.test(n),
+    // "Revise Design (Round N)" = customer-driven revision; "Revise Design (Internal Round N)" = senior-driven
+    match: (n) => n === 'Create Designs' || /^Revise Design \((Internal )?Round/i.test(n),
   },
   {
     key: 'review',

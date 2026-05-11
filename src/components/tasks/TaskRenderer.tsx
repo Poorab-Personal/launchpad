@@ -6,6 +6,8 @@ import FormTask from './FormTask';
 import FileUploadTask from './FileUploadTask';
 import EmbedTask from './EmbedTask';
 import ProofTask from './ProofTask';
+import PaymentSetupTask from './PaymentSetupTask';
+import SignInTask from './SignInTask';
 
 export default function TaskRenderer({
   task,
@@ -18,6 +20,12 @@ export default function TaskRenderer({
   customer?: Customer;
   onComplete: () => void;
 }) {
+  // Special-case by task name (template Attachment Type is None for these,
+  // but we want a richer renderer than PlainTask).
+  if (task.taskName === 'Sign In & Reset Password') {
+    return <SignInTask task={task} customer={customer} onComplete={onComplete} />;
+  }
+
   switch (task.attachmentType) {
     case 'Form':
       return <FormTask task={task} onComplete={onComplete} customerId={customerId} customer={customer} />;
@@ -27,6 +35,16 @@ export default function TaskRenderer({
       return <EmbedTask task={task} onComplete={onComplete} />;
     case 'Proof':
       return <ProofTask task={task} customerId={customerId} customer={customer} onComplete={onComplete} />;
+    case 'Payment Setup':
+      return (
+        <PaymentSetupTask
+          task={task}
+          customerId={customerId}
+          customer={customer}
+          workflowKey={customer?.workflowKey ?? ''}
+          onComplete={onComplete}
+        />
+      );
     case 'None':
     default:
       return <PlainTask task={task} onComplete={onComplete} />;

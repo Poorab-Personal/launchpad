@@ -1,8 +1,26 @@
 # Plan — Payment Mode Config + Drop-off Handling
 
 **Status:** Draft, pending architect review
+**v2 — applies architect review 2026-05-06**
 **Author:** Claude (LaunchPad)
 **Date:** 2026-05-06
+
+## Changes from v1
+
+- **Dropped the synthetic `D2C-Prepaid` Brokerage.** `Payment Mode`, `Stripe Price ID`, and `Trial Days` now live on **Workflow Templates** (header-level — denormalized onto every template row sharing a `Workflow Key`). No customer backfill, no Workflow Key formula change, no semantic drift on what a Brokerage is.
+- **Sub creation triggers off the `Calls` table**, not the `Mark Onboarding Call Complete` task. Watches `Calls.Status = Completed AND Type = Onboarding AND Customer.Stripe Subscription ID is empty`. Survives reschedules, no-shows, and CSM forgetfulness; idempotent by guard.
+- **Cut `Brokerages.Billing Status`** entirely — nothing reads it.
+- **Cut per-task reminder threshold variation** — one global `+3d, +7d, +12d` schedule for all stalled-task types.
+- **Cut `Tasks.Reminder Count`** — keep only `Tasks.Last Reminder At` and compute reminder number on the fly.
+- **Split `atRisk` into two fields**: `At Risk` (checkbox) + `At Risk Reason` (single-select). `Churned` handled by existing `Current Stage = "Churned"`; no new lifecycle field.
+- **Made Stripe Customer creation timing explicit** per payment mode.
+- **Added webhook idempotency note** for `setup_intent.succeeded` and the Calls-driven sub creation path.
+- **Added cron race-condition mitigation**: re-read task immediately before sending reminder; skip if status changed.
+- **Used existing `Embed` Attachment Type** for the Capture Payment Method task — no new `Stripe Setup` type.
+- **Resolved all 5 v1 Open Questions** inline (no dangling questions for the architect).
+- **Reordered phases**: Phase 4 is now small (Stripe Subscription ID backfill only).
+
+---
 
 ## Problem
 
@@ -13,59 +31,111 @@ Today's workflow assumes payment is settled before LaunchPad gets the customer:
 
 We need three things:
 
-1. **Per-brokerage payment-mode config** so each onboarding flow knows whether/when to capture a card.
+1. **Per-workflow payment-mode config** so each onboarding flow knows whether/when to capture a card.
 2. **Workflow gating**: design tasks must not activate for `setup-intent-at-intake` customers until the card is on file.
 3. **Drop-off handling**: customers who submit intake but stall on CC capture or onboarding booking get reminded, then escalated to CSM.
 
+---
+
 ## Design
 
-### 1. `Brokerages.paymentMode` (single select)
+### 1. Payment Mode lives on Workflow Templates
+
+Payment mode is workflow-shaped, not brokerage-shaped: every `B2B-Keyes` customer is `setup-intent-at-intake`, every `D2C-Standard` customer is `pre-paid`, every `B2B-BW` customer is `invoice`. Tomorrow's `D2C-Trial` is also a new Workflow Key. Anchoring the config to the Workflow Key (the thing that already differentiates the flow) keeps Brokerages clean and removes the need for a synthetic D2C parent record.
+
+**Storage shape (decision):** Add `Payment Mode`, `Stripe Price ID`, and `Trial Days` as columns on **`Workflow Templates`**, denormalized onto every row sharing a `Workflow Key`. We pick this over a separate `Workflow Configs` table because:
+- Workflow Templates is already the canonical "per-workflow config" location (it owns Embed URL, Initial Status, Depends On, etc.).
+- Lookup is a single filter we already do (`WHERE Workflow Key = X`); reading any one row gives the config.
+- A new table would mean an extra join in Auto 1 and a second place that needs seeding when adding a workflow.
+
+Denormalization cost: when seeding a workflow, every template row for that key carries the same `Payment Mode`/`Stripe Price ID`/`Trial Days` values. Mitigation: the seed script (`setup-production.ts`) is the single writer, so drift is structurally impossible. Code reads the value off any one row and ignores the rest.
+
+**Payment Mode values:**
 
 | Value | Behavior |
 |---|---|
-| `pre-paid` | Sub already exists at customer creation. No SetupIntent task. Design unblocks per template. **Used by D2C-Prepaid.** |
-| `setup-intent-at-intake` | Customer portal exposes Stripe SetupIntent step. "Capture Payment Method" task gates "Create Designs". Sub is created (with trial) on `Mark Onboarding Call Complete`. **Used by Keyes, IP.** |
-| `invoice` | No Stripe involvement. Design unblocks per template. Billing tracked via `Brokerages.billingStatus`. **Used by B&W.** |
+| `pre-paid` | Sub already exists at customer creation. No SetupIntent task. Design unblocks per template. **Used by D2C-Standard.** |
+| `setup-intent-at-intake` | Customer portal exposes Stripe SetupIntent step. "Capture Payment Method" task gates downstream tasks. Sub is created (with trial) when the Onboarding Call is marked Completed in the Calls table. **Used by B2B-Keyes, future B2B-IP.** |
+| `invoice` | No Stripe involvement. Design unblocks per template. **Used by B2B-BW.** Note: this mode is informational only today — no behavior currently keys off it. We add the value for future use; we do **not** add a `Brokerages.Billing Status` field until a feature actually reads it. |
 | `none` | Demo / lighthouse customers. No billing. |
 
-### 2. `D2C-Prepaid` synthetic Brokerage
+**What stays in Brokerages:** `Default Workflow Key`, `Landing Page Slug`, roster config, billing contact. Brokerages remain "a real estate brokerage we have a deal with."
 
-D2C currently has no Brokerage parent. We unify by treating D2C as a Brokerage row:
+**Counter-case noted:** if Poorab later wants per-brokerage Stripe pricing on the same workflow (Keyes pays $X, IP pays $Y, both on `B2B-Keyes`), `Stripe Price ID` would migrate to Brokerage while `Payment Mode` stays on Workflow Templates. Today's reality — one price per workflow — doesn't justify that split. See "Decisions for Poorab" below.
 
-- Create `Brokerages.D2C-Prepaid` with `paymentMode = pre-paid`, `Default Workflow Key = D2C-Standard`.
-- Backfill `Customers.Brokerage = D2C-Prepaid` for all existing D2C customers.
-- Future variants (`D2C-Trial`, `D2C-Promo`) become new Brokerage rows with their own `paymentMode` and workflow key.
+### 2. Dependency-graph approach to gating
 
-Trade-off: Brokerage table grows by 1 row + we own a migration. Win: every customer has a brokerage parent → one branching point in code (`paymentMode`), not two (`Type`, then `Channel`).
+`Depends On = "Capture Payment Method"` is the gating primitive. The Depends On field is already the system's "this can't happen yet because of that" channel. Auto 2 already activates downstream tasks the instant predecessors complete. The Stripe webhook completes the task; Auto 2 doesn't need to know why.
+
+- Brokerages with `Payment Mode = invoice` simply don't have the task generated, so the dependency edge is silently inert.
+- B2B-Keyes today has no design tasks, so gating is also inert there. The day someone wires up IP with a card-capture + brand-kit flow, the dependency edge is already in the template — no code change needed.
+
+**Convention reminder:** `Depends On` is comma-separated **task name strings**, never linked-record IDs. CLAUDE.md is explicit about this; race conditions in Airtable automations make linked-record dependencies dangerous.
 
 ### 3. New task: "Capture Payment Method"
 
-Added to `B2B-Keyes` and any future `setup-intent-at-intake` workflow templates. Inserted in stage 1 ("Getting Started").
+Added to `B2B-Keyes` and any future `setup-intent-at-intake` workflow templates. Inserted in stage 1 ("Getting Started"), replacing the placeholder "Start Your Trial" task.
 
 ```
 Stage: Getting Started, Order: 2
 Task Type: Client
 Visible To Client: ✓
 Initial Status: Active
-Attachment Type: Embed (or new "Stripe Setup" type — see Open Question 1)
+Attachment Type: Embed
 Depends On: (blank)
 Embed URL: /r/{token}/payment-setup  (Stripe-hosted card collection page)
 Instructions: "Add a payment method to start your free trial. You won't be charged until your onboarding call is complete."
 ```
 
+**Attachment Type decision (revised after architect re-review on Phase 1 build kickoff):** use a NEW Attachment Type `Payment Setup`. The original v2 plan said use `Embed`, but Stripe Elements renders inline (it creates its own iframes internally for PCI compliance) — wrapping it in another iframe via the existing `EmbedTask` fights Stripe's expected DOM. More importantly, future payment-shaped tasks (custom design bundle = PaymentIntent for one-time charges, Voice add-on = Subscription) are siblings with different Stripe flows, not variants of one renderer. Establishing the `Payment Setup` enum value now makes the future shape (`Payment Setup | One-Time Charge | Add-On Subscription`) clean from the start. Each gets its own renderer component.
+
 **Workflow template surgery for B2B-Keyes:**
 - Add "Capture Payment Method" (Order 2 in Getting Started).
-- Update "Create Designs" task (currently absent in Keyes — Keyes has no design step). For brokerages that *do* have design (none today, but future ones might), `Depends On = Capture Payment Method, Confirm Your Information`.
-- Replace existing "Start Your Trial" placeholder with this real task.
+- Remove placeholder "Start Your Trial" (Order 2).
+- Future brokerages with both card capture and design steps set `Depends On = "Capture Payment Method, Confirm Your Information"` on the design task.
 
-**B2B-Keyes is design-less today**, so the design-gating concern doesn't bite Keyes itself. The architecture handles it for future brokerages that combine `setup-intent-at-intake` + design (e.g. IP if they want a brand kit).
+### 4. SetupIntent flow + sub creation
 
-### 4. SetupIntent flow
-
+**SetupIntent (card capture):**
 - New API route: `POST /api/customers/[id]/payment-setup` — server-side creates Stripe SetupIntent, returns client secret.
 - New customer-portal page: `/r/[token]/payment-setup` — Stripe Elements, collects card, confirms SetupIntent.
 - New webhook: `POST /api/webhooks/stripe` — handles `setup_intent.succeeded` → finds customer by `Stripe Customer ID` → marks "Capture Payment Method" task Completed → Auto 2 unblocks dependents.
-- On `Mark Onboarding Call Complete`: Auto X creates the actual Subscription using stored payment method + `Brokerages.priceId` + `Brokerages.trialDays`. Stores `Customers.stripeSubscriptionId`.
+
+**Stripe Customer creation timing (per mode):**
+
+| Mode | When `Customers.Stripe Customer ID` is populated |
+|---|---|
+| `setup-intent-at-intake` | **At Customer record creation.** The same code path that creates the Customer record (B2B agent intake handler) calls `stripe.customers.create()` and writes the ID. The SetupIntent route can then assume the Stripe Customer already exists. |
+| `pre-paid` (D2C) | **Lazily, from existing `Customers.Stripe Payment ID`** (the upstream HubSpot/Stripe path already created the Stripe Customer). On first need (e.g., add-on purchase), backfill from the existing payment record. |
+| `invoice` | **Never.** Field stays empty. |
+| `none` | **Never.** Field stays empty. |
+
+**Subscription creation (triggered from Calls table, not from a Task):**
+
+Watch the `Calls` table for:
+```
+Calls.Status = Completed
+  AND Calls.Type = Onboarding
+  AND Calls.Customer → Stripe Subscription ID is empty
+  AND Calls.Customer → Workflow.Payment Mode = setup-intent-at-intake
+```
+
+When matched, create the Stripe Subscription using the stored payment method + the workflow's `Stripe Price ID` + `Trial Days`. Write `Customers.Stripe Subscription ID`.
+
+Why Calls and not the Task:
+- **Reschedules don't false-fire.** Calendly upserts on Event UUID; rescheduled calls don't trip `Status = Completed`.
+- **No-shows don't false-fire.** Status is explicitly `No Show`.
+- **CSM forgetting to mark the task is no longer fatal.** Marking the Call Completed (which CSM already does in the workspace) is the same action that creates the sub.
+- **Idempotency is free** because of the `Stripe Subscription ID is empty` guard.
+
+**Implementation:** Airtable automation on `Calls.Status` change → calls a LaunchPad webhook (`POST /api/webhooks/calls/completed`) → LaunchPad re-checks the guards (defense in depth), calls Stripe, writes back.
+
+**Webhook idempotency (explicit):**
+- The Stripe `setup_intent.succeeded` webhook is a no-op if the "Capture Payment Method" task is already `Completed`. Guard by reading task status before writing.
+- The Calls-driven sub creation path is a no-op if `Customers.Stripe Subscription ID` is already non-empty. Guard before calling `stripe.subscriptions.create()`.
+- Both paths are safe under retries (Stripe 5xx replays, Airtable automation re-fires, dashboard test events).
+
+**Safety net:** weekly audit query (CSM workspace badge) — "customers in Stage 4+ with `Payment Mode = setup-intent-at-intake` and no `Stripe Subscription ID`." Catches every gap: webhook drops, manual edits, anything.
 
 ### 5. Reminder cron
 
@@ -77,118 +147,218 @@ GET /api/cron/dropoff-reminders
        Status = Active
        Task Name IN ("Capture Payment Method", "Schedule Your Onboarding Call",
                      "Confirm Your Information", "Complete Your Onboarding Form")
-       AND Activated At < now - threshold
-       AND (Last Reminder At is null OR Last Reminder At < now - reminder_interval)
-       AND Reminder Count < 3
-  → For each: send templated email, increment Reminder Count, set Last Reminder At
-  → If Reminder Count just hit 3:
-       Set Customer.atRisk = "Stalled - {reason}"
-       Skip further reminders
+       AND Activated At < now - 3d
+       AND (Last Reminder At is null OR Last Reminder At < now - 4d)
+  → For each:
+       Re-read the task by ID (race guard — see below).
+       If Status != Active anymore, skip.
+       reminderNumber = floor((now - activatedAt) / 4d)
+       If reminderNumber >= 3 and Customer.At Risk = false:
+         Set Customer.At Risk = true, At Risk Reason = (mapped from task name)
+         Skip sending email — escalation handled in CSM workspace
+       Else:
+         Send templated email
+         Set Last Reminder At = now
 ```
 
-Thresholds (per task name):
-- `Capture Payment Method`: first reminder at +2d, then +5d, then +9d
-- `Schedule Your Onboarding Call`: first at +2d, +5d, +9d
-- `Confirm Your Information` / `Complete Your Onboarding Form`: first at +3d, +7d, +12d (form is more involved than a click)
+**Schedule (single global rule for all stalled-task types):** `+3d, +7d, +12d`. No per-task variation. If reminder fatigue or response rates become a measured problem, tune from data — don't pre-emptively shard.
 
-Cron timing: daily is enough — we're not chasing minutes here. Vercel Hobby allows 2 cron jobs; Pro removes that. User confirmed Pro.
+**Storage shape:** `Tasks.Last Reminder At` only. Reminder number is computed as `floor((now - activatedAt) / interval)`. We do **not** add `Tasks.Reminder Count` — the count is derivable, the cron is idempotent (Last Reminder At advances on each send), and we avoid a writer-collision risk between the cron and any future manual reset.
 
-### 6. `Customers.atRisk` (single select)
+**Race condition mitigation (cron vs. webhook):** The cron query and the actual email send happen on different requests within the same handler invocation. Between query and send, the SetupIntent webhook (or Calendly webhook) may have completed the task. Mitigation: in the cron handler, **re-read the task by ID immediately before sending** the reminder. If `Status != Active`, skip it. Cheap, prevents the "you didn't add a card!" email landing 30 seconds after the customer added the card. Same logic protects against the other webhooks (Calendly `invitee.created` clearing `Schedule Your Onboarding Call`, intake form submission clearing `Confirm Your Information`, etc.).
 
-| Value | Set By | Cleared By |
+**Where the cron lives:** Next.js (Vercel Cron → API route), not Airtable scheduled automation. Email sending uses a Next.js-side SDK (Resend or equivalent), Airtable scripting can't send those, and Vercel cron logs are first-class. The legacy `Auto 8` reference in `production-schema.md` is a stub (no implementation in `scripts/airtable-automations/`) — we delete or supersede that reference in Phase 0.
+
+**Vercel plan note:** Vercel Pro confirmed; cron count is not a constraint.
+
+### 6. `At Risk` shape (two fields)
+
+Two fields beat one because the kanban filter becomes a positive query:
+
+| Field | Type | Notes |
 |---|---|---|
-| `none` (default) | — | — |
-| `Stalled - No CC` | reminder cron after 3rd reminder on "Capture Payment Method" | webhook on `setup_intent.succeeded` |
-| `Stalled - No Booking` | reminder cron after 3rd reminder on "Schedule Your Onboarding Call" | Calendly webhook on `invitee.created` |
-| `Stalled - No Approval` | reminder cron after 3rd reminder on design approval task | design approval action |
-| `Stalled - No Form` | reminder cron after 3rd reminder on intake form task | form submission action |
-| `At Risk - CSM Flagged` | manual CSM action | manual CSM action |
-| `Churned` | manual CSM action | — (terminal) |
+| `At Risk` | Checkbox | Set by cron after 3rd reminder, by CSM action, or by manual flag. Cleared by webhooks (Stripe, Calendly, form submission, design approval) or CSM action. |
+| `At Risk Reason` | Single select | `No CC`, `No Booking`, `No Approval`, `No Form`, `CSM Flagged`. Cleared when `At Risk` goes false. |
+
+**Churned handling (decision):** No new `Lifecycle Status` field. The existing `Customers.Current Stage = "Churned"` value already covers the terminal bucket — "Mark Churned" sets `Current Stage = "Churned"` and clears `At Risk`. The kanban filter is `At Risk = true AND Current Stage != "Churned"`, which is exactly the "show me everyone the cron flagged but the CSM hasn't touched yet" view section 7 wants.
+
+Reason mapping (cron sets):
+
+| Stalled task | At Risk Reason |
+|---|---|
+| Capture Payment Method | `No CC` |
+| Schedule Your Onboarding Call | `No Booking` |
+| Review & Approve Your Brand Kit (or design approval task) | `No Approval` |
+| Confirm Your Information / Complete Your Onboarding Form | `No Form` |
+| (manual) | `CSM Flagged` |
+
+Auto-clearing:
+- `setup_intent.succeeded` → if `At Risk Reason = No CC`, clear both fields.
+- Calendly `invitee.created` → if `At Risk Reason = No Booking`, clear both.
+- Design approval → if `At Risk Reason = No Approval`, clear both.
+- Form submission → if `At Risk Reason = No Form`, clear both.
+- `CSM Flagged` is cleared only by CSM action (or "Mark Churned").
 
 ### 7. CSM workspace surfacing
 
-`/workspace/book` already has an "At Risk" kanban column. Wire it to filter `Customers.atRisk != none AND atRisk != Churned`. Add a small badge on the customer row showing the specific stall reason.
+`/workspace/book` already has an "At Risk" kanban column. Wire it to filter `At Risk = true AND Current Stage != "Churned"`. Add a small badge on the customer row showing `At Risk Reason`.
 
-Add a CSM action panel on `/workspace/customers/[id]` for at-risk customers:
-- "Snooze 3 days" — clears `atRisk` to `none`, resets `Reminder Count = 0` on the offending task. Cron will re-evaluate after threshold.
-- "Mark Churned" — sets `atRisk = Churned`, marks all active tasks as Completed (or new "Canceled" status — TBD), sets Customer.Current Stage = "Churned".
+CSM action panel on `/workspace/customers/[id]` for at-risk customers:
+- **Snooze 3 days** — clears `At Risk` and `At Risk Reason`, sets `Tasks.Last Reminder At = now` on the offending task (so the cron waits a full interval before re-evaluating).
+- **Mark Churned** — sets `Current Stage = "Churned"`, clears `At Risk` / `At Risk Reason`, marks all Active tasks as Completed (existing status; no new "Canceled" status needed).
+- **Flag (manual)** — sets `At Risk = true, At Risk Reason = CSM Flagged`. CSM can use this when they hear bad signal outside the cron's view.
+
+---
 
 ## Schema changes (Phase 0)
 
-### Brokerages table
+### Workflow Templates table (new fields, denormalized per Workflow Key)
 - `Payment Mode` — single select: `pre-paid`, `setup-intent-at-intake`, `invoice`, `none`
-- `Stripe Price ID` — text (nullable; required when paymentMode = setup-intent-at-intake)
-- `Trial Days` — number (default 0; required when paymentMode = setup-intent-at-intake)
-- `Billing Status` — single select: `active`, `paused`, `churned` (used for `invoice` mode)
+- `Stripe Price ID` — text (nullable; required when `Payment Mode = setup-intent-at-intake`)
+- `Trial Days` — number (default 0; required when `Payment Mode = setup-intent-at-intake`)
 
 ### Customers table
-- `At Risk` — single select with values listed above (default `none`)
-- `Stripe Customer ID` — text (nullable; populated lazily on first Stripe interaction)
+- `At Risk` — checkbox (default unchecked)
+- `At Risk Reason` — single select: `No CC`, `No Booking`, `No Approval`, `No Form`, `CSM Flagged` (nullable)
+- `Stripe Customer ID` — text (nullable; populated per Section 4 timing rules)
 - `Stripe Subscription ID` — text (nullable; populated when sub is created)
+- **Delete** `Customers.Reminder Count` (resolves v1 Open Question 4 — field is unused per current code; deleting now beats leaving deprecated cruft).
 
 ### Tasks table
 - `Last Reminder At` — date w/ time (nullable)
-- (`Reminder Count` already exists on Customers but is per-customer; we want per-task. Add `Tasks.Reminder Count` — number, default 0. Leave `Customers.Reminder Count` deprecated/unused or repurpose later.)
+- (No `Reminder Count` field. Compute on the fly per Section 5.)
 
-### New Brokerage rows
-- `D2C-Prepaid`: paymentMode = `pre-paid`, workflowKey = `D2C-Standard`
-- (Existing) `Keyes`, `Baird & Warner`: update with `paymentMode = setup-intent-at-intake` / `invoice`
-- (Future) `Illustrated Properties`: paymentMode = `setup-intent-at-intake`
+### Workflow Templates row edits
+- Add "Capture Payment Method" row to `B2B-Keyes` (Stage: Getting Started, Order: 2, Attachment: Embed, Embed URL: `/r/{token}/payment-setup`).
+- Remove placeholder "Start Your Trial" row from `B2B-Keyes`.
+- Set `Payment Mode` per Workflow Key:
+  - `D2C-Standard` rows → `pre-paid`
+  - `B2B-Keyes` rows → `setup-intent-at-intake` (with `Stripe Price ID` and `Trial Days`)
+  - `B2B-BW` rows → `invoice`
 
-### Workflow Templates
-- Add "Capture Payment Method" row to `B2B-Keyes` (and future Keyes-like flows).
-- Remove placeholder "Start Your Trial" from `B2B-Keyes`.
+### Brokerages table
+- **No new fields.** No `Billing Status`, no `Payment Mode`, no `Stripe Price ID`, no `Trial Days`. Brokerages stays as-is.
 
-### Migration
-- Backfill `Customers.Brokerage = D2C-Prepaid` for all existing D2C customers.
-- Backfill `Customers.At Risk = none` (Airtable single-select default handles this; verify).
+### NOT changing
+- The `Workflow Key` formula (`{Type} & "-" & {Channel}`) — stays as-is. (Resolves v1 Open Question 5 — no synthetic brokerage means no formula change needed.)
+- D2C customer parent records — no backfill.
+- The Brokerage table's semantic meaning.
+
+---
 
 ## Phasing
 
 ### Phase 0 — Schema only (1 day)
-- Meta-API script: add fields above, create `D2C-Prepaid` brokerage row, backfill.
-- Update TypeScript types (`Brokerage`, `Customer`, `Task`).
+- **Additive Meta-API script** (`scripts/phase0-payment-mode-fields.ts`): add new fields to Workflow Templates / Customers / Tasks; populate `Payment Mode` / `Stripe Price ID` / `Trial Days` on existing template rows. Idempotent.
+- **Destructive Meta-API script** (`scripts/phase0-cleanup-legacy-reminder-fields.ts`): delete `Customers.Reminder Count`, `Workflow Templates.Reminder After Days`, `Workflow Templates.Max Reminders` (all dead weight per live-schema survey + code grep — no consumers).
+- Update TypeScript types (`WorkflowTemplate`, `Customer`, `Task`) — remove deleted fields, add new ones.
 - Update mappers in `src/lib/airtable.ts`.
+- Update `scripts/seed-test-data.ts` and `src/lib/mock-data.ts` to drop `reminderCount` references.
+- Update `scripts/setup-production.ts` to match new schema.
+- Supersede the `Auto 8` reference in `docs/schema/production-schema.md`.
 - Lint, typecheck, smoke test.
 - **No behavior change yet.**
 
-### Phase 1 — SetupIntent flow + workflow gating (3-4 days)
-- Stripe lib setup; SetupIntent API route; `/r/[token]/payment-setup` portal page.
-- Add "Capture Payment Method" task to `B2B-Keyes` template; remove "Start Your Trial".
-- Stripe webhook for `setup_intent.succeeded` → marks task Completed.
-- Auto-completion of "Capture Payment Method" unblocks any downstream `Depends On = "Capture Payment Method"` task.
-- Sub creation on `Mark Onboarding Call Complete` (Airtable automation calls webhook on LaunchPad → LaunchPad calls Stripe → stores sub ID).
+### Phase 1 — SetupIntent flow + Calls-trigger sub creation + workflow gating ✓ DONE 2026-05-07
 
-### Phase 2 — Reminder cron + atRisk (2 days)
+Shipped sub-phases:
+- **1.1** B2B-Keyes + B2B-BW template surgery (Capture Payment Method, Create Designs, dep wiring)
+- **1.2** Stripe Plans table + 2 Keyes plans seeded
+- **1.3** Customer.Selected Stripe Price ID + Selected Plan Name fields
+- **1.4** Stripe SDK + `src/lib/stripe.ts` helpers (createStripeCustomer, createSetupIntent, createSubscription, verifyWebhookSignature) — all idempotent on Airtable customer ID
+- **1.5** Auto-create Stripe Customer at admin Customer creation (gated on Workflow.Payment Mode)
+- **1.6** PaymentSetupTask renderer + `/api/stripe/plans` + `/api/customers/[id]/payment-setup` + `/payment-setup/confirm` + new `Payment Setup` AttachmentType
+- **1.7** Stripe webhook (`/api/webhooks/stripe`) — server-side fallback for setup_intent.succeeded + sub status sync
+- **1.8** Calls-driven sub creation (`/api/webhooks/calls/completed`)
+- **1.9** Airtable automation `auto5-calls-completed-webhook.js`
+
+Pending env vars (set before turning on):
+- `STRIPE_WEBHOOK_SECRET` — set after creating the Stripe webhook endpoint in dashboard
+- `AIRTABLE_WEBHOOK_SECRET` — generate a strong random value, mirror in Airtable Automation 5's `webhookSecret` input
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` — already set per Poorab (2026-05-07)
+
+Pending Airtable automation activation:
+- Automation 5 ("Onboarding Call Completed → Create Sub") — paste auto5-calls-completed-webhook.js, configure inputs, turn on
+
+### Phase 2 — Reminder cron + At Risk fields (2 days)
 - `vercel.json` cron config.
-- `/api/cron/dropoff-reminders` route.
-- Email template for each stall reason.
-- atRisk-clearing logic in webhooks (Stripe, Calendly) and form/approval actions.
-- CSM workspace at-risk filter wiring + badges.
+- `/api/cron/dropoff-reminders` route — single global `+3/+7/+12d` schedule, race-guard via task re-read.
+- Email templates per At Risk Reason.
+- At Risk auto-clearing in `setup_intent.succeeded`, Calendly webhook, form-submission action, design-approval action.
+- CSM workspace at-risk filter wiring + reason badges.
 
 ### Phase 3 — CSM actions (1 day)
-- "Snooze" + "Mark Churned" action panel on customer detail.
+- "Snooze 3 days", "Mark Churned", "Flag (CSM Flagged)" action panel on customer detail.
+- Wire to the two-field At Risk shape and `Current Stage = "Churned"` semantics.
 
-### Phase 4 — Migration (2 days)
-- CSV upload script for ~500 existing customers.
-- Maps existing Stripe sub IDs → `Customers.Stripe Subscription ID`.
-- Sets `paymentMode` correctly per customer based on Brokerage.
+### Phase 4 — Stripe Subscription ID backfill (0.5 day)
+- One-time CSV map: existing customers' Stripe sub IDs → `Customers.Stripe Subscription ID`.
+- No re-parenting, no synthetic brokerage, no formula change.
+- Can run anytime after Phase 0; not on the critical path.
 
-## Open questions for architect
+---
 
-1. **Attachment Type for "Capture Payment Method"** — should we add a new `Stripe Setup` value to the existing `Attachment Type` enum, or piggyback on `Embed` and route the URL? `Stripe Setup` is more explicit but adds a new component branch in `TaskRenderer`. `Embed` is reusable but loses type-safety on what the task does.
+## Resolved Open Questions (from v1)
 
-2. **Per-task reminder schedules** — coding the thresholds inline in the cron handler is simple but means brokerage-specific tweaks (e.g. Keyes wants slower reminders) require code changes. Alternative: `Workflow Templates.Reminder Schedule` field (e.g. `"2,5,9"`) — more flexible but more schema. Recommend inline for now, move to template-driven only if a brokerage actually asks.
+1. **Attachment Type for "Capture Payment Method":** Use `Embed`. No new `Stripe Setup` type. Stripe Elements page is a normal Next.js route the iframe loads.
+2. **Per-task reminder schedules:** Punted. Single global `+3/+7/+12d` for all stalled-task types. Tune from data only when needed.
+3. **Sub creation timing:** Trigger off the `Calls` table (`Status = Completed AND Type = Onboarding AND Customer.Stripe Subscription ID empty`), not off the `Mark Onboarding Call Complete` task. Survives reschedules, no-shows, and CSM forgetfulness; idempotent by guard.
+4. **`Customers.Reminder Count` collision:** Delete the field in Phase 0. Per-task tracking lives in `Tasks.Last Reminder At` (computed reminder number).
+5. **Backfill safety / Workflow Key formula:** Moot — no synthetic D2C-Prepaid brokerage means no backfill, no formula change. Existing customers untouched.
 
-3. **Sub creation timing** — currently planned for `Mark Onboarding Call Complete`. What if the call no-shows and gets rescheduled? Should sub creation wait until *all* check-ins? Recommend: trigger on first call completion only, since trial covers the "no-show then reschedule" case naturally (trial days continue).
+---
 
-4. **`Customers.Reminder Count` collision** — existing field is unused per current code. Either delete it (cleanest, but `Auto 8` references it in older docs) or repurpose for "total reminders sent across all tasks" as a soft engagement metric. Recommend: delete; keep new `Tasks.Reminder Count` only.
+## Decisions — locked 2026-05-06
 
-5. **Backfill safety** — D2C customers currently have `Channel = "Direct Sales"` etc. After backfill they'll have `Brokerage = D2C-Prepaid` AND keep their `Channel`. Workflow Key formula stays `{Type}-{Channel}` → `D2C-Direct Sales` won't match any template. Need to either (a) change formula to `{Brokerage.Default Workflow Key}` or (b) leave formula alone and rely on Channel staying canonical. Recommend (a) — formula reads from Brokerage. Cleaner, and unifies template lookup with payment-mode lookup.
+Both v1-flagged decisions resolved by Poorab:
+
+1. **`Stripe Price ID` stays on Workflow Templates.** New brokerages with their own pricing get their own Workflow Key + template (e.g., `B2B-IP` is a new template set with `Stripe Price ID` set per its deal). If a future brokerage needs to share a workflow but pay a different price, that's the moment we'd revisit — not before.
+
+2. **Sub creation triggers on `Calls.Type = Onboarding` only.** The safety-net audit (CSM workspace badge: "Stage 4+ with `Payment Mode = setup-intent-at-intake` and no `Stripe Subscription ID`") catches any gap from skipped onboarding calls. No fallback trigger.
+
+## Schema findings from live Airtable (2026-05-06)
+
+Verifying the live base before writing the Phase 0 script surfaced three pre-existing fields the architect didn't know about (the setup script is not source of truth — per project rule). All three are dead weight (mapper reads them, no consumer):
+
+- **`Workflow Templates.Reminder After Days`** (number) — per-task threshold; replaced by single global cron schedule. **Delete in Phase 0.**
+- **`Workflow Templates.Max Reminders`** (number) — per-task cap; replaced by single global cap (3). **Delete in Phase 0.**
+- **`Customers.Reminder Count`** (number) — already planned for deletion. Confirmed unused. **Delete in Phase 0.**
+
+The live `Customers` table also has `Subscription Status` (single-select: Active/Trial/Past Due/Cancelled), `MRR`, `Renewal Date`, `Billing Cycle`, etc. These are pre-existing CRM fields, NOT touched by this plan. The Stripe webhook should write `Subscription Status` (Trial → Active, etc.) once we wire it in Phase 1; that's a behavior addition, not a schema change.
+
+**Lifecycle / Churned bucket revisit:** v2 said use `Current Stage = "Churned"` for the terminal bucket. Live schema has no `Current Stage = "Churned"` value defined (it's a `singleLineText`, so any string is allowed, but no convention). Reconsider: use `Subscription Status = Cancelled` as the existing-field signal for churned customers; `At Risk = false AND Subscription Status = Cancelled` is the kanban "they're gone" filter. This avoids inventing a new convention for a string field that's already overloaded with stage names.
+
+---
+
+## Operational notes (don't forget these at deploy time)
+
+### Stripe webhook URL switchover
+
+The Stripe webhook secret is configured against a specific endpoint URL. Today we're on a transient Vercel preview/dev URL (e.g., `launchpad-xxx.vercel.app`); production target is `onboarding.rejig.ai`. **When the production domain switches:**
+
+1. Stripe dashboard → Developers → Webhooks → existing endpoint → update URL to the new domain
+2. Re-copy the signing secret if it changes (Stripe sometimes rotates on URL change; sometimes preserves it — verify)
+3. Update `STRIPE_WEBHOOK_SECRET` in Vercel env vars (Production)
+4. For the dev environment: keep a SEPARATE webhook endpoint in Stripe pointing at the dev URL with its own signing secret in `.env.local`
+
+**Failure mode if missed:** webhooks silently fail signature verification → Capture Payment Method tasks never auto-complete after card capture → customer is stuck → CSM eventually flags via At Risk → manual cleanup required. Cron in Phase 2 doesn't help because there's no "Stripe webhook health check" yet. Worth adding to a deploy checklist.
+
+### Switch Keyes Calendly URL back to real one before prod
+
+During testing the Keyes brokerage's `Default Calendly URL` is set to the throwaway `https://calendly.com/rejig-ai/onboarding` to avoid burning real onboarding slots. The real URL is `https://calendly.com/d/cyqz-rp5-2s3/social-media-onboarding-rejig-ai-keyes`.
+
+**Before launch:** update Brokerages.Keyes.Default Calendly URL back to the real link. Also patch any test-customer Schedule Onboarding Call tasks (they snapshot the URL at task-creation time).
+
+### Calls webhook URL switchover
+
+Same story for the Airtable automation that POSTs to `/api/webhooks/calls/completed` — the URL is hardcoded in the Airtable automation script and must be updated when the domain changes. **Same checklist applies.**
+
+---
 
 ## What this plan does NOT cover
 
-- The SetupIntent UI itself (Stripe Elements integration on the portal page) — that's part of Phase 1 build, not architectural.
+- The SetupIntent UI itself (Stripe Elements integration on the portal page) — Phase 1 build, not architectural.
 - Voice/Avatar add-on payment flows — separate Phase 5.
 - Engagement-data dump for CSM signals (e.g. "agent hasn't logged in") — deferred until the dump API exists.
 - Dunning / failed-payment handling on existing subs — out of scope for onboarding; lives in Rejig core app.
+- B&W `invoice` mode behavior — `Payment Mode = invoice` is informational only today. No reminder, no task, no gating, no `Brokerages.Billing Status` field. Add behavior the day a feature actually reads it.

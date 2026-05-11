@@ -71,6 +71,14 @@ export default async function WorkspaceLayout({
                   {link.label}
                 </Link>
               ))}
+              {session.role === 'Admin' && (
+                <Link
+                  href="/admin"
+                  className="text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
+                >
+                  Admin
+                </Link>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3">

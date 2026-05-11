@@ -2,7 +2,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 
 const VIEW_AS_COOKIE = 'lp_view_as';
-const ALLOWED_ROLES = ['Designer', 'Senior Designer', 'CSM', 'Senior CSM', 'Account Creator', 'Onboarding Ops', 'Sales'] as const;
+const ALLOWED_ROLES = ['Designer', 'Senior Designer', 'CSM', 'Senior CSM', 'Account Creator', 'Sales'] as const;
 
 export type ViewAsRole = (typeof ALLOWED_ROLES)[number];
 

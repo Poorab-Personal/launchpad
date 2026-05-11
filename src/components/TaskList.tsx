@@ -21,6 +21,124 @@ function LockIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Stage-specific "what happens next" guidance shown when the customer is
+ * waiting for the team. Keys are stage names matching Workflow Templates.
+ * If a stage isn't here, we fall back to the generic message.
+ *
+ * `etaDays` is intentionally hardcoded — we don't track real SLAs yet, but
+ * customers want to know roughly when to expect movement, not silence.
+ */
+const STAGE_GUIDANCE: Record<string, { etaDays: string; bullets: string[] }> = {
+  'Getting Started': {
+    etaDays: '1–3 business days',
+    bullets: [
+      'Our designers create your custom brand kit from your photo, logo, and bio',
+      'A senior designer reviews and approves the final look',
+      'You’ll get an email when your proof is ready to review',
+    ],
+  },
+  'Prepare for Onboarding': {
+    etaDays: '1–2 business days',
+    bullets: [
+      'We create your Rejig.ai account using the email you provided',
+      'Login credentials are sent to your inbox',
+      'Your onboarding call lead will reach out before the scheduled time',
+    ],
+  },
+  'Book Your Call': {
+    etaDays: '1–2 business days',
+    bullets: [
+      'Final design touch-ups happen on our side',
+      'Your account gets provisioned and credentialed',
+      'You’ll receive an email with everything you need before the call',
+    ],
+  },
+  'Review & Grow': {
+    etaDays: 'Within the next 2 weeks',
+    bullets: [
+      'Your CSM checks in to make sure everything’s working',
+      'You’ll be invited to share quick onboarding feedback',
+      'Two follow-up calls scheduled over the coming weeks',
+    ],
+  },
+};
+
+function WaitingPanel({ stage }: { stage: string }) {
+  const guidance = STAGE_GUIDANCE[stage];
+  if (!guidance) {
+    return (
+      <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35]/74 shadow-[0px_4px_12px_#1B2E3514]">
+        <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <span>Our team is working on the next step. We&apos;ll email you when something needs your attention.</span>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 shadow-[0px_4px_12px_#1B2E3514] space-y-4">
+      <div className="flex items-start gap-3">
+        <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <div>
+          <p className="text-sm font-semibold text-[#1B2E35]">Here&apos;s what happens next</p>
+          <p className="mt-0.5 text-xs text-[#1B2E35]/60">
+            Estimated turnaround: <span className="font-medium text-[#1B2E35]/80">{guidance.etaDays}</span>
+          </p>
+        </div>
+      </div>
+
+      <ul className="space-y-2 ml-8">
+        {guidance.bullets.map((b) => (
+          <li key={b} className="flex items-start gap-2 text-sm text-[#1B2E35]/80">
+            <svg className="h-4 w-4 shrink-0 text-[#05C68E] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+            </svg>
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="ml-8 text-xs text-[#1B2E35]/60 border-t border-[#E0DEE4] pt-3">
+        We&apos;ll email you the moment your next step is ready. If anything stalls on our side,
+        you&apos;ll get a gentle reminder so nothing slips through the cracks.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compact "Mar 5 → Mar 8 · 3 days" subtitle for a completed stage.
+ * Span is earliest task activation → latest task completion across all
+ * tasks in the stage (team + client). Returns null when not all tasks in
+ * the stage are Completed so we don't show partial durations.
+ */
+function completedStageDurationLabel(stage: string, tasks: Task[]): string | null {
+  const stageTasks = tasks.filter((t) => t.stage === stage);
+  if (stageTasks.length === 0) return null;
+  if (stageTasks.some((t) => t.status !== 'Completed')) return null;
+  const starts = stageTasks
+    .map((t) => t.activatedAt || t.createdAt)
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .filter((n) => !isNaN(n));
+  const ends = stageTasks
+    .map((t) => t.completedAt)
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .filter((n) => !isNaN(n));
+  if (starts.length === 0 || ends.length === 0) return null;
+  const startMs = Math.min(...starts);
+  const endMs = Math.max(...ends);
+  const days = Math.max(0, Math.round((endMs - startMs) / 86_400_000));
+  const fmt = (ms: number) =>
+    new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (days === 0) return `${fmt(endMs)} · same day`;
+  return `${fmt(startMs)} → ${fmt(endMs)} · ${days === 1 ? '1 day' : `${days} days`}`;
+}
+
 export default function TaskList({
   initialTasks,
   customerId,
@@ -35,6 +153,7 @@ export default function TaskList({
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     setTasks(initialTasks);
@@ -81,18 +200,31 @@ export default function TaskList({
     .filter((t) => t.stage === currentStage)
     .sort((a, b) => a.taskOrder - b.taskOrder);
 
-  // Does the current stage have any active or draft tasks for the customer?
-  const hasActiveTasks = currentStageTasks.some(
-    (t) => t.status === 'Active' || t.status === 'Draft',
-  );
+  // Does the current stage have anything for the customer to act on?
+  // Draft tasks don't count — they're either upcoming or locked behind a
+  // team task. Without this, after design approval the customer landed on
+  // a locked Watch Setup Video tab waiting for Send Credentials, instead
+  // of the friendlier "here's what happens next" WaitingPanel.
+  const hasActiveTasks = currentStageTasks.some((t) => t.status === 'Active');
 
-  // Progress calculations (stage-based, not task-count — avoids exposing internal task counts)
-  const currentStageNum = progressStages.indexOf(currentStage);
-  const completedStagesCount = currentStageNum >= 0 ? currentStageNum : progressStages.length;
-  const progressPercent = progressStages.length > 0
-    ? Math.round((completedStagesCount / progressStages.length) * 100)
-    : 0;
   const completedInStage = currentStageTasks.filter((t) => t.status === 'Completed').length;
+
+  /**
+   * A task is "locked" if it's Draft AND any of its deps in the current stage
+   * are not yet Completed. Using local dep state (not raw task.status) means
+   * the UI unlocks the moment the previous task completes — before Airtable's
+   * Auto 2 promotes Draft → Active.
+   */
+  function isTaskLocked(task: Task): boolean {
+    if (task.status !== 'Draft') return false;
+    if (!task.dependsOn) return false;
+    const deps = task.dependsOn.split(',').map((s) => s.trim()).filter(Boolean);
+    for (const depName of deps) {
+      const dep = currentStageTasks.find((t) => t.taskName === depName);
+      if (!dep || dep.status !== 'Completed') return true;
+    }
+    return false;
+  }
 
   function handleTaskComplete(taskId: string) {
     setTasks((prev) =>
@@ -102,6 +234,10 @@ export default function TaskList({
           : t,
       ),
     );
+    // Auto-advance: jump to the next task in the current stage (if any)
+    const idx = currentStageTasks.findIndex((t) => t.id === taskId);
+    const nextTask = idx >= 0 ? currentStageTasks.slice(idx + 1)[0] : null;
+    if (nextTask) setActiveTaskId(nextTask.id);
     setIsRefreshing(true);
     setTimeout(() => {
       router.refresh();
@@ -285,10 +421,12 @@ export default function TaskList({
       {/* Progress bar — ALL stages with client-visible tasks, always shown */}
       <div>
       <nav>
-        <ol className="flex flex-wrap items-center gap-2">
+        <ol className="flex flex-wrap items-center gap-2 pb-5">
           {progressStages.map((stage, i) => {
             const status = getStageStatus(stage);
             const prevStatus = i > 0 ? getStageStatus(progressStages[i - 1]) : null;
+            const durationLabel =
+              status === 'completed' ? completedStageDurationLabel(stage, tasks) : null;
             return (
               <li key={stage} className="flex items-center gap-2">
                 {i > 0 && (
@@ -300,137 +438,171 @@ export default function TaskList({
                     }`}
                   />
                 )}
-                <div
-                  className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors ${
-                    status === 'completed'
-                      ? 'bg-[#05C68E] text-white'
-                      : status === 'active'
-                        ? 'bg-[#6C4AB6] text-white'
-                        : 'bg-white text-[#1B2E35]/54 border border-[#E0DEE4]'
-                  }`}
-                >
-                  {status === 'completed' && <CheckIcon className="h-3.5 w-3.5" />}
-                  {stage}
+                {/* Pill is the layout-determining element; subtitle is absolutely
+                    positioned below so it doesn't shift the pill off-center
+                    relative to the connector. */}
+                <div className="relative">
+                  <div
+                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors ${
+                      status === 'completed'
+                        ? 'bg-[#05C68E] text-white'
+                        : status === 'active'
+                          ? 'bg-[#6C4AB6] text-white'
+                          : 'bg-white text-[#1B2E35]/54 border border-[#E0DEE4]'
+                    }`}
+                  >
+                    {status === 'completed' && <CheckIcon className="h-3.5 w-3.5" />}
+                    {stage}
+                  </div>
+                  {durationLabel && (
+                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1 text-[10px] text-[#1B2E35]/50 whitespace-nowrap">
+                      {durationLabel}
+                    </span>
+                  )}
                 </div>
               </li>
             );
           })}
         </ol>
       </nav>
-
-        {/* Stage progress bar */}
-        <div className="mt-3 flex items-center gap-3">
-          <div className="flex-1 h-1.5 rounded-full bg-[#E0DEE4]">
-            <div
-              className="h-1.5 rounded-full bg-[#05C68E] transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-          <span className="text-xs font-medium text-[#1B2E35]/54 shrink-0">
-            Stage {(currentStageNum >= 0 ? currentStageNum : progressStages.length) + 1} of {progressStages.length}
-          </span>
-        </div>
       </div>
 
       {/* Current stage content ONLY */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-[#1B2E35]">{currentStage}</h2>
-          {currentStageTasks.length > 1 && (
-            <span className="text-xs font-medium text-[#1B2E35]/40">
-              {completedInStage} of {currentStageTasks.length} complete
-            </span>
-          )}
-        </div>
+        {currentStageTasks.length > 1 && (
+          <div className="mb-4 text-xs font-medium text-[#1B2E35]/40">
+            {completedInStage} of {currentStageTasks.length} complete
+          </div>
+        )}
 
         {/* If no visible tasks in current stage (e.g., Onboarding Call — team only) */}
         {currentStageTasks.length === 0 && (
-          <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514]">
-            <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-            </svg>
-            <span>
-              {customer.callDate
-                ? `Your onboarding call is scheduled for ${new Date(customer.callDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}`
-                : "Our team is working on the next step. We'll notify you when something needs your attention."}
-            </span>
-          </div>
+          customer.callDate ? (
+            <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514]">
+              <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+              <span>
+                Your onboarding call is scheduled for {new Date(customer.callDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </span>
+            </div>
+          ) : (
+            <WaitingPanel stage={currentStage} />
+          )
         )}
 
         {/* If all visible tasks are completed and team is working (waiting state) */}
         {currentStageTasks.length > 0 && !hasActiveTasks && (
-          <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35]/74 mb-4 shadow-[0px_4px_12px_#1B2E3514]">
-            <svg className="h-5 w-5 shrink-0 text-[#6C4AB6] mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-            </svg>
-            <span>Our team is working on the next step. We&apos;ll email you when something needs your attention.</span>
+          <div className="mb-4">
+            <WaitingPanel stage={currentStage} />
           </div>
         )}
 
-        <div className="space-y-3">
-          {currentStageTasks.map((task) => {
-            if (task.status === 'Completed') {
-              return (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 rounded-lg border border-[#05C68E]/20 bg-[#05C68E]/10 px-5 py-3.5"
-                >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/20">
-                    <CheckIcon className="h-3.5 w-3.5 text-[#05C68E]" />
-                  </span>
-                  <span className="flex-1 text-sm text-[#1B2E35]/70">
-                    {task.taskName}
-                  </span>
-                  <span className="text-[10px] font-medium text-[#05C68E] shrink-0 uppercase tracking-wide">
-                    Completed
-                  </span>
-                </div>
-              );
-            }
+        {currentStageTasks.length > 0 && hasActiveTasks && (() => {
+          // Active tab: explicit selection wins; else first non-completed; else first
+          const explicit = activeTaskId
+            ? currentStageTasks.find((t) => t.id === activeTaskId)
+            : null;
+          const firstUncompleted = currentStageTasks.find((t) => t.status !== 'Completed');
+          const activeTab = explicit ?? firstUncompleted ?? currentStageTasks[0];
+          const activeTabId = activeTab?.id;
 
-            if (task.status === 'Active') {
-              return (
-                <div
-                  key={task.id}
-                  className="rounded-lg border border-[#E0DEE4] border-l-4 border-l-[#6C4AB6] bg-white p-5 shadow-[0px_4px_12px_#1B2E3514]"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-base font-semibold text-[#1B2E35]">
-                      {task.taskName}
-                    </h3>
-                    <span className="inline-flex items-center rounded-full bg-[#6C4AB6]/10 px-2.5 py-0.5 text-[10px] font-medium text-[#6C4AB6] shrink-0 ml-3">
-                      Action Required
-                    </span>
-                  </div>
-                  <TaskRenderer
-                    task={task}
-                    customerId={customerId}
-                    customer={customer}
-                    onComplete={() => handleTaskComplete(task.id)}
-                  />
-                </div>
-              );
-            }
-
-            // Draft = locked
-            return (
-              <div
-                key={task.id}
-                className="rounded-lg border border-[#E0DEE4] bg-white px-5 py-3.5"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#E0DEE4]/50">
-                    <LockIcon className="h-3.5 w-3.5 text-[#1B2E35]/40" />
-                  </span>
-                  <span className="text-sm text-[#1B2E35]/54">{task.taskName}</span>
-                </div>
-                {task.dependsOn && task.instructions && (
-                  <p className="mt-2 ml-9 text-xs text-[#1B2E35]/40">{task.instructions}</p>
-                )}
+          return (
+            <div className="rounded-lg border border-[#E0DEE4] bg-white shadow-[0px_4px_12px_#1B2E3514] overflow-hidden">
+              {/* Tab nav */}
+              <div className="flex border-b border-[#E0DEE4]">
+                {currentStageTasks.map((task, i) => {
+                  const isActive = task.id === activeTabId;
+                  const isLocked = isTaskLocked(task);
+                  const isCompleted = task.status === 'Completed';
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => setActiveTaskId(task.id)}
+                      className={`flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                        isActive
+                          ? 'border-[#6C4AB6] text-[#1B2E35] bg-[#6C4AB6]/5'
+                          : 'border-transparent text-[#1B2E35]/60 hover:text-[#1B2E35] hover:bg-[#F7F4EB]'
+                      }`}
+                    >
+                      <span className="flex items-center justify-center gap-2">
+                        {isCompleted ? (
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/20">
+                            <CheckIcon className="h-3 w-3 text-[#05C68E]" />
+                          </span>
+                        ) : isLocked ? (
+                          <LockIcon className="h-3.5 w-3.5 shrink-0 text-[#1B2E35]/40" />
+                        ) : (
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${
+                              isActive
+                                ? 'bg-[#6C4AB6] text-white'
+                                : 'bg-[#E0DEE4] text-[#1B2E35]/60'
+                            }`}
+                          >
+                            {i + 1}
+                          </span>
+                        )}
+                        <span className="truncate">{task.taskName}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
+
+              {/* Panels — all mounted (state preserved); only active is visible */}
+              {currentStageTasks.map((task) => {
+                const isActive = task.id === activeTabId;
+                const isLocked = isTaskLocked(task);
+                // Find the blocking task name (best-effort: first listed in Depends On
+                // that's not yet Completed within this stage)
+                const blockerName = (() => {
+                  if (!isLocked || !task.dependsOn) return null;
+                  const deps = task.dependsOn.split(',').map((s) => s.trim());
+                  for (const depName of deps) {
+                    const dep = currentStageTasks.find((t) => t.taskName === depName);
+                    if (dep && dep.status !== 'Completed') return depName;
+                  }
+                  return deps[0] ?? null;
+                })();
+
+                return (
+                  <div
+                    key={task.id}
+                    className={isActive ? 'block' : 'hidden'}
+                    aria-hidden={!isActive}
+                  >
+                    <div className="relative p-5">
+                      <div className={isLocked ? 'opacity-50 pointer-events-none select-none' : ''}>
+                        <TaskRenderer
+                          task={task}
+                          customerId={customerId}
+                          customer={customer}
+                          onComplete={() => handleTaskComplete(task.id)}
+                        />
+                      </div>
+                      {isLocked && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+                          <div className="rounded-lg border border-[#E0DEE4] bg-white px-4 py-3 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514] flex items-center gap-2">
+                            <LockIcon className="h-4 w-4 text-[#1B2E35]/60" />
+                            <span>
+                              Complete{' '}
+                              <span className="font-medium">
+                                &ldquo;{blockerName ?? 'the previous step'}&rdquo;
+                              </span>{' '}
+                              first
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Add-Ons Section ──────────────────────────────────────────── */}

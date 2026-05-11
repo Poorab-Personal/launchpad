@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
-import { createRecord } from '@/lib/airtable-client';
+import { createRecord, updateRecord } from '@/lib/airtable-client';
+import { getBrokerageByDefaultWorkflowKey, getWorkflowTemplates } from '@/lib/airtable';
+import { createStripeCustomer } from '@/lib/stripe';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -23,6 +25,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // For B2B, link the Brokerage record so Auto 1 can pull the brokerage's
+  // Default Calendly URL into the Schedule task. We match on Default
+  // Workflow Key (e.g., B2B-Keyes) — the canonical join — instead of
+  // Channel name, since BW's Channel="BW" but Brokerage.Name="Baird & Warner".
+  const workflowKey = `${type}-${channel}`;
+  const brokerage =
+    type === 'B2B' ? await getBrokerageByDefaultWorkflowKey(workflowKey) : null;
+
   // Create the customer record — Airtable Auto 1 handles task generation
   const customerFields: Record<string, unknown> = {
     Name: name,
@@ -36,8 +46,36 @@ export async function POST(request: NextRequest) {
   if (phone) customerFields['Phone'] = phone;
   if (hasVoice) customerFields['Has Voice'] = true;
   if (hasAvatar) customerFields['Has Avatar'] = true;
+  if (brokerage) customerFields['Brokerage'] = [brokerage.id];
 
   const customerRecord = await createRecord('Customers', customerFields);
+
+  // For setup-intent-at-intake workflows (e.g., B2B-Keyes), create the
+  // Stripe Customer up-front so the SetupIntent route can assume it exists.
+  // Soft-fail on Stripe error: log + return success with a flag — admin
+  // can manually retry; we don't want a half-created Airtable record on
+  // a transient Stripe outage.
+  let stripeCustomerId: string | null = null;
+  let stripeSyncPending = false;
+  const templates = await getWorkflowTemplates(workflowKey);
+  const paymentMode = templates[0]?.paymentMode ?? null;
+
+  if (paymentMode === 'setup-intent-at-intake') {
+    try {
+      const stripeCustomer = await createStripeCustomer({
+        airtableCustomerId: customerRecord.id,
+        email,
+        name,
+      });
+      stripeCustomerId = stripeCustomer.id;
+      await updateRecord('Customers', customerRecord.id, {
+        'Stripe Customer ID': stripeCustomer.id,
+      });
+    } catch (err) {
+      console.error('[customers POST] Stripe customer creation failed:', err);
+      stripeSyncPending = true;
+    }
+  }
 
   return Response.json({
     id: customerRecord.id,
@@ -45,5 +83,7 @@ export async function POST(request: NextRequest) {
     name,
     type,
     channel,
+    stripeCustomerId,
+    stripeSyncPending,
   });
 }
