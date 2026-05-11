@@ -89,6 +89,22 @@ function date(v: unknown): Date | null {
 // --- Seed -----------------------------------------------------------------
 
 async function seed() {
+  // Safety: refuse to re-run if there are customer rows. TRUNCATE CASCADE
+  // on channels would cascade-delete every customer + their tasks/events.
+  // Override with FORCE=1 if you really mean it.
+  const { rows: custCount } = await db.execute(
+    sql`SELECT count(*)::int AS n FROM customers`,
+  );
+  const n = Number(custCount[0]?.n ?? 0);
+  if (n > 0 && process.env.FORCE !== '1') {
+    console.error(
+      `\n  Refusing to re-seed: ${n} customer row(s) exist in Postgres.\n` +
+        `  Re-seeding TRUNCATEs channels with CASCADE which would delete all customer data.\n` +
+        `  If you really want to wipe everything, run: FORCE=1 npm run db:seed\n`,
+    );
+    process.exit(2);
+  }
+
   await db.transaction(async (tx) => {
     console.log('Truncating config tables...');
     await tx.execute(sql`TRUNCATE TABLE
@@ -179,7 +195,7 @@ async function seed() {
         attachmentType: (str(f['Attachment Type']) ?? 'None') as
           (typeof schema.attachmentTypeEnum.enumValues)[number],
         embedUrl: str(f['Embed URL']),
-        visibleToClient: bool(f['Visible To Client'], true),
+        visibleToClient: bool(f['Visible To Client'], false),     // Airtable returns absent for unchecked — must default to false
         product: (str(f['Product']) ?? 'Core') as 'Core' | 'Voice' | 'Avatar',
         instructions: str(f['Instructions']),
         dueDaysAfterActivation: int(f['Due Days After Activation']),
