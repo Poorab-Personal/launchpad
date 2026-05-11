@@ -1,10 +1,13 @@
 import { NextRequest } from 'next/server';
+import { eq } from 'drizzle-orm';
+import { db } from '@/db';
+import * as schema from '@/db/schema';
 import {
-  createCustomer,
   getBrokerageByDefaultWorkflowKey,
   getWorkflowTemplates,
   updateCustomerFields,
 } from '@/lib/db';
+import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { createStripeCustomer } from '@/lib/stripe';
 import type { Customer } from '@/types';
 
@@ -30,33 +33,61 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // For B2B, link the Brokerage record so Auto 1 (Phase 3) can pull the
-  // brokerage's Default Calendly URL into the Schedule task. We match on
-  // Default Workflow Key (e.g., B2B-Keyes) — the canonical join — instead of
-  // Channel name, since BW's Channel="BW" but Brokerage.Name="Baird & Warner".
+  // For B2B, link the Brokerage record so Auto 1 can pull the brokerage's
+  // Default Calendly URL into the Schedule task.
   const workflowKey = `${type}-${channel}`;
   const brokerage =
     type === 'B2B' ? await getBrokerageByDefaultWorkflowKey(workflowKey) : null;
 
-  const customer = await createCustomer({
-    name,
-    type: type as Customer['type'],
-    channel,
-    contactEmail: email,
-    platformEmail: email,                                            // defaults to contact email; AccountCreator can override later
-    currentStage: 'Getting Started',                                 // first stage across all workflows
-    businessName,
-    businessAddress,
-    website,
-    phone,
-    hasVoice: hasVoice ?? false,
-    hasAvatar: hasAvatar ?? false,
-    brokerageId: brokerage?.id ?? null,
+  // Resolve channel FK once, before the tx
+  const channelRow = await db.query.channels.findFirst({
+    where: eq(schema.channels.code, channel),
+  });
+  if (!channelRow) {
+    return Response.json({ error: `Unknown channel: ${channel}` }, { status: 400 });
+  }
+
+  // Atomic: Customer insert + Auto 1 task generation in one transaction.
+  // Either both land or neither does. Replaces the legacy Airtable Auto 1
+  // which fired async after row insert (a class of partial-failure bug
+  // we no longer have).
+  const customer = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(schema.customers)
+      .values({
+        name,
+        type: type as Customer['type'],
+        channelId: channelRow.id,
+        workflowKey,
+        contactEmail: email,
+        platformEmail: email,
+        currentStage: 'Getting Started',
+        businessName: businessName ?? null,
+        businessAddress: businessAddress ?? null,
+        website: website ?? null,
+        phone: phone ?? null,
+        hasVoice: hasVoice ?? false,
+        hasAvatar: hasAvatar ?? false,
+        brokerageId: brokerage?.id ?? null,
+      })
+      .returning();
+
+    await generateTasksFromTemplate(tx, {
+      customerId: inserted.id,
+      type: inserted.type,
+      channel,
+      brokerageId: inserted.brokerageId,
+      hasVoice: inserted.hasVoice,
+      hasAvatar: inserted.hasAvatar,
+    });
+
+    return inserted;
   });
 
   // For setup-intent-at-intake workflows (e.g., B2B-Keyes), create the
   // Stripe Customer up-front so the SetupIntent route can assume it exists.
-  // Soft-fail on Stripe error.
+  // Outside the tx — Stripe call is slow + must not abort the local insert
+  // on a transient Stripe outage. Soft-fail.
   let stripeCustomerId: string | null = null;
   let stripeSyncPending = false;
   const templates = await getWorkflowTemplates(workflowKey);

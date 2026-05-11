@@ -628,6 +628,31 @@ export async function getTeamMembersByRole(role: string): Promise<TeamMember[]> 
   return rows.map(mapDbTeamMember);
 }
 
+/**
+ * Resolve a team member for an Auto 1 assignment. Picks the active member
+ * flagged `is_default = true` for the role; falls back to any active
+ * member with the role. Returns null if no active member has the role.
+ */
+export async function resolveDefaultTeamMemberForRole(
+  role: string,
+): Promise<TeamMember | null> {
+  const defaultRow = await db.query.teamMembers.findFirst({
+    where: and(
+      eq(schema.teamMembers.active, true),
+      eq(schema.teamMembers.isDefault, true),
+      sql`${role} = ANY(${schema.teamMembers.roles})`,
+    ),
+  });
+  if (defaultRow) return mapDbTeamMember(defaultRow);
+  const anyRow = await db.query.teamMembers.findFirst({
+    where: and(
+      eq(schema.teamMembers.active, true),
+      sql`${role} = ANY(${schema.teamMembers.roles})`,
+    ),
+  });
+  return anyRow ? mapDbTeamMember(anyRow) : null;
+}
+
 export async function getTeamMemberByEmail(email: string): Promise<TeamMember | null> {
   const row = await db.query.teamMembers.findFirst({
     where: eq(schema.teamMembers.email, email),
