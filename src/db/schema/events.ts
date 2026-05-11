@@ -26,7 +26,7 @@ export const events = pgTable(
   'events',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    eventNumber: bigserial('event_number', { mode: 'number' }).notNull(),  // auto-incrementing, replaces Airtable's `eventId` autonumber
+    eventNumber: bigserial('event_number', { mode: 'number' }).notNull().unique(),  // auto-incrementing, replaces Airtable's `eventId` autonumber; unique for external reference stability
     customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'cascade' }),
     eventType: text('event_type').notNull(),                              // 'Task Completed', 'Task Activated', 'Stage Changed', etc.
     actorTeamMemberId: uuid('actor_team_member_id').references(() => teamMembers.id, { onDelete: 'set null' }),

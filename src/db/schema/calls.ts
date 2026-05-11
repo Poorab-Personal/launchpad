@@ -25,7 +25,7 @@ export const calls = pgTable(
     csmTeamMemberId: uuid('csm_team_member_id').references(() => teamMembers.id, { onDelete: 'set null' }),
     notes: text('notes'),
     recordingUrl: text('recording_url'),
-    calendlyEventUuid: text('calendly_event_uuid'),                        // dedup key for webhook deliveries
+    calendlyEventUuid: text('calendly_event_uuid'),                        // dedup key for webhook deliveries; nullable for non-Calendly calls (ad-hoc) — Postgres UNIQUE allows multiple NULLs, so dedup fires only on rows with a UUID set
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastModified: timestamp('last_modified', { withTimezone: true })
       .notNull()

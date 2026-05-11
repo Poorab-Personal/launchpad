@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  index,
   integer,
   jsonb,
   numeric,
@@ -148,6 +149,13 @@ export const customers = pgTable(
   },
   (table) => ({
     accessTokenUnique: uniqueIndex('customers_access_token_unique').on(table.accessToken),
+    // Email lookups (portal sign-in, B2B roster match, /api/email/send) are
+    // high-traffic. Non-unique because historical Airtable data may have dupes
+    // — dedup + UNIQUE migration is a separate ticket. Auditor 2026-05-11.
+    platformEmailIdx: index('customers_platform_email_idx').on(table.platformEmail),
+    contactEmailIdx: index('customers_contact_email_idx').on(table.contactEmail),
+    // Drives "all customers on workflow X" queries and per-stage filters.
+    workflowKeyIdx: index('customers_workflow_key_idx').on(table.workflowKey),
     // Belt-and-suspenders: even if app-layer resolution glitches, workflow_key
     // must start with a known customer-type prefix. Per architect 2026-05-11.
     workflowKeyFormat: check(

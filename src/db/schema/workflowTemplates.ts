@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   integer,
   pgTable,
   text,
@@ -23,7 +24,9 @@ import {
 // Per-plan pricing lives in a separate `stripe_plans` table (payment-mode
 // Phase 1.2 shipped this way). Trial days are workflow-level and stay here.
 
-export const workflowTemplates = pgTable('workflow_templates', {
+export const workflowTemplates = pgTable(
+  'workflow_templates',
+  {
   id: uuid('id').primaryKey().defaultRandom(),
   workflowKey: text('workflow_key').notNull(),                            // D2C-Standard | B2B-Keyes | B2B-BW
   stage: text('stage').notNull(),
@@ -47,7 +50,18 @@ export const workflowTemplates = pgTable('workflow_templates', {
   // sharing a workflow_key)
   paymentMode: paymentModeEnum('payment_mode'),
   trialDays: integer('trial_days'),
-});
+  },
+  (table) => ({
+    // Every customer creation reads templates filtered by workflow_key and
+    // ordered by stage_order, task_order. Matches the actual query+sort.
+    // Auditor 2026-05-11.
+    lookupIdx: index('workflow_templates_lookup_idx').on(
+      table.workflowKey,
+      table.stageOrder,
+      table.taskOrder,
+    ),
+  }),
+);
 
 export type WorkflowTemplate = typeof workflowTemplates.$inferSelect;
 export type NewWorkflowTemplate = typeof workflowTemplates.$inferInsert;

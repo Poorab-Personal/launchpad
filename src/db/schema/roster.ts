@@ -1,4 +1,4 @@
-import { type AnyPgColumn, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { type AnyPgColumn, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { brokerages } from './brokerages';
 import { customers } from './customers';
 import { onboardingStatusEnum } from './enums';
@@ -10,7 +10,9 @@ import { onboardingStatusEnum } from './enums';
 // DMG into a Customer at time T. Bulk B2B roster lives in roster_agents
 // (DMG plan §3.1). FK to customers added in 0002 migration.
 
-export const roster = pgTable('roster', {
+export const roster = pgTable(
+  'roster',
+  {
   id: uuid('id').primaryKey().defaultRandom(),
   email: text('email').notNull(),
   brokerageId: uuid('brokerage_id').references(() => brokerages.id, { onDelete: 'set null' }),
@@ -30,7 +32,12 @@ export const roster = pgTable('roster', {
   onboardingStatus: onboardingStatusEnum('onboarding_status').notNull().default('Not Started'),
   customerId: uuid('customer_id').references((): AnyPgColumn => customers.id, { onDelete: 'set null' }),
   syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
-});
+  },
+  (table) => ({
+    // DMG sync looks up by email constantly. Auditor 2026-05-11.
+    emailIdx: index('roster_email_idx').on(table.email),
+  }),
+);
 
 export type RosterRow = typeof roster.$inferSelect;
 export type NewRosterRow = typeof roster.$inferInsert;

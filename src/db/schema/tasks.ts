@@ -1,6 +1,8 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   date,
+  index,
   integer,
   pgTable,
   text,
@@ -23,7 +25,9 @@ import { teamMembers } from './teamMembers';
 //   SELECT EXTRACT(DAY FROM (COALESCE(completed_at, NOW()) - activated_at))::int AS days_active
 // Or expose via a view or a Drizzle helper in src/lib/db.ts.
 
-export const tasks = pgTable('tasks', {
+export const tasks = pgTable(
+  'tasks',
+  {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id').notNull().references(() => customers.id, { onDelete: 'cascade' }),
   taskName: text('task_name').notNull(),
@@ -47,7 +51,23 @@ export const tasks = pgTable('tasks', {
   activatedAt: timestamp('activated_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+  },
+  (table) => ({
+    // Stage-grouped task list rendering: WHERE customer_id = ? ORDER BY
+    // stage_order, task_order. Highest-traffic read path. Auditor 2026-05-11.
+    customerStageOrderIdx: index('tasks_customer_stage_order_idx').on(
+      table.customerId,
+      table.stageOrder,
+      table.taskOrder,
+    ),
+    // Designer/CSM queue views: tasks WHERE assigned_to_team_member_id = ?
+    assignedToIdx: index('tasks_assigned_to_idx').on(table.assignedToTeamMemberId),
+    // Active-work dashboards filter on these statuses; partial keeps the index small.
+    activeStatusIdx: index('tasks_active_status_idx')
+      .on(table.customerId)
+      .where(sql`status IN ('Active', 'In Review')`),
+  }),
+);
 
 export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
