@@ -29,43 +29,146 @@ function LockIcon({ className }: { className?: string }) {
  * `etaDays` is intentionally hardcoded — we don't track real SLAs yet, but
  * customers want to know roughly when to expect movement, not silence.
  */
-const STAGE_GUIDANCE: Record<string, { etaDays: string; bullets: string[] }> = {
-  'Getting Started': {
-    etaDays: '1–3 business days',
-    bullets: [
-      'Our designers create your custom brand kit from your photo, logo, and bio',
-      'A senior designer reviews and approves the final look',
-      'You’ll get an email when your proof is ready to review',
-    ],
+type StageGuidance = { etaDays: string; bullets: string[] };
+
+/**
+ * Keyed by (workflowKey, stage). Lookup falls back to `_default[stage]` for
+ * workflows without an explicit entry, and finally to a generic "team is
+ * working on it" panel when no match exists. Customer never sees a missing-
+ * copy badge — we degrade gracefully.
+ *
+ * Bullets describe what's happening or will happen. No completion claims
+ * (which would mislead — `Customer.Account Created` etc. are mirror flags
+ * for task completion, not proof of real-world side effects).
+ *
+ * Per-workflow split exists because Keyes/BW have an internal-only
+ * `Create Designs` step (no customer-facing proof or review email), so the
+ * D2C "Getting Started" copy would mislead them.
+ */
+const STAGE_GUIDANCE: Record<string, Record<string, StageGuidance>> = {
+  'D2C-Standard': {
+    'Getting Started': {
+      etaDays: '1–3 business days',
+      bullets: [
+        'Our designers create your custom brand kit from your photo, logo, and bio',
+        'A senior designer reviews and approves the final look',
+        'You’ll get an email when your proof is ready to review',
+      ],
+    },
+    'Review Your Designs': {
+      etaDays: '1–2 business days',
+      bullets: [
+        'Our designers are working on your revision based on the feedback you shared',
+        'A senior designer signs off before the new proof goes out',
+        'You’ll get an email the moment the updated proof is ready',
+      ],
+    },
+    'Prepare for Onboarding': {
+      etaDays: '1–2 business days',
+      bullets: [
+        'We create your Rejig.ai account using the email you provided',
+        'Login credentials are sent to your inbox',
+        'Your onboarding call lead will reach out before the scheduled time',
+      ],
+    },
+    'Post Onboarding': {
+      etaDays: 'Within the next few days',
+      bullets: [
+        'Your CSM is putting together a quick recap of your call',
+        'You’ll get a follow-up email with everything we covered',
+        'When you have a minute, drop us a line on how onboarding went',
+      ],
+    },
+    'Review & Grow': {
+      etaDays: 'Within the next 2 weeks',
+      bullets: [
+        'Your CSM checks in to make sure everything’s working',
+        'You’ll be invited to share quick onboarding feedback',
+        'Two follow-up calls scheduled over the coming weeks',
+      ],
+    },
   },
-  'Prepare for Onboarding': {
-    etaDays: '1–2 business days',
-    bullets: [
-      'We create your Rejig.ai account using the email you provided',
-      'Login credentials are sent to your inbox',
-      'Your onboarding call lead will reach out before the scheduled time',
-    ],
+  'B2B-Keyes': {
+    'Getting Started': {
+      etaDays: '1–2 business days',
+      bullets: [
+        'Our team is preparing your Rejig account behind the scenes',
+        'Your CSM will reach out before your scheduled call',
+        'You’ll get login credentials a couple of days before the call',
+      ],
+    },
+    'Prepare for Onboarding': {
+      etaDays: '1–2 business days',
+      bullets: [
+        'We create your Rejig.ai account using the email you provided',
+        'Login credentials are sent to your inbox',
+        'Your onboarding call lead will reach out before the scheduled time',
+      ],
+    },
+    'Review & Grow': {
+      etaDays: 'Within the next 2 weeks',
+      bullets: [
+        'Your CSM checks in to make sure everything’s working',
+        'You’ll be invited to share quick onboarding feedback',
+        'Two follow-up calls scheduled over the coming weeks',
+      ],
+    },
   },
-  'Book Your Call': {
-    etaDays: '1–2 business days',
-    bullets: [
-      'Final design touch-ups happen on our side',
-      'Your account gets provisioned and credentialed',
-      'You’ll receive an email with everything you need before the call',
-    ],
+  'B2B-BW': {
+    'Getting Started': {
+      etaDays: '1–2 business days',
+      bullets: [
+        'Our team is preparing your Rejig account behind the scenes',
+        'Your CSM will reach out before your scheduled call',
+        'You’ll get login credentials a couple of days before the call',
+      ],
+    },
+    'Prepare for Onboarding': {
+      etaDays: '1–2 business days',
+      bullets: [
+        'We create your Rejig.ai account using the email you provided',
+        'Login credentials are sent to your inbox',
+        'Your onboarding call lead will reach out before the scheduled time',
+      ],
+    },
+    'Review & Grow': {
+      etaDays: 'Within the next 2 weeks',
+      bullets: [
+        'Your CSM checks in to make sure everything’s working',
+        'You’ll be invited to share quick onboarding feedback',
+        'Two follow-up calls scheduled over the coming weeks',
+      ],
+    },
   },
-  'Review & Grow': {
-    etaDays: 'Within the next 2 weeks',
-    bullets: [
-      'Your CSM checks in to make sure everything’s working',
-      'You’ll be invited to share quick onboarding feedback',
-      'Two follow-up calls scheduled over the coming weeks',
-    ],
+  // Defensive fallback for stages whose copy is workflow-agnostic. Don't seed
+  // `Getting Started` here — it diverges hardest across flows; better to fall
+  // through to the generic panel than show wrong copy.
+  _default: {
+    'Prepare for Onboarding': {
+      etaDays: '1–2 business days',
+      bullets: [
+        'We create your Rejig.ai account using the email you provided',
+        'Login credentials are sent to your inbox',
+        'Your onboarding call lead will reach out before the scheduled time',
+      ],
+    },
+    'Review & Grow': {
+      etaDays: 'Within the next 2 weeks',
+      bullets: [
+        'Your CSM checks in to make sure everything’s working',
+        'You’ll be invited to share quick onboarding feedback',
+        'Two follow-up calls scheduled over the coming weeks',
+      ],
+    },
   },
 };
 
-function WaitingPanel({ stage }: { stage: string }) {
-  const guidance = STAGE_GUIDANCE[stage];
+function getStageGuidance(workflowKey: string, stage: string): StageGuidance | null {
+  return STAGE_GUIDANCE[workflowKey]?.[stage] ?? STAGE_GUIDANCE._default?.[stage] ?? null;
+}
+
+function WaitingPanel({ workflowKey, stage }: { workflowKey: string; stage: string }) {
+  const guidance = getStageGuidance(workflowKey, stage);
   if (!guidance) {
     return (
       <div className="flex items-start gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-white px-5 py-4 text-sm text-[#1B2E35]/74 shadow-[0px_4px_12px_#1B2E3514]">
@@ -672,7 +775,7 @@ export default function TaskList({
               </span>
             </div>
           ) : (
-            <WaitingPanel stage={currentStage} />
+            <WaitingPanel workflowKey={customer.workflowKey} stage={currentStage} />
           )
         )}
 
@@ -682,7 +785,7 @@ export default function TaskList({
             WaitingPanel honestly (the soft banner above conveys "still in flight"). */}
         {currentStageTasks.length > 0 && !hasActiveTasks && pollingState !== 'polling' && (
           <div className="mb-4">
-            <WaitingPanel stage={currentStage} />
+            <WaitingPanel workflowKey={customer.workflowKey} stage={currentStage} />
           </div>
         )}
 
