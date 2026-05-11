@@ -502,22 +502,21 @@ export default function TaskList({
         return next;
       });
       setActiveTaskId(newlyActivatable[0]);
+      // Refresh immediately — Auto 2 is sync, server state is correct.
+      router.refresh();
+      // Brief polling safety net for unusual delays (single tick usually settles).
+      setPollingState('polling');
+      setPollingDeadline(Date.now() + 3_000);
     } else {
-      // Case B: no next visible task in this stage (e.g. Keyes Schedule
-      // Onboarding Call → only hidden Create Designs remains; D2C Sign In
-      // & Reset Password completed in parallel with Watch Setup Video).
-      // Keep focus on the just-completed tab so the customer sees the Done
-      // panel for what they just finished, instead of falling back to
-      // currentStageTasks[0] (which is usually step 1 and shows an
-      // editable-looking form via FormTask).
+      // Case B: no next CLIENT-VISIBLE task in this stage (e.g. only the
+      // hidden Team task Create Designs remains in Getting Started; or
+      // D2C Sign In & Reset Password completed in parallel with Watch
+      // Setup Video). Render WaitingPanel via a single refresh; no
+      // polling needed — nothing client-visible will activate in this
+      // stage on this page load.
       setActiveTaskId(taskId);
+      router.refresh();
     }
-    // Refresh immediately — Auto 2 is sync, server state is correct.
-    router.refresh();
-    // Keep the polling state machine on as a safety net for unusual delays
-    // (very brief cap; sync Auto 2 should settle within 1 cadence).
-    setPollingState('polling');
-    setPollingDeadline(Date.now() + 3_000);
   }
 
   function handleManualRefresh() {
