@@ -8,7 +8,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '../src/db';
 
 async function main() {
-  const tables = await db.execute(sql`
+  const tables = await db.execute<{ table_name: string; col_count: string }>(sql`
     SELECT table_name,
            (SELECT count(*) FROM information_schema.columns c WHERE c.table_name = t.table_name AND c.table_schema = 'public') AS col_count
     FROM information_schema.tables t
@@ -17,10 +17,10 @@ async function main() {
   `);
   console.log('Tables in public schema:');
   for (const row of tables.rows) {
-    console.log(`  ${row.table_name.padEnd(40)} ${row.col_count} cols`);
+    console.log(`  ${String(row.table_name).padEnd(40)} ${row.col_count} cols`);
   }
 
-  const constraints = await db.execute(sql`
+  const constraints = await db.execute<{ name: string; type: string }>(sql`
     SELECT conname AS name, contype AS type
     FROM pg_constraint
     WHERE connamespace = 'public'::regnamespace

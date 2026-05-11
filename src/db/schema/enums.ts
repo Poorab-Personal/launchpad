@@ -47,3 +47,68 @@ export const atRiskSourceEnum = pgEnum('at_risk_source', [
   'payment-mode',
   'csm',
 ]);
+
+export const teamRoleEnum = pgEnum('team_role', [
+  'Designer',
+  'Senior Designer',
+  'CSM',
+  'Senior CSM',
+  'Account Creator',
+  'Sales',
+  'Admin',
+]);
+
+export const onboardingStatusEnum = pgEnum('onboarding_status', [
+  'Not Started',
+  'In Progress',
+  'Completed',
+]);
+
+export const actorTypeEnum = pgEnum('actor_type', [
+  'Customer',
+  'Team Member',
+  'System',
+]);
+
+export const taskStatusEnum = pgEnum('task_status', [
+  'Draft',
+  'Active',
+  'In Review',
+  'Completed',
+  'Rejected',
+]);
+
+export const taskTypeEnum = pgEnum('task_type', ['Client', 'Team']);
+
+export const attachmentTypeEnum = pgEnum('attachment_type', [
+  'None',
+  'Form',
+  'File Upload',
+  'Embed',
+  'Proof',
+  'Payment Setup',
+]);
+
+export const productEnum = pgEnum('product', ['Core', 'Voice', 'Avatar']);
+
+export const paymentModeEnum = pgEnum('payment_mode', [
+  'pre-paid',
+  'setup-intent-at-intake',
+  'invoice',
+  'none',
+]);
+
+export const callTypeEnum = pgEnum('call_type', [
+  'Onboarding',
+  'Check-In 1',
+  'Check-In 2',
+  'Ad-hoc',
+]);
+
+export const callStatusEnum = pgEnum('call_status', [
+  'Scheduled',
+  'Completed',
+  'No Show',
+  'Rescheduled',
+  'Canceled',
+]);

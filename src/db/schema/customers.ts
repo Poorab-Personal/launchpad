@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { brokerages } from './brokerages';
 import { channels } from './channels';
 import {
   atRiskReasonEnum,
@@ -21,6 +22,8 @@ import {
   productTierEnum,
   subscriptionStatusEnum,
 } from './enums';
+import { roster } from './roster';
+import { teamMembers } from './teamMembers';
 
 // Mirrors Customer interface in src/types/index.ts. Regenerated from that
 // source — not the schema doc (per Plan-agent review 2026-05-11, the doc was
@@ -99,13 +102,12 @@ export const customers = pgTable(
     lastEngagementBriefing: text('last_engagement_briefing'),                      // LLM output, engagement plan Phase 3+
     engagementScore: integer('engagement_score'),                                  // engagement plan Phase 3+
 
-    // Enterprise (B2B) — FK constraints added in subsequent migration after
-    // brokerages and roster tables exist
-    brokerageId: uuid('brokerage_id'),
-    rosterRecordId: uuid('roster_record_id'),
+    // Enterprise (B2B)
+    brokerageId: uuid('brokerage_id').references(() => brokerages.id, { onDelete: 'set null' }),
+    rosterRecordId: uuid('roster_record_id').references(() => roster.id, { onDelete: 'set null' }),
 
-    // Assignment — FK constraint added after team_members table exists
-    csmTeamMemberId: uuid('csm_team_member_id'),
+    // Assignment
+    csmTeamMemberId: uuid('csm_team_member_id').references(() => teamMembers.id, { onDelete: 'set null' }),
 
     // Design workflow (D2C)
     designApproval: designApprovalEnum('design_approval'),

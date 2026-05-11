@@ -10,7 +10,7 @@
     "db:test": "tsx --env-file=.env.local scripts/test-db-connection.ts",
     "db:list": "tsx --env-file=.env.local scripts/list-tables.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },

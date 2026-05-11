@@ -1,0 +1,4 @@
+ALTER TABLE "customers" ADD CONSTRAINT "customers_brokerage_id_brokerages_id_fk" FOREIGN KEY ("brokerage_id") REFERENCES "public"."brokerages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "customers" ADD CONSTRAINT "customers_roster_record_id_roster_id_fk" FOREIGN KEY ("roster_record_id") REFERENCES "public"."roster"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "customers" ADD CONSTRAINT "customers_csm_team_member_id_team_members_id_fk" FOREIGN KEY ("csm_team_member_id") REFERENCES "public"."team_members"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "roster" ADD CONSTRAINT "roster_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."customers"("id") ON DELETE set null ON UPDATE no action;

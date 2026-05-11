@@ -8,6 +8,20 @@
       "when": 1778531648570,
       "tag": "0000_nebulous_wrecker",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778533213685,
+      "tag": "0001_awesome_naoko",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778533256651,
+      "tag": "0002_clammy_miracleman",
+      "breakpoints": true
     }
   ]
 }
