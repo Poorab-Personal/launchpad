@@ -1,4 +1,10 @@
-// Drizzle schema entry point. Tables land here in Phase 1 of the
-// Airtable → Postgres migration (docs/plans/airtable-to-postgres-migration.md §5).
-// Empty for now — Phase 0 only needs the connection to work.
-export {};
+// Drizzle schema entry point. All tables and enums exported from here.
+// drizzle.config.ts points at this file.
+
+export * from './enums';
+export * from './channels';
+export * from './customers';
+
+// Remaining tables land here in Phase 1 fan-out (post pattern review):
+//   brokerages, team_members, roster, calls, tasks, task_dependencies,
+//   workflow_templates, stripe_plans, settings, events
