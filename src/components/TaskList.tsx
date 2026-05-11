@@ -421,24 +421,27 @@ export default function TaskList({
       {/* Progress bar — ALL stages with client-visible tasks, always shown */}
       <div>
       <nav>
-        <ol className="flex flex-wrap items-center gap-2">
+        <ol className="flex flex-wrap items-center gap-2 pb-5">
           {progressStages.map((stage, i) => {
             const status = getStageStatus(stage);
             const prevStatus = i > 0 ? getStageStatus(progressStages[i - 1]) : null;
             const durationLabel =
               status === 'completed' ? completedStageDurationLabel(stage, tasks) : null;
             return (
-              <li key={stage} className="flex items-start gap-2">
+              <li key={stage} className="flex items-center gap-2">
                 {i > 0 && (
                   <div
-                    className={`mt-3 h-px w-4 sm:w-6 shrink-0 ${
+                    className={`h-px w-4 sm:w-6 shrink-0 ${
                       prevStatus === 'completed' && status !== 'upcoming'
                         ? 'bg-[#05C68E]'
                         : 'bg-[#E0DEE4]'
                     }`}
                   />
                 )}
-                <div className="flex flex-col items-center gap-1">
+                {/* Pill is the layout-determining element; subtitle is absolutely
+                    positioned below so it doesn't shift the pill off-center
+                    relative to the connector. */}
+                <div className="relative">
                   <div
                     className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] sm:text-xs font-medium transition-colors ${
                       status === 'completed'
@@ -452,7 +455,7 @@ export default function TaskList({
                     {stage}
                   </div>
                   {durationLabel && (
-                    <span className="text-[10px] text-[#1B2E35]/50 whitespace-nowrap">
+                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1 text-[10px] text-[#1B2E35]/50 whitespace-nowrap">
                       {durationLabel}
                     </span>
                   )}
