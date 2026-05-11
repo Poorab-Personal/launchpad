@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Task, Customer } from '@/types';
 import TaskRenderer from './tasks/TaskRenderer';
@@ -152,11 +152,40 @@ export default function TaskList({
 }) {
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+
+  // Post-submit window: client task completes → API marks Completed → Auto 2
+  // promotes dependents Draft→Active. That promotion is async (typical 1–3s,
+  // p99 ~15s under load). Without this state, the gap renders the wrong UI
+  // because hasActiveTasks goes false → WaitingPanel renders instead of the
+  // next tab. We optimistically pre-activate dependents locally and poll
+  // router.refresh() until the server catches up (cap 20s).
+  const [pollingState, setPollingState] = useState<'idle' | 'polling' | 'capped'>('idle');
+  const [pollingDeadline, setPollingDeadline] = useState<number | null>(null);
+  const [optimisticActive, setOptimisticActive] = useState<Set<string>>(new Set());
+
+  // Ref mirror so the recursive polling tick can read fresh state without
+  // re-creating the timer chain on every optimisticActive change.
+  const optimisticActiveRef = useRef(optimisticActive);
+  useEffect(() => {
+    optimisticActiveRef.current = optimisticActive;
+  }, [optimisticActive]);
 
   useEffect(() => {
     setTasks(initialTasks);
+    // Drain optimistic ids the server has now promoted (anything not Draft).
+    setOptimisticActive((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set(prev);
+      let changed = false;
+      for (const t of initialTasks) {
+        if (next.has(t.id) && t.status !== 'Draft') {
+          next.delete(t.id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
   }, [initialTasks]);
 
   // Partition tasks by product
@@ -201,11 +230,50 @@ export default function TaskList({
     .sort((a, b) => a.taskOrder - b.taskOrder);
 
   // Does the current stage have anything for the customer to act on?
-  // Draft tasks don't count — they're either upcoming or locked behind a
-  // team task. Without this, after design approval the customer landed on
-  // a locked Watch Setup Video tab waiting for Send Credentials, instead
-  // of the friendlier "here's what happens next" WaitingPanel.
-  const hasActiveTasks = currentStageTasks.some((t) => t.status === 'Active');
+  // Counts both server-side Active AND optimistic activations (Draft tasks
+  // we've pre-activated locally while waiting for Auto 2 to catch up). Without
+  // the optimistic set, the post-submit gap renders WaitingPanel by mistake.
+  const hasActiveTasks = currentStageTasks.some(
+    (t) => t.status === 'Active' || optimisticActive.has(t.id),
+  );
+
+  // Stop polling once the server has caught up: optimistic ids drained AND
+  // a visible Active task is present server-side. The reconcile effect above
+  // drains the ids; this effect detects "we're settled" and ends polling.
+  useEffect(() => {
+    if (pollingState !== 'polling') return;
+    const hasServerVisibleActive = currentStageTasks.some((t) => t.status === 'Active');
+    if (optimisticActive.size === 0 && hasServerVisibleActive) {
+      setPollingState('idle');
+      setPollingDeadline(null);
+    }
+  }, [currentStageTasks, optimisticActive, pollingState]);
+
+  // Polling tick: router.refresh() every 1.5s until the stop-polling effect
+  // settles us, or we hit the 20s cap. At the cap, settle silently to idle
+  // if there's no pending optimistic (case B: last visible task in stage,
+  // WaitingPanel is the correct end state); else surface the soft "still
+  // working" banner so the customer has a manual retry.
+  useEffect(() => {
+    if (pollingState !== 'polling' || pollingDeadline === null) return;
+    let cancelled = false;
+    let timerId: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (cancelled) return;
+      if (Date.now() >= pollingDeadline) {
+        setPollingState(optimisticActiveRef.current.size > 0 ? 'capped' : 'idle');
+        setPollingDeadline(null);
+        return;
+      }
+      router.refresh();
+      timerId = setTimeout(tick, 1500);
+    };
+    timerId = setTimeout(tick, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timerId);
+    };
+  }, [pollingState, pollingDeadline, router]);
 
   const completedInStage = currentStageTasks.filter((t) => t.status === 'Completed').length;
 
@@ -226,6 +294,25 @@ export default function TaskList({
     return false;
   }
 
+  // Mirrors Auto 2's dependency resolution. Returns Draft task ids in the
+  // current stage whose deps would all be Completed if `completedId` flips.
+  function getOptimisticallyActivatable(completedId: string): string[] {
+    const completed = currentStageTasks.find((t) => t.id === completedId);
+    if (!completed) return [];
+    const completedNames = new Set<string>([completed.taskName]);
+    for (const t of currentStageTasks) {
+      if (t.status === 'Completed') completedNames.add(t.taskName);
+    }
+    return currentStageTasks
+      .filter((t) => {
+        if (t.status !== 'Draft') return false;
+        if (!t.dependsOn) return false;
+        const deps = t.dependsOn.split(',').map((s) => s.trim()).filter(Boolean);
+        return deps.length > 0 && deps.every((dep) => completedNames.has(dep));
+      })
+      .map((t) => t.id);
+  }
+
   function handleTaskComplete(taskId: string) {
     setTasks((prev) =>
       prev.map((t) =>
@@ -234,15 +321,27 @@ export default function TaskList({
           : t,
       ),
     );
-    // Auto-advance: jump to the next task in the current stage (if any)
-    const idx = currentStageTasks.findIndex((t) => t.id === taskId);
-    const nextTask = idx >= 0 ? currentStageTasks.slice(idx + 1)[0] : null;
-    if (nextTask) setActiveTaskId(nextTask.id);
-    setIsRefreshing(true);
-    setTimeout(() => {
-      router.refresh();
-      setIsRefreshing(false);
-    }, 3000);
+    // Pre-activate dependents whose deps are now (locally) satisfied. Keeps
+    // tabs+loader visible during the Auto 2 gap; reconciled when server
+    // promotes them.
+    const newlyActivatable = getOptimisticallyActivatable(taskId);
+    if (newlyActivatable.length > 0) {
+      setOptimisticActive((prev) => {
+        const next = new Set(prev);
+        for (const id of newlyActivatable) next.add(id);
+        return next;
+      });
+      setActiveTaskId(newlyActivatable[0]);
+    }
+    setPollingState('polling');
+    setPollingDeadline(Date.now() + 20_000);
+  }
+
+  function handleManualRefresh() {
+    router.refresh();
+    setPollingState('idle');
+    setPollingDeadline(null);
+    // Keep optimisticActive — reconciliation drops ids as server confirms.
   }
 
   function renderAddonCard(
@@ -410,11 +509,22 @@ export default function TaskList({
 
   return (
     <div className="space-y-10">
-      {/* Refreshing indicator */}
-      {isRefreshing && (
+      {pollingState === 'polling' && (
         <div className="flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm text-[#1B2E35]/60 shadow-[0px_4px_12px_#1B2E3514]">
           <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#6C4AB6]/30 border-t-[#6C4AB6]" />
-          Updating…
+          Saving your update…
+        </div>
+      )}
+      {pollingState === 'capped' && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-[#DABA21]/30 bg-[#DABA21]/5 px-4 py-2.5 text-sm text-[#1B2E35]/80 shadow-[0px_4px_12px_#1B2E3514]">
+          <span>Still working on this — refresh if it doesn&apos;t update soon.</span>
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            className="rounded-md bg-[#6C4AB6] px-3 py-1 text-xs font-medium text-white hover:bg-[#5a3d9a]"
+          >
+            Refresh
+          </button>
         </div>
       )}
 
@@ -491,14 +601,17 @@ export default function TaskList({
           )
         )}
 
-        {/* If all visible tasks are completed and team is working (waiting state) */}
-        {currentStageTasks.length > 0 && !hasActiveTasks && (
+        {/* If all visible tasks are completed and team is working (waiting state).
+            Suppressed during 'polling' so the post-submit gap keeps tabs+loader
+            visible instead of flashing WaitingPanel; 'capped' falls through to
+            WaitingPanel honestly (the soft banner above conveys "still in flight"). */}
+        {currentStageTasks.length > 0 && !hasActiveTasks && pollingState !== 'polling' && (
           <div className="mb-4">
             <WaitingPanel stage={currentStage} />
           </div>
         )}
 
-        {currentStageTasks.length > 0 && hasActiveTasks && (() => {
+        {currentStageTasks.length > 0 && (hasActiveTasks || pollingState === 'polling') && (() => {
           // Active tab: explicit selection wins; else first non-completed; else first
           const explicit = activeTaskId
             ? currentStageTasks.find((t) => t.id === activeTaskId)
