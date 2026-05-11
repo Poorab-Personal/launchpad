@@ -74,6 +74,10 @@ function int(v: unknown): number | null {
 }
 function arr(v: unknown): string[] {
   if (Array.isArray(v)) return v.map(String);
+  // Airtable single-select fields arrive as a single string. Wrap in a
+  // length-1 array so the seed handles single- and multi-select fields
+  // uniformly.
+  if (typeof v === 'string' && v) return [v];
   return [];
 }
 function date(v: unknown): Date | null {
