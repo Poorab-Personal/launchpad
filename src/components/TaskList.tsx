@@ -110,6 +110,57 @@ function WaitingPanel({ stage }: { stage: string }) {
 }
 
 /**
+ * Tab-content for a completed task. Replaces the underlying TaskRenderer
+ * (FormTask, EmbedTask, etc.) which all render their editable UI even for
+ * Completed tasks — confusing because the customer sees their filled form
+ * and thinks they have to submit again. This panel is the single defensive
+ * "done" view used regardless of task type.
+ *
+ * "View what you submitted" is intentionally absent — each task type stores
+ * its data differently (customer fields, Calls record, Airtable attachments,
+ * Stripe metadata) and exposing per-task read-only views needs a separate
+ * privacy/UX pass.
+ */
+function CompletedPanel({ task }: { task: Task }) {
+  const completedLabel = (() => {
+    if (!task.completedAt) return null;
+    const ms = new Date(task.completedAt).getTime();
+    if (isNaN(ms)) return null;
+    // Within last 60s → "Just now" (optimistic-Completed ISO we just stamped).
+    if (Date.now() - ms < 60_000) return 'Just now';
+    return new Date(ms).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  })();
+
+  return (
+    <div className="rounded-lg border border-[#05C68E]/20 bg-[#05C68E]/5 p-6">
+      <div className="flex items-start gap-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#05C68E]/15">
+          <CheckIcon className="h-5 w-5 text-[#05C68E]" />
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-semibold text-[#1B2E35]">{task.taskName}</h3>
+            <span className="inline-flex items-center rounded-full bg-[#05C68E]/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#05C68E]">
+              Submitted
+            </span>
+          </div>
+          {completedLabel && (
+            <p className="mt-1 text-xs text-[#1B2E35]/60">Completed {completedLabel}</p>
+          )}
+          <p className="mt-3 text-sm text-[#1B2E35]/74">
+            We&apos;ve got everything we need from you on this step.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Compact "Mar 5 → Mar 8 · 3 days" subtitle for a completed stage.
  * Span is earliest task activation → latest task completion across all
  * tasks in the stage (team + client). Returns null when not all tasks in
@@ -275,6 +326,15 @@ export default function TaskList({
     };
   }, [pollingState, pollingDeadline, router]);
 
+  // Invariant: activeTaskId is always either null or in currentStageTasks.
+  // When Auto 2 advances the stage during polling, the prior activeTaskId
+  // points at a task in the old stage — reset so the render-time fallback
+  // (firstUncompleted) picks a sensible new-stage tab instead of leaving
+  // a stale id around.
+  useEffect(() => {
+    setActiveTaskId(null);
+  }, [currentStage]);
+
   const completedInStage = currentStageTasks.filter((t) => t.status === 'Completed').length;
 
   /**
@@ -332,6 +392,15 @@ export default function TaskList({
         return next;
       });
       setActiveTaskId(newlyActivatable[0]);
+    } else {
+      // Case B: no next visible task in this stage (e.g. Keyes Schedule
+      // Onboarding Call → only hidden Create Designs remains; D2C Sign In
+      // & Reset Password completed in parallel with Watch Setup Video).
+      // Keep focus on the just-completed tab so the customer sees the Done
+      // panel for what they just finished, instead of falling back to
+      // currentStageTasks[0] (which is usually step 1 and shows an
+      // editable-looking form via FormTask).
+      setActiveTaskId(taskId);
     }
     setPollingState('polling');
     setPollingDeadline(Date.now() + 20_000);
@@ -510,18 +579,20 @@ export default function TaskList({
   return (
     <div className="space-y-10">
       {pollingState === 'polling' && (
-        <div className="flex items-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm text-[#1B2E35]/60 shadow-[0px_4px_12px_#1B2E3514]">
-          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#6C4AB6]/30 border-t-[#6C4AB6]" />
-          Saving your update…
+        <div className="flex items-center gap-3 rounded-lg border-l-4 border-l-[#6C4AB6] bg-[#6C4AB6]/5 px-5 py-3.5 text-sm font-medium text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514]">
+          <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#6C4AB6]/30 border-t-[#6C4AB6]" />
+          <span>Saving your update — your next step will appear in a moment…</span>
         </div>
       )}
       {pollingState === 'capped' && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-[#DABA21]/30 bg-[#DABA21]/5 px-4 py-2.5 text-sm text-[#1B2E35]/80 shadow-[0px_4px_12px_#1B2E3514]">
-          <span>Still working on this — refresh if it doesn&apos;t update soon.</span>
+        <div className="flex items-center justify-between gap-3 rounded-lg border-l-4 border-l-[#DABA21] bg-[#DABA21]/10 px-5 py-3.5 text-sm font-medium text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514]">
+          <span>
+            This is taking a little longer than usual — your update is saved, but the page needs a refresh.
+          </span>
           <button
             type="button"
             onClick={handleManualRefresh}
-            className="rounded-md bg-[#6C4AB6] px-3 py-1 text-xs font-medium text-white hover:bg-[#5a3d9a]"
+            className="shrink-0 rounded-md bg-[#6C4AB6] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#5a3d9a]"
           >
             Refresh
           </button>
@@ -667,6 +738,7 @@ export default function TaskList({
               {/* Panels — all mounted (state preserved); only active is visible */}
               {currentStageTasks.map((task) => {
                 const isActive = task.id === activeTabId;
+                const isCompleted = task.status === 'Completed';
                 const isLocked = isTaskLocked(task);
                 // Find the blocking task name (best-effort: first listed in Depends On
                 // that's not yet Completed within this stage)
@@ -687,27 +759,33 @@ export default function TaskList({
                     aria-hidden={!isActive}
                   >
                     <div className="relative p-5">
-                      <div className={isLocked ? 'opacity-50 pointer-events-none select-none' : ''}>
-                        <TaskRenderer
-                          task={task}
-                          customerId={customerId}
-                          customer={customer}
-                          onComplete={() => handleTaskComplete(task.id)}
-                        />
-                      </div>
-                      {isLocked && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
-                          <div className="rounded-lg border border-[#E0DEE4] bg-white px-4 py-3 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514] flex items-center gap-2">
-                            <LockIcon className="h-4 w-4 text-[#1B2E35]/60" />
-                            <span>
-                              Complete{' '}
-                              <span className="font-medium">
-                                &ldquo;{blockerName ?? 'the previous step'}&rdquo;
-                              </span>{' '}
-                              first
-                            </span>
+                      {isCompleted ? (
+                        <CompletedPanel task={task} />
+                      ) : (
+                        <>
+                          <div className={isLocked ? 'opacity-50 pointer-events-none select-none' : ''}>
+                            <TaskRenderer
+                              task={task}
+                              customerId={customerId}
+                              customer={customer}
+                              onComplete={() => handleTaskComplete(task.id)}
+                            />
                           </div>
-                        </div>
+                          {isLocked && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[1px]">
+                              <div className="rounded-lg border border-[#E0DEE4] bg-white px-4 py-3 text-sm text-[#1B2E35] shadow-[0px_4px_12px_#1B2E3514] flex items-center gap-2">
+                                <LockIcon className="h-4 w-4 text-[#1B2E35]/60" />
+                                <span>
+                                  Complete{' '}
+                                  <span className="font-medium">
+                                    &ldquo;{blockerName ?? 'the previous step'}&rdquo;
+                                  </span>{' '}
+                                  first
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
