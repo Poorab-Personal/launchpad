@@ -1,5 +1,5 @@
 import { connection } from 'next/server';
-import { getCallsForCustomer, getTeamMembers } from '@/lib/airtable';
+import { getCallsForCustomer, getTeamMembers } from '@/lib/db';
 import type { Call, CallStatus, TeamMember } from '@/types';
 import CallNotesEditor from './CallNotesEditor';
 

@@ -442,14 +442,17 @@ export async function getActiveTasksByCustomer(): Promise<Map<string, Task[]>> {
   return result;
 }
 
-export async function getTasksAssignedTo(teamMemberId: string): Promise<Task[]> {
+export async function getTasksAssignedTo(
+  teamMemberId: string,
+  statuses: TaskStatus[] = ['Active'],
+): Promise<Task[]> {
   const rows = await db
     .select()
     .from(schema.tasks)
     .where(
       and(
         eq(schema.tasks.assignedToTeamMemberId, teamMemberId),
-        inArray(schema.tasks.status, ['Active', 'In Review']),
+        inArray(schema.tasks.status, statuses),
       ),
     )
     .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
@@ -458,18 +461,15 @@ export async function getTasksAssignedTo(teamMemberId: string): Promise<Task[]> 
 
 /**
  * All Core-product tasks across the org. Used by aggregate workspace views.
- * Filters Active + In Review only, matching the existing airtable.ts impl.
+ * Defaults to Active-only, matching the existing airtable.ts public API.
  */
-export async function getAllCoreTasks(): Promise<Task[]> {
+export async function getAllCoreTasks(
+  statuses: TaskStatus[] = ['Active'],
+): Promise<Task[]> {
   const rows = await db
     .select()
     .from(schema.tasks)
-    .where(
-      and(
-        eq(schema.tasks.product, 'Core'),
-        inArray(schema.tasks.status, ['Active', 'In Review']),
-      ),
-    )
+    .where(and(eq(schema.tasks.product, 'Core'), inArray(schema.tasks.status, statuses)))
     .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
   return rows.map(mapDbTask);
 }
@@ -502,25 +502,31 @@ export async function getAvailableWorkflows(): Promise<
 
 // ─── Public API: Events ─────────────────────────────────────────────────
 
-export async function createEvent(args: {
-  customerId: string | null;
-  eventType: string;
-  actorTeamMemberId?: string | null;
-  actorType: Event['actorType'];
-  details?: string | object;
-  relatedTaskId?: string | null;
-  relatedCallId?: string | null;
-}): Promise<Event> {
+/**
+ * Create an event. Positional signature mirrors the legacy airtable.ts
+ * version (customerId, eventType, actorType, details, taskId?, actorId?)
+ * so callers can swap import paths without arg refactoring. taskId and
+ * actorId are optional. callId support added as a 7th optional arg.
+ */
+export async function createEvent(
+  customerId: string | null,
+  eventType: string,
+  actorType: Event['actorType'],
+  details: string | object,
+  taskId?: string | null,
+  actorTeamMemberId?: string | null,
+  callId?: string | null,
+): Promise<Event> {
   const [row] = await db
     .insert(schema.events)
     .values({
-      customerId: args.customerId,
-      eventType: args.eventType,
-      actorTeamMemberId: args.actorTeamMemberId ?? null,
-      actorType: args.actorType,
-      details: args.details ?? null,
-      relatedTaskId: args.relatedTaskId ?? null,
-      relatedCallId: args.relatedCallId ?? null,
+      customerId: customerId ?? null,
+      eventType,
+      actorTeamMemberId: actorTeamMemberId ?? null,
+      actorType,
+      details: details ?? null,
+      relatedTaskId: taskId ?? null,
+      relatedCallId: callId ?? null,
     })
     .returning();
   return mapDbEvent(row);
@@ -610,16 +616,29 @@ export async function getCallsForCustomer(customerId: string): Promise<Call[]> {
   return rows.map(mapDbCall);
 }
 
-export async function getUpcomingCallsForCSM(csmTeamMemberId: string): Promise<Call[]> {
+export async function getUpcomingCallsForCSM(
+  csmTeamMemberId: string,
+  daysAhead?: number,
+): Promise<Call[]> {
+  const now = new Date();
+  const upper =
+    daysAhead !== undefined
+      ? new Date(now.getTime() + Math.max(0, daysAhead) * 24 * 60 * 60 * 1000)
+      : null;
+
+  const whereClauses = [
+    eq(schema.calls.csmTeamMemberId, csmTeamMemberId),
+    eq(schema.calls.status, 'Scheduled'),
+    sql`${schema.calls.scheduledDate} > ${now}`,
+  ];
+  if (upper) {
+    whereClauses.push(sql`${schema.calls.scheduledDate} < ${upper}`);
+  }
+
   const rows = await db
     .select()
     .from(schema.calls)
-    .where(
-      and(
-        eq(schema.calls.csmTeamMemberId, csmTeamMemberId),
-        eq(schema.calls.status, 'Scheduled'),
-      ),
-    )
+    .where(and(...whereClauses))
     .orderBy(asc(schema.calls.scheduledDate));
   return rows.map(mapDbCall);
 }
@@ -714,11 +733,24 @@ export async function getSetting(key: string): Promise<string | null> {
 // routes that import it can be swapped without breaking; behavior is a
 // no-op stub. Phase 3 replaces the body.
 
-export async function checkAndAdvanceStage(_customerId: string): Promise<void> {
-  // TODO Phase 3: port Auto 2 logic (split Depends On, mark dependents
-  //               Active, advance Current Stage if all stage tasks complete,
-  //               log Stage Changed event).
-  return;
+/**
+ * Stage-advance shim. Real implementation lands in Phase 3 (Auto 2 port).
+ * Accepts the legacy positional signature for call-site compatibility:
+ *   (customerId, completedTaskStage, allTasks, completedNames, justCompletedTaskId?, product?)
+ * Currently a no-op returning false — callers on the postgres-migration
+ * branch won't see stage advancement until Phase 3 ships. Main branch
+ * (Airtable Auto 2) remains unaffected.
+ */
+export async function checkAndAdvanceStage(
+  _customerId: string,
+  _completedTaskStage?: string,
+  _allTasks?: unknown[],
+  _completedNames?: Set<string>,
+  _justCompletedTaskId?: string,
+  _product?: string,
+): Promise<boolean> {
+  // TODO Phase 3: port Auto 2 logic.
+  return false;
 }
 
 // ─── Cache invalidation hook ────────────────────────────────────────────

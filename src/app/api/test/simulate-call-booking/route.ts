@@ -3,7 +3,7 @@ import {
   createCall,
   getCustomerById,
   getTeamMembersByRole,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import { getRecords, updateRecord } from '@/lib/airtable-client';
 
 /**

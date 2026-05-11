@@ -5,7 +5,7 @@ import {
   getCallByCalendlyUuid,
   getTeamMemberByEmail,
   updateCall,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import type { CallType } from '@/types';
 
 /**

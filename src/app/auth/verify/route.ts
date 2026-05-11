@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { redirect } from 'next/navigation';
 import { verifyMagicLinkToken } from '@/lib/auth/magic-link';
 import { setSessionCookie } from '@/lib/auth/session';
-import { getTeamMemberByEmail } from '@/lib/airtable';
+import { getTeamMemberByEmail } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token');

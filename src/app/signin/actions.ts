@@ -1,7 +1,7 @@
 'use server';
 
 import { headers } from 'next/headers';
-import { getTeamMemberByEmail } from '@/lib/airtable';
+import { getTeamMemberByEmail } from '@/lib/db';
 import { signMagicLinkToken } from '@/lib/auth/magic-link';
 import { sendMagicLinkEmail } from '@/lib/email/send';
 

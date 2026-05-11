@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { readSessionCookie, type SessionPayload } from './session';
 import { readViewAs } from './view-as';
-import { getTeamMemberById } from '@/lib/airtable';
+import { getTeamMemberById } from '@/lib/db';
 
 /**
  * Verify the current request has a valid session. Redirects to /signin if not.

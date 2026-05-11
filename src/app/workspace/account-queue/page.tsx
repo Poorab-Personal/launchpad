@@ -5,7 +5,7 @@ import {
   getTasksAssignedTo,
   getAllCoreTasks,
   getTeamMembers,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import { readViewAs } from '@/lib/auth/view-as';
 import type { Task, Customer, TeamMember } from '@/types';
 

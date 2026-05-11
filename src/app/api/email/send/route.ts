@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getCustomerById } from '@/lib/airtable';
+import { getCustomerById } from '@/lib/db';
 import { sendEmail, type EmailTemplate } from '@/lib/email/send';
 
 const VALID_TEMPLATES: EmailTemplate[] = ['welcome', 'design-ready', 'credentials-sent'];

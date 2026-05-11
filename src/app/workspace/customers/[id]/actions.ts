@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireSession } from '@/lib/auth/dal';
 import { getRecord, getRecords, updateRecord } from '@/lib/airtable-client';
-import { createEvent } from '@/lib/airtable';
+import { createEvent } from '@/lib/db';
 
 const REVISE_INTERNAL_PATTERN = /^Revise Design \(Internal Round \d+\)$/;
 

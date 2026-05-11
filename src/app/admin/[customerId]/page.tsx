@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getCustomerById, getTasksForCustomer, getTeamMembers, getBrokerageById } from '@/lib/airtable';
+import { getCustomerById, getTasksForCustomer, getTeamMembers, getBrokerageById } from '@/lib/db';
 import type { TaskStatus } from '@/types';
 
 const statusColor: Record<TaskStatus, string> = {

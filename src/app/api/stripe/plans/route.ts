@@ -5,7 +5,7 @@ import {
   getBrokerageById,
   getBrokerageByDefaultWorkflowKey,
   getWorkflowTemplates,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import type { StripePlan } from '@/types';
 
 /**

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireSession } from '@/lib/auth/dal';
 import { getRecord, updateRecord } from '@/lib/airtable-client';
-import { createEvent } from '@/lib/airtable';
+import { createEvent } from '@/lib/db';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

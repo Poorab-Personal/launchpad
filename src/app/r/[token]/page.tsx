@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getCustomerByToken, getTasksForCustomer } from '@/lib/airtable';
+import { getCustomerByToken, getTasksForCustomer } from '@/lib/db';
 import TaskList from '@/components/TaskList';
 
 export const dynamic = 'force-dynamic';

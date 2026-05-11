@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getCustomerById, updateCustomerFields } from '@/lib/airtable';
+import { getCustomerById, updateCustomerFields } from '@/lib/db';
 import { updateRecord } from '@/lib/airtable-client';
 
 /**
@@ -43,8 +43,8 @@ export async function POST(
   }
 
   await updateCustomerFields(id, {
-    'Selected Stripe Price ID': stripePriceId,
-    'Selected Plan Name': planName,
+    selectedStripePriceId: stripePriceId,
+    selectedPlanName: planName,
   });
 
   // Mark the task Completed (Auto 2 will then unblock dependents)

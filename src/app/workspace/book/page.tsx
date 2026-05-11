@@ -7,7 +7,7 @@ import {
   getTeamMemberById,
   getUpcomingCallsForCSM,
   getTasksAssignedTo,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import type { Customer, TeamMember, Call, Task } from '@/types';
 import { customerHealth } from '@/lib/csm';
 import BookFilter, { type CSMOption } from './BookFilter';

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { requireSession } from '@/lib/auth/dal';
-import { getCustomers, getTeamMembers } from '@/lib/airtable';
+import { getCustomers, getTeamMembers } from '@/lib/db';
 import type { TeamMember } from '@/types';
 import PortalLinkActions from './PortalLinkActions';
 

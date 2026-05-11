@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { requireSession, getEffectiveContext } from '@/lib/auth/dal';
-import { getTeamMemberById, getTeamMembers } from '@/lib/airtable';
+import { getTeamMemberById, getTeamMembers } from '@/lib/db';
 import { readViewAs } from '@/lib/auth/view-as';
 import RoleSwitcher from './RoleSwitcher';
 

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { requireSession } from '@/lib/auth/dal';
 import { getRecord, updateRecord } from '@/lib/airtable-client';
-import { createEvent, getCustomerById } from '@/lib/airtable';
+import { createEvent, getCustomerById } from '@/lib/db';
 import { sendEmail } from '@/lib/email/send';
 import { tempPasswordFromName } from '@/lib/temp-password';
 

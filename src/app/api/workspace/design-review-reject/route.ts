@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { requireSession } from '@/lib/auth/dal';
 import { getRecord, getRecords, createRecord, updateRecord } from '@/lib/airtable-client';
-import { createEvent } from '@/lib/airtable';
+import { createEvent } from '@/lib/db';
 
 const REVISE_INTERNAL_PATTERN = /^Revise Design \(Internal Round (\d+)\)$/;
 

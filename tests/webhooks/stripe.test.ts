@@ -1,33 +1,31 @@
 /**
- * Phase 1.5 — Stripe webhook integration tests.
+ * Stripe webhook integration tests.
  *
- * Regression net before the Phase 3 Airtable→Postgres port. These tests
- * target the EXISTING Airtable-backed route at src/app/api/webhooks/stripe/
- * and assert observable behavior (HTTP responses, Airtable mutations).
- *
- * The same suite re-runs in Phase 3 against Postgres-backed routes;
- * assertions on the wire-layer mock translate to assertions on Drizzle
- * write calls at that point.
+ * Architect-mandated regression net. Originally targeted the Airtable-backed
+ * route (Phase 1.5); since Phase 2.2 the route imports from @/lib/db, so
+ * this suite now exercises the Postgres-backed implementation.
  *
  * Mocking strategy:
- *   - Mock @/lib/airtable-client (the wire layer — 5 functions)
- *   - Real airtable.ts mappers run end-to-end
+ *   - Mock @/lib/db at the named-function level (getCustomers, etc.)
  *   - Real stripe.webhooks.constructEvent (signature verifier) runs
  *   - Signed payloads built via stripe.webhooks.generateTestHeaderString
+ *   - Drizzle is never actually connected — fake POSTGRES_URL satisfies the
+ *     guard in src/db/index.ts but the connection is never used because
+ *     every consumer of `db` from db.ts is vi.mocked.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Stripe from 'stripe';
+import type { Customer, Task } from '@/types';
 
-// vi.mock is hoisted above any imports — must declare before importing route.
-vi.mock('@/lib/airtable-client', () => ({
-  getRecord: vi.fn(),
-  getRecords: vi.fn(),
-  updateRecord: vi.fn(),
-  createRecord: vi.fn(),
-  batchCreateRecords: vi.fn(),
+// vi.mock hoists above imports.
+vi.mock('@/lib/db', () => ({
+  getCustomers: vi.fn(),
+  getTasksForCustomer: vi.fn(),
+  updateCustomerFields: vi.fn(),
+  updateTaskStatus: vi.fn(),
 }));
 
-import * as airtableClient from '@/lib/airtable-client';
+import * as dbLayer from '@/lib/db';
 import { POST } from '@/app/api/webhooks/stripe/route';
 import type { NextRequest } from 'next/server';
 
@@ -36,60 +34,112 @@ const stripe = new Stripe('sk_test_dummy_phase15_vitest');
 
 // ---- Fixtures ------------------------------------------------------------
 
-type AirtableRec = { id: string; fields: Record<string, unknown>; createdTime: string };
-
-function customerRec(opts: {
+function makeCustomer(opts: {
   id?: string;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
-  taskIds?: string[];
-}): AirtableRec {
+  tasks?: string[];
+} = {}): Customer {
   return {
     id: opts.id ?? 'recCust1',
-    fields: {
-      Name: 'Test Agent',
-      'Contact Email': 'test@example.com',
-      'Platform Email': 'test@example.com',
-      'Stripe Customer ID': opts.stripeCustomerId ?? '',
-      'Stripe Subscription ID': opts.stripeSubscriptionId ?? '',
-      Tasks: opts.taskIds ?? [],
-      'Current Stage': 'Getting Started',
-      Type: 'D2C',
-      Channel: 'Standard',
-      'Workflow Key': 'D2C-Standard',
-    },
-    createdTime: '2026-01-01T00:00:00Z',
+    name: 'Test Agent',
+    type: 'D2C',
+    channel: 'Standard',
+    workflowKey: 'D2C-Standard',
+    contactEmail: 'test@example.com',
+    platformEmail: 'test@example.com',
+    phone: '',
+    businessName: '',
+    businessAddress: '',
+    website: '',
+    serviceAreas: '',
+    localContentAreas: '',
+    bio: '',
+    licenseNumber: '',
+    topics: '',
+    hashtags: '',
+    gmbName: '',
+    mlsIds: '',
+    specialInstructions: '',
+    agentPhoto: [],
+    businessLogo: [],
+    otherAssets: [],
+    hasVoice: false,
+    hasAvatar: false,
+    voiceStage: '',
+    avatarStage: '',
+    voiceStripeId: '',
+    avatarStripeId: '',
+    hubspotDealId: '',
+    stripePaymentId: '',
+    addOnStripePaymentId: '',
+    productTier: null,
+    paymentStatus: null,
+    brokerage: [],
+    rosterRecord: [],
+    csmAssigned: [],
+    designApproval: null,
+    designFeedback: '',
+    designRevisionCount: 0,
+    designProof: [],
+    designDrafts: [],
+    designProofsUpdatedAt: '',
+    currentStage: 'Getting Started',
+    stageEnteredAt: '',
+    accountCreated: false,
+    credentialsSent: false,
+    callBooked: false,
+    callCompleted: false,
+    callDate: '',
+    noShowCount: 0,
+    otherEmails: '',
+    stripeCustomerId: opts.stripeCustomerId ?? '',
+    stripeSubscriptionId: opts.stripeSubscriptionId ?? '',
+    selectedStripePriceId: '',
+    selectedPlanName: '',
+    atRisk: false,
+    atRiskReason: null,
+    accessToken: 'tok_test',
+    environment: [],
+    portalBaseUrl: '',
+    tasks: opts.tasks ?? [],
+    events: [],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    lastModified: '2026-01-01T00:00:00.000Z',
   };
 }
 
-function taskRec(opts: {
-  id?: string;
-  taskName: string;
-  status: string;
-  customerId?: string;
-}): AirtableRec {
+function makeTask(opts: { id?: string; taskName: string; status: Task['status']; customerId?: string }): Task {
   return {
     id: opts.id ?? 'recTask1',
-    fields: {
-      'Task Name': opts.taskName,
-      Status: opts.status,
-      'Task Type': 'Client',
-      Stage: 'Getting Started',
-      'Stage Order': 1,
-      'Task Order': 1,
-      Customer: [opts.customerId ?? 'recCust1'],
-      'Visible To Client': true,
-      'Has Team Review': false,
-      'Attachment Type': 'None',
-      Product: 'Core',
-    },
-    createdTime: '2026-01-01T00:00:00Z',
+    taskName: opts.taskName,
+    customer: [opts.customerId ?? 'recCust1'],
+    taskType: 'Client',
+    stage: 'Getting Started',
+    status: opts.status,
+    taskOrder: 1,
+    stageOrder: 1,
+    assignedTo: [],
+    visibleToClient: true,
+    dependsOn: '',
+    hasTeamReview: false,
+    attachmentType: 'None',
+    embedUrl: '',
+    instructions: '',
+    tags: [],
+    notes: '',
+    dueDate: '',
+    completedAt: '',
+    activatedAt: '',
+    daysActive: null,
+    lastReminderAt: '',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    product: 'Core',
   };
 }
 
-// Build a minimal but plausible Stripe.Event JSON. The signature verifier
-// doesn't validate the inner shape; the route reads .type, .id, and the
-// nested .data.object.{customer, id, status}.
+// Stripe.Event JSON builder — verifier doesn't validate inner shape; the
+// route reads .type, .id, and the nested .data.object.{customer, id, status}.
 function setupIntentEvent(opts: { customerId: string | null; eventId?: string }) {
   return {
     id: opts.eventId ?? 'evt_test_si_1',
@@ -101,12 +151,7 @@ function setupIntentEvent(opts: { customerId: string | null; eventId?: string })
     pending_webhooks: 1,
     request: { id: null, idempotency_key: null },
     data: {
-      object: {
-        id: 'seti_test_1',
-        object: 'setup_intent',
-        customer: opts.customerId,
-        status: 'succeeded',
-      },
+      object: { id: 'seti_test_1', object: 'setup_intent', customer: opts.customerId, status: 'succeeded' },
     },
   };
 }
@@ -128,12 +173,7 @@ function subscriptionEvent(opts: {
     pending_webhooks: 1,
     request: { id: null, idempotency_key: null },
     data: {
-      object: {
-        id: opts.subId,
-        object: 'subscription',
-        customer: opts.customerId,
-        status: opts.status,
-      },
+      object: { id: opts.subId, object: 'subscription', customer: opts.customerId, status: opts.status },
     },
   };
 }
@@ -152,56 +192,36 @@ function makeSignedRequest(
           secret: opts?.secret ?? WEBHOOK_SECRET,
         });
   }
-  // Route uses `request.headers.get()` and `request.text()` — plain Request is enough.
-  return new Request('http://localhost/api/webhooks/stripe', {
-    method: 'POST',
-    headers,
-    body,
-  }) as unknown as NextRequest;
+  return new Request('http://localhost/api/webhooks/stripe', { method: 'POST', headers, body }) as unknown as NextRequest;
 }
 
 // ---- Mock helpers --------------------------------------------------------
 
-const mockGetRecords = vi.mocked(airtableClient.getRecords);
-const mockUpdateRecord = vi.mocked(airtableClient.updateRecord);
-
-function mockCustomersList(customers: AirtableRec[]) {
-  // First call to getRecords with 'Customers' returns the list; subsequent
-  // calls with 'Tasks' should be handled separately.
-  mockGetRecords.mockImplementation(async (table: string) => {
-    if (table === 'Customers') return customers;
-    if (table === 'Tasks') return [];
-    return [];
-  });
-}
-
-function mockCustomersAndTasks(customers: AirtableRec[], tasks: AirtableRec[]) {
-  mockGetRecords.mockImplementation(async (table: string) => {
-    if (table === 'Customers') return customers;
-    if (table === 'Tasks') return tasks;
-    return [];
-  });
-}
+const mockGetCustomers = vi.mocked(dbLayer.getCustomers);
+const mockGetTasksForCustomer = vi.mocked(dbLayer.getTasksForCustomer);
+const mockUpdateCustomerFields = vi.mocked(dbLayer.updateCustomerFields);
+const mockUpdateTaskStatus = vi.mocked(dbLayer.updateTaskStatus);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: return a generic record from updateRecord so the mapper-after-
-  // update path in updateCustomerFields doesn't choke.
-  mockUpdateRecord.mockResolvedValue(customerRec({}));
+  // updateCustomerFields returns the updated Customer; default to echoing one.
+  mockUpdateCustomerFields.mockResolvedValue(makeCustomer());
+  mockUpdateTaskStatus.mockResolvedValue(
+    makeTask({ taskName: 'Capture Payment Method', status: 'Completed' }),
+  );
 });
 
 // ---- Tests ---------------------------------------------------------------
 
 describe('signature verification', () => {
   it('returns 200 for a validly-signed event (no matching customer = no-op)', async () => {
-    mockCustomersList([]);
+    mockGetCustomers.mockResolvedValue([]);
     const req = makeSignedRequest(setupIntentEvent({ customerId: 'cus_no_match' }));
 
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body).toEqual({ received: true });
+    expect(await res.json()).toEqual({ received: true });
   });
 
   it('returns 400 "Invalid signature" for a malformed signature', async () => {
@@ -213,7 +233,8 @@ describe('signature verification', () => {
 
     expect(res.status).toBe(400);
     expect(await res.text()).toBe('Invalid signature');
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
+    expect(mockUpdateCustomerFields).not.toHaveBeenCalled();
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
   });
 
   it('returns 400 "Missing signature" when the header is absent', async () => {
@@ -225,7 +246,6 @@ describe('signature verification', () => {
 
     expect(res.status).toBe(400);
     expect(await res.text()).toBe('Missing signature');
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
   });
 
   it('returns 500 "Webhook not configured" when STRIPE_WEBHOOK_SECRET is unset', async () => {
@@ -244,288 +264,214 @@ describe('signature verification', () => {
 
 describe('setup_intent.succeeded', () => {
   it('marks Capture Payment Method task Completed when Active', async () => {
-    const customer = customerRec({
-      id: 'recCustA',
-      stripeCustomerId: 'cus_test_A',
-      taskIds: ['recTaskA'],
-    });
-    const task = taskRec({
-      id: 'recTaskA',
-      taskName: 'Capture Payment Method',
-      status: 'Active',
-      customerId: 'recCustA',
-    });
-    mockCustomersAndTasks([customer], [task]);
+    const customer = makeCustomer({ id: 'recCustA', stripeCustomerId: 'cus_test_A', tasks: ['recTaskA'] });
+    const task = makeTask({ id: 'recTaskA', taskName: 'Capture Payment Method', status: 'Active' });
+    mockGetCustomers.mockResolvedValue([customer]);
+    mockGetTasksForCustomer.mockResolvedValue([task]);
 
     const req = makeSignedRequest(setupIntentEvent({ customerId: 'cus_test_A' }));
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).toHaveBeenCalledExactlyOnceWith('Tasks', 'recTaskA', {
-      Status: 'Completed',
-    });
+    expect(mockUpdateTaskStatus).toHaveBeenCalledExactlyOnceWith('recTaskA', 'Completed');
   });
 
   it('is a no-op when Capture Payment Method task is already Completed', async () => {
-    const customer = customerRec({
-      stripeCustomerId: 'cus_test_B',
-      taskIds: ['recTaskB'],
-    });
-    const task = taskRec({
-      id: 'recTaskB',
-      taskName: 'Capture Payment Method',
-      status: 'Completed',
-    });
-    mockCustomersAndTasks([customer], [task]);
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_B', tasks: ['recTask1'] });
+    const task = makeTask({ taskName: 'Capture Payment Method', status: 'Completed' });
+    mockGetCustomers.mockResolvedValue([customer]);
+    mockGetTasksForCustomer.mockResolvedValue([task]);
 
     const req = makeSignedRequest(setupIntentEvent({ customerId: 'cus_test_B' }));
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
   });
 
-  it('is a no-op when no Airtable customer matches the Stripe customer id', async () => {
-    mockCustomersAndTasks([], []);
+  it('is a no-op when no Customer matches the Stripe customer id', async () => {
+    mockGetCustomers.mockResolvedValue([]);
 
     const req = makeSignedRequest(setupIntentEvent({ customerId: 'cus_nobody' }));
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
   });
 
   it('is a no-op when setupIntent has no customer', async () => {
-    mockCustomersAndTasks([], []);
-
     const req = makeSignedRequest(setupIntentEvent({ customerId: null }));
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
+    expect(mockGetCustomers).not.toHaveBeenCalled();
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
   });
 
   it('is a no-op when customer has no Capture Payment Method task', async () => {
-    const customer = customerRec({
-      stripeCustomerId: 'cus_test_C',
-      taskIds: ['recOther'],
-    });
-    const otherTask = taskRec({
-      id: 'recOther',
-      taskName: 'Schedule Your Onboarding Call',
-      status: 'Active',
-    });
-    mockCustomersAndTasks([customer], [otherTask]);
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_C', tasks: ['recOther'] });
+    const otherTask = makeTask({ taskName: 'Schedule Your Onboarding Call', status: 'Active' });
+    mockGetCustomers.mockResolvedValue([customer]);
+    mockGetTasksForCustomer.mockResolvedValue([otherTask]);
 
     const req = makeSignedRequest(setupIntentEvent({ customerId: 'cus_test_C' }));
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
   });
 });
 
 describe('customer.subscription.created', () => {
   it('writes Stripe Subscription ID + Subscription Status=Trial for status=trialing', async () => {
-    const customer = customerRec({ stripeCustomerId: 'cus_test_D' });
-    mockCustomersList([customer]);
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_D' });
+    mockGetCustomers.mockResolvedValue([customer]);
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'created',
-        customerId: 'cus_test_D',
-        subId: 'sub_test_1',
-        status: 'trialing',
-      }),
+      subscriptionEvent({ type: 'created', customerId: 'cus_test_D', subId: 'sub_test_1', status: 'trialing' }),
     );
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).toHaveBeenCalledExactlyOnceWith('Customers', customer.id, {
-      'Stripe Subscription ID': 'sub_test_1',
-      'Subscription Status': 'Trial',
+    expect(mockUpdateCustomerFields).toHaveBeenCalledExactlyOnceWith(customer.id, {
+      stripeSubscriptionId: 'sub_test_1',
+      subscriptionStatus: 'Trial',
     });
   });
 
   it('writes Subscription Status=Active for status=active', async () => {
-    const customer = customerRec({ stripeCustomerId: 'cus_test_E' });
-    mockCustomersList([customer]);
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_E' });
+    mockGetCustomers.mockResolvedValue([customer]);
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'created',
-        customerId: 'cus_test_E',
-        subId: 'sub_test_2',
-        status: 'active',
-      }),
+      subscriptionEvent({ type: 'created', customerId: 'cus_test_E', subId: 'sub_test_2', status: 'active' }),
     );
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).toHaveBeenCalledExactlyOnceWith('Customers', customer.id, {
-      'Stripe Subscription ID': 'sub_test_2',
-      'Subscription Status': 'Active',
+    expect(mockUpdateCustomerFields).toHaveBeenCalledExactlyOnceWith(customer.id, {
+      stripeSubscriptionId: 'sub_test_2',
+      subscriptionStatus: 'Active',
     });
   });
 
   it('is a no-op when no matching customer is found', async () => {
-    mockCustomersList([]);
+    mockGetCustomers.mockResolvedValue([]);
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'created',
-        customerId: 'cus_nobody',
-        subId: 'sub_x',
-        status: 'active',
-      }),
+      subscriptionEvent({ type: 'created', customerId: 'cus_nobody', subId: 'sub_x', status: 'active' }),
     );
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
+    expect(mockUpdateCustomerFields).not.toHaveBeenCalled();
   });
 });
 
 describe('customer.subscription.updated', () => {
   it('updates Subscription Status on trial→active transition', async () => {
-    const customer = customerRec({
-      stripeCustomerId: 'cus_test_F',
-      stripeSubscriptionId: 'sub_test_3',
-    });
-    mockCustomersList([customer]);
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_F', stripeSubscriptionId: 'sub_test_3' });
+    mockGetCustomers.mockResolvedValue([customer]);
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'updated',
-        customerId: 'cus_test_F',
-        subId: 'sub_test_3',
-        status: 'active',
-      }),
+      subscriptionEvent({ type: 'updated', customerId: 'cus_test_F', subId: 'sub_test_3', status: 'active' }),
     );
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).toHaveBeenCalledExactlyOnceWith('Customers', customer.id, {
-      'Stripe Subscription ID': 'sub_test_3',
-      'Subscription Status': 'Active',
+    expect(mockUpdateCustomerFields).toHaveBeenCalledExactlyOnceWith(customer.id, {
+      stripeSubscriptionId: 'sub_test_3',
+      subscriptionStatus: 'Active',
     });
   });
 
   it('writes Subscription Status=Past Due for status=past_due', async () => {
-    const customer = customerRec({ stripeCustomerId: 'cus_test_G' });
-    mockCustomersList([customer]);
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_G' });
+    mockGetCustomers.mockResolvedValue([customer]);
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'updated',
-        customerId: 'cus_test_G',
-        subId: 'sub_test_4',
-        status: 'past_due',
-      }),
+      subscriptionEvent({ type: 'updated', customerId: 'cus_test_G', subId: 'sub_test_4', status: 'past_due' }),
     );
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).toHaveBeenCalledExactlyOnceWith('Customers', customer.id, {
-      'Stripe Subscription ID': 'sub_test_4',
-      'Subscription Status': 'Past Due',
+    expect(mockUpdateCustomerFields).toHaveBeenCalledExactlyOnceWith(customer.id, {
+      stripeSubscriptionId: 'sub_test_4',
+      subscriptionStatus: 'Past Due',
     });
   });
 
-  it('writes Subscription Status=Cancelled for status=canceled (Stripe American spelling → Cancelled)', async () => {
-    const customer = customerRec({ stripeCustomerId: 'cus_test_H' });
-    mockCustomersList([customer]);
+  it('writes Subscription Status=Cancelled for status=canceled (Stripe American → Cancelled)', async () => {
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_H' });
+    mockGetCustomers.mockResolvedValue([customer]);
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'updated',
-        customerId: 'cus_test_H',
-        subId: 'sub_test_5',
-        status: 'canceled',
-      }),
+      subscriptionEvent({ type: 'updated', customerId: 'cus_test_H', subId: 'sub_test_5', status: 'canceled' }),
     );
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).toHaveBeenCalledExactlyOnceWith('Customers', customer.id, {
-      'Stripe Subscription ID': 'sub_test_5',
-      'Subscription Status': 'Cancelled',
+    expect(mockUpdateCustomerFields).toHaveBeenCalledExactlyOnceWith(customer.id, {
+      stripeSubscriptionId: 'sub_test_5',
+      subscriptionStatus: 'Cancelled',
     });
   });
 
   it('is a no-op for an unmapped Stripe status', async () => {
-    const customer = customerRec({ stripeCustomerId: 'cus_test_I' });
-    mockCustomersList([customer]);
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_I' });
+    mockGetCustomers.mockResolvedValue([customer]);
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'updated',
-        customerId: 'cus_test_I',
-        subId: 'sub_test_6',
-        status: 'frobnicate',
-      }),
+      subscriptionEvent({ type: 'updated', customerId: 'cus_test_I', subId: 'sub_test_6', status: 'frobnicate' }),
     );
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
+    expect(mockUpdateCustomerFields).not.toHaveBeenCalled();
   });
 });
 
 describe('customer.subscription.deleted', () => {
   it('writes Subscription Status=Cancelled', async () => {
-    const customer = customerRec({ stripeCustomerId: 'cus_test_J' });
-    mockCustomersList([customer]);
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_J' });
+    mockGetCustomers.mockResolvedValue([customer]);
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'deleted',
-        customerId: 'cus_test_J',
-        subId: 'sub_test_7',
-        status: 'canceled',
-      }),
+      subscriptionEvent({ type: 'deleted', customerId: 'cus_test_J', subId: 'sub_test_7', status: 'canceled' }),
     );
     const res = await POST(req);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateRecord).toHaveBeenCalledExactlyOnceWith('Customers', customer.id, {
-      'Stripe Subscription ID': 'sub_test_7',
-      'Subscription Status': 'Cancelled',
+    expect(mockUpdateCustomerFields).toHaveBeenCalledExactlyOnceWith(customer.id, {
+      stripeSubscriptionId: 'sub_test_7',
+      subscriptionStatus: 'Cancelled',
     });
   });
 });
 
 describe('unhandled event types', () => {
   it('returns 200 with no writes for unhandled event types', async () => {
-    mockCustomersList([]);
-    const event = {
-      ...setupIntentEvent({ customerId: 'cus_x' }),
-      type: 'payment_intent.succeeded' as const,
-    };
-
+    const event = { ...setupIntentEvent({ customerId: 'cus_x' }), type: 'payment_intent.succeeded' as const };
     const req = makeSignedRequest(event);
+
     const res = await POST(req);
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ received: true });
-    expect(mockUpdateRecord).not.toHaveBeenCalled();
-    expect(mockGetRecords).not.toHaveBeenCalled();
+    expect(mockUpdateCustomerFields).not.toHaveBeenCalled();
+    expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
+    expect(mockGetCustomers).not.toHaveBeenCalled();
   });
 });
 
 describe('error handling', () => {
-  it('returns 500 "Handler error" when an Airtable write throws (so Stripe retries)', async () => {
-    const customer = customerRec({ stripeCustomerId: 'cus_test_K' });
-    mockCustomersList([customer]);
-    mockUpdateRecord.mockRejectedValueOnce(new Error('Airtable 500'));
+  it('returns 500 "Handler error" when a write throws (so Stripe retries)', async () => {
+    const customer = makeCustomer({ stripeCustomerId: 'cus_test_K' });
+    mockGetCustomers.mockResolvedValue([customer]);
+    mockUpdateCustomerFields.mockRejectedValueOnce(new Error('DB write failed'));
 
     const req = makeSignedRequest(
-      subscriptionEvent({
-        type: 'created',
-        customerId: 'cus_test_K',
-        subId: 'sub_test_8',
-        status: 'active',
-      }),
+      subscriptionEvent({ type: 'created', customerId: 'cus_test_K', subId: 'sub_test_8', status: 'active' }),
     );
     const res = await POST(req);
 
@@ -534,11 +480,11 @@ describe('error handling', () => {
   });
 });
 
-describe('gaps in current behavior (Phase 2/3 work — tests pinned as todo)', () => {
+describe('gaps in current behavior (test.todo)', () => {
   it.todo(
     'event-ID idempotency — same event.id delivered twice should be processed once; needs a processed_stripe_events table',
   );
   it.todo(
-    'setup_intent.succeeded should also clear customers.atRisk + atRiskReason when the customer is At Risk=No CC (per plan §4, deferred to Phase 2)',
+    'setup_intent.succeeded should also clear customers.atRisk + atRiskReason when reason was "No CC" (per plan §4, Phase 2 work)',
   );
 });

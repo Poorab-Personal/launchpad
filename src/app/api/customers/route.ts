@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { createRecord, updateRecord } from '@/lib/airtable-client';
-import { getBrokerageByDefaultWorkflowKey, getWorkflowTemplates } from '@/lib/airtable';
+import { getBrokerageByDefaultWorkflowKey, getWorkflowTemplates } from '@/lib/db';
 import { createStripeCustomer } from '@/lib/stripe';
 
 export async function POST(request: NextRequest) {

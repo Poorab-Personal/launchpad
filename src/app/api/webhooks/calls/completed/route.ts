@@ -4,7 +4,7 @@ import {
   getCustomerById,
   getWorkflowTemplates,
   updateCustomerFields,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import { createSubscription } from '@/lib/stripe';
 
 /**
@@ -112,8 +112,8 @@ export async function POST(request: NextRequest) {
   });
 
   await updateCustomerFields(customer.id, {
-    'Stripe Subscription ID': subscription.id,
-    'Subscription Status': subscription.status === 'trialing' ? 'Trial' : 'Active',
+    stripeSubscriptionId: subscription.id,
+    subscriptionStatus: subscription.status === 'trialing' ? 'Trial' : 'Active',
   });
 
   console.log(

@@ -5,7 +5,7 @@ import {
   getCustomerById,
   getTasksForCustomer,
   getTeamMembers,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from '@/types';
 import MarkCompleteButton from './MarkCompleteButton';
 import ProofTaskAction from './ProofTaskAction';

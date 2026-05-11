@@ -4,7 +4,7 @@ import {
   getTeamMembers,
   getAvailableWorkflows,
   getActiveTasksByCustomer,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import type { Task } from '@/types';
 import CustomerFilters from './customer-filters';
 import AddCustomerForm from './add-customer-form';

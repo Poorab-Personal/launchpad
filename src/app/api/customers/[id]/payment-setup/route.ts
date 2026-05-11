@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getCustomerById, getStripePlanByPriceId, getWorkflowTemplates } from '@/lib/airtable';
+import { getCustomerById, getStripePlanByPriceId, getWorkflowTemplates } from '@/lib/db';
 import { createSetupIntent } from '@/lib/stripe';
 
 /**

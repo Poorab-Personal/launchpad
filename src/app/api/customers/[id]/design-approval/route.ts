@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getRecords, updateRecord, createRecord } from '@/lib/airtable-client';
-import { createEvent, checkAndAdvanceStage } from '@/lib/airtable';
+import { createEvent, checkAndAdvanceStage } from '@/lib/db';
 
 /** Airtable single select fields may be strings or { name: string } objects */
 function selectVal(field: unknown): string {

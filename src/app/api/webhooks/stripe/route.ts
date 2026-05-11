@@ -1,8 +1,7 @@
 import { NextRequest } from 'next/server';
 import Stripe from 'stripe';
 import { verifyWebhookSignature } from '@/lib/stripe';
-import { getCustomers, updateCustomerFields } from '@/lib/airtable';
-import { updateRecord } from '@/lib/airtable-client';
+import { getCustomers, getTasksForCustomer, updateCustomerFields, updateTaskStatus } from '@/lib/db';
 
 /**
  * POST /api/webhooks/stripe
@@ -102,9 +101,7 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
     return;
   }
 
-  // We need the actual task records to find the Capture Payment Method one
-  // and check its status. Re-fetch via the tasks function.
-  const { getTasksForCustomer } = await import('@/lib/airtable');
+  // Fetch tasks for the customer and find the Capture Payment Method one.
   const allTasks = await getTasksForCustomer(customer.id);
   const captureTask = allTasks.find((t) => t.taskName === 'Capture Payment Method');
   if (!captureTask) {
@@ -116,8 +113,8 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
     return;
   }
 
-  // Mark it Completed (Auto 2 will then unblock dependents)
-  await updateRecord('Tasks', captureTask.id, { Status: 'Completed' });
+  // Mark it Completed (Auto 2 will then unblock dependents — Phase 3)
+  await updateTaskStatus(captureTask.id, 'Completed');
   console.log(`[stripe webhook] marked Capture Payment Method Completed for ${customer.id} (server-side fallback)`);
 }
 
@@ -161,8 +158,8 @@ async function handleSubscriptionEvent(subscription: Stripe.Subscription, eventT
   }
 
   await updateCustomerFields(customer.id, {
-    'Stripe Subscription ID': subscription.id,
-    'Subscription Status': newStatus,
+    stripeSubscriptionId: subscription.id,
+    subscriptionStatus: newStatus as 'Trial' | 'Active' | 'Past Due' | 'Cancelled',
   });
   console.log(
     `[stripe webhook] ${eventType}: customer ${customer.id} → status=${newStatus} (sub=${subscription.id})`,

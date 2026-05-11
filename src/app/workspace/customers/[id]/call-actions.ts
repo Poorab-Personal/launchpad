@@ -7,7 +7,7 @@ import {
   updateCall,
   createEvent,
   getCustomerById,
-} from '@/lib/airtable';
+} from '@/lib/db';
 import { getRecord } from '@/lib/airtable-client';
 import type { CallType, CallStatus, Call } from '@/types';
 
