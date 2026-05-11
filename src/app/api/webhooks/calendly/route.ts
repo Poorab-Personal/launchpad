@@ -1,10 +1,13 @@
 import { NextRequest } from 'next/server';
-import { getRecords, updateRecord } from '@/lib/airtable-client';
 import {
   createCall,
   getCallByCalendlyUuid,
+  getCustomerByEmail,
+  getTasksForCustomer,
   getTeamMemberByEmail,
   updateCall,
+  updateCustomerFields,
+  updateTaskFields,
 } from '@/lib/db';
 import type { CallType } from '@/types';
 
@@ -88,40 +91,24 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Resolve customer ──────────────────────────────────────────────
-  const safeEmail = customerEmail.replace(/'/g, "\\'");
-  const customers = await getRecords('Customers', {
-    filterByFormula: `LOWER({Contact Email}) = LOWER('${safeEmail}')`,
-    maxRecords: 1,
-  });
-  if (customers.length === 0) {
+  const customer = await getCustomerByEmail(customerEmail);
+  if (!customer) {
     return Response.json({ error: 'Customer not found', email: customerEmail }, { status: 404 });
   }
-  const custId = customers[0].id;
+  const custId = customer.id;
 
   // ── Find the matching active Schedule task ────────────────────────
-  // We look through all tasks for one belonging to this customer whose
-  // name is one of the recognized schedule task names AND status=Active.
-  // (Same in-memory pattern the original webhook used — Airtable can't
-  // filter linked-record arrays well via formula.)
-  const allTasks = await getRecords('Tasks');
-  const scheduleTask = allTasks.find((t) => {
-    const linked = t.fields['Customer'];
-    const isCustomer = Array.isArray(linked) && JSON.stringify(linked).includes(custId);
-    const name = (t.fields['Task Name'] as string) ?? '';
-    const status =
-      typeof t.fields['Status'] === 'object'
-        ? (t.fields['Status'] as { name: string }).name
-        : t.fields['Status'];
-    return isCustomer && status === 'Active' && SCHEDULE_TASK_TO_TYPE[name] !== undefined;
-  });
+  const customerTasks = await getTasksForCustomer(custId);
+  const scheduleTask = customerTasks.find(
+    (t) => t.status === 'Active' && SCHEDULE_TASK_TO_TYPE[t.taskName] !== undefined,
+  );
 
   // ── Determine call type ───────────────────────────────────────────
   let callType: CallType;
   if (explicitCallType) {
     callType = explicitCallType;
   } else if (scheduleTask) {
-    const name = (scheduleTask.fields['Task Name'] as string) ?? '';
-    callType = SCHEDULE_TASK_TO_TYPE[name] ?? 'Ad-hoc';
+    callType = SCHEDULE_TASK_TO_TYPE[scheduleTask.taskName] ?? 'Ad-hoc';
   } else {
     callType = 'Ad-hoc';
   }
@@ -138,14 +125,14 @@ export async function POST(request: NextRequest) {
   let callAction: 'created' | 'updated' | 'created-no-uuid';
 
   const callFields = {
-    title: `${callType} — ${(customers[0].fields['Name'] as string) ?? ''}`.trim(),
+    title: `${callType} — ${customer.name}`.trim(),
     customer: [custId],
     type: callType,
     scheduledDate: eventDate || undefined,
     status: 'Scheduled' as const,
     calendlyEventUuid: calendlyEventUuid || undefined,
     notes: 'Created from Calendly webhook.',
-    ...(csmMemberId ? { csm: [csmMemberId] } : {}),
+    csm: csmMemberId ? [csmMemberId] : [],
   };
 
   if (calendlyEventUuid) {
@@ -176,45 +163,29 @@ export async function POST(request: NextRequest) {
 
   // ── Mark Schedule task Completed ──────────────────────────────────
   if (scheduleTask) {
-    await updateRecord('Tasks', scheduleTask.id, {
-      Status: 'Completed',
-      'Completed At': new Date().toISOString(),
+    await updateTaskFields(scheduleTask.id, {
+      status: 'Completed',
+      completedAt: new Date(),
     });
   }
 
   // ── Backwards-compat customer flags (Onboarding only) ─────────────
-  // Existing portal/components read Customer.Call Date + Call Booked.
-  // Don't touch these for Check-Ins so they don't clobber prior values.
-  const customerUpdate: Record<string, unknown> = {};
   if (callType === 'Onboarding') {
-    customerUpdate['Call Booked'] = true;
-    if (eventDate) customerUpdate['Call Date'] = eventDate;
-    if (csmMemberId) customerUpdate['CSM Assigned'] = [csmMemberId];
-  }
-  if (Object.keys(customerUpdate).length > 0) {
-    await updateRecord('Customers', custId, customerUpdate);
+    const update: Parameters<typeof updateCustomerFields>[1] = {
+      callBooked: true,
+    };
+    if (eventDate) update.callDate = new Date(eventDate);
+    if (csmMemberId) update.csmTeamMemberId = csmMemberId;
+    await updateCustomerFields(custId, update);
   }
 
   // ── Re-route "Mark Onboarding Call Complete" to the booking host ──
-  // Auto 1 assigned this task to the default CSM at customer-creation time.
-  // The actual host (round-robin pick or direct booking) may differ — make
-  // sure the task lands in their queue, not the default CSM's. Skip if the
-  // task is already Completed (don't rewrite history).
   if (callType === 'Onboarding' && csmMemberId) {
-    const markTask = allTasks.find((t) => {
-      const linked = t.fields['Customer'];
-      const isCustomer = Array.isArray(linked) && JSON.stringify(linked).includes(custId);
-      const name = (t.fields['Task Name'] as string) ?? '';
-      const status =
-        typeof t.fields['Status'] === 'object'
-          ? (t.fields['Status'] as { name: string }).name
-          : t.fields['Status'];
-      return isCustomer && name === 'Mark Onboarding Call Complete' && status !== 'Completed';
-    });
+    const markTask = customerTasks.find(
+      (t) => t.taskName === 'Mark Onboarding Call Complete' && t.status !== 'Completed',
+    );
     if (markTask) {
-      await updateRecord('Tasks', markTask.id, {
-        'Assigned To': [csmMemberId],
-      });
+      await updateTaskFields(markTask.id, { assignedToTeamMemberId: csmMemberId });
     }
   }
 

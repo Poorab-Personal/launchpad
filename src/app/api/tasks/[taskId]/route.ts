@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { updateRecord } from '@/lib/airtable-client';
+import { updateTaskFields } from '@/lib/db';
+import type { Task } from '@/types';
 
 export async function PATCH(
   request: NextRequest,
@@ -13,19 +14,17 @@ export async function PATCH(
     return Response.json({ error: 'Missing required field: status' }, { status: 400 });
   }
 
-  // Update status + optional notes (used for share links on upload tasks)
-  const updatedFields: Record<string, unknown> = { Status: status };
+  const fields: Parameters<typeof updateTaskFields>[1] = {
+    status: status as Task['status'],
+  };
   if (status === 'Completed') {
-    updatedFields['Completed At'] = new Date().toISOString();
+    fields.completedAt = new Date();
   }
   if (notes !== undefined) {
-    updatedFields['Notes'] = notes;
+    fields.notes = notes;
   }
 
-  const record = await updateRecord('Tasks', taskId, updatedFields);
+  const task = await updateTaskFields(taskId, fields);
 
-  return Response.json({
-    id: record.id,
-    status,
-  });
+  return Response.json({ id: task.id, status: task.status });
 }

@@ -2,9 +2,11 @@ import { NextRequest } from 'next/server';
 import {
   createCall,
   getCustomerById,
+  getTasksForCustomer,
   getTeamMembersByRole,
+  updateCustomerFields,
+  updateTaskFields,
 } from '@/lib/db';
-import { getRecords, updateRecord } from '@/lib/airtable-client';
 
 /**
  * POST /api/test/simulate-call-booking
@@ -74,21 +76,20 @@ export async function POST(request: NextRequest) {
     status: 'Scheduled',
     calendlyEventUuid: `simulated-${Date.now()}`,
     notes: 'Created via /api/test/simulate-call-booking — test endpoint.',
-    ...(csm ? { csm: [csm.id] } : {}),
+    csm: csm ? [csm.id] : [],
   });
 
   // ── 4. Stamp customer flags (Call Booked / Date / CSM Assigned) ─
-  const customerUpdate: Record<string, unknown> = {
-    'Call Booked': true,
-    'Call Date': scheduledIso,
-  };
-  if (csm) customerUpdate['CSM Assigned'] = [csm.id];
-  await updateRecord('Customers', customerId, customerUpdate);
+  await updateCustomerFields(customerId, {
+    callBooked: true,
+    callDate: scheduledAt,
+    ...(csm ? { csmTeamMemberId: csm.id } : {}),
+  });
 
   // ── 5. Mark Schedule task Completed ────────────────────────────
-  await updateRecord('Tasks', taskId, {
-    Status: 'Completed',
-    'Completed At': new Date().toISOString(),
+  await updateTaskFields(taskId, {
+    status: 'Completed',
+    completedAt: new Date(),
   });
 
   // ── 6. Re-route Mark Onboarding Call Complete to the CSM ───────
@@ -97,19 +98,12 @@ export async function POST(request: NextRequest) {
   // task lands in their queue. Skip if already Completed.
   let reroutedMarkTaskId: string | null = null;
   if (csm) {
-    const allTasks = await getRecords('Tasks');
-    const markTask = allTasks.find((t) => {
-      const linked = t.fields['Customer'];
-      const isCustomer = Array.isArray(linked) && JSON.stringify(linked).includes(customerId);
-      const name = (t.fields['Task Name'] as string) ?? '';
-      const status =
-        typeof t.fields['Status'] === 'object'
-          ? (t.fields['Status'] as { name: string }).name
-          : t.fields['Status'];
-      return isCustomer && name === 'Mark Onboarding Call Complete' && status !== 'Completed';
-    });
+    const tasks = await getTasksForCustomer(customerId);
+    const markTask = tasks.find(
+      (t) => t.taskName === 'Mark Onboarding Call Complete' && t.status !== 'Completed',
+    );
     if (markTask) {
-      await updateRecord('Tasks', markTask.id, { 'Assigned To': [csm.id] });
+      await updateTaskFields(markTask.id, { assignedToTeamMemberId: csm.id });
       reroutedMarkTaskId = markTask.id;
     }
   }

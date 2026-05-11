@@ -1,20 +1,14 @@
 import { NextRequest } from 'next/server';
 import { requireSession } from '@/lib/auth/dal';
-import { getRecord, updateRecord } from '@/lib/airtable-client';
-import { createEvent, getCustomerById } from '@/lib/db';
+import {
+  createEvent,
+  getCustomerById,
+  getTaskById,
+  updateCustomerFields,
+  updateTaskFields,
+} from '@/lib/db';
 import { sendEmail } from '@/lib/email/send';
 import { tempPasswordFromName } from '@/lib/temp-password';
-
-function linkedId(field: unknown): string | null {
-  if (!Array.isArray(field) || field.length === 0) return null;
-  const first = field[0];
-  return typeof first === 'string' ? first : (first as { id: string })?.id ?? null;
-}
-
-function assignedIdsOf(field: unknown): string[] {
-  if (!Array.isArray(field)) return [];
-  return field.map((a) => (typeof a === 'string' ? a : (a as { id: string }).id));
-}
 
 /**
  * Send the credentials email and complete the "Send Credentials" task.
@@ -42,16 +36,18 @@ export async function POST(request: NextRequest) {
   }
 
   // Verify task assignment.
-  const task = await getRecord('Tasks', taskId);
-  const assignedIds = assignedIdsOf(task.fields['Assigned To']);
+  const task = await getTaskById(taskId);
+  if (!task) {
+    return Response.json({ error: 'Task not found.' }, { status: 404 });
+  }
   if (
     session.role !== 'Admin' &&
-    !(session.role === 'Account Creator' && assignedIds.includes(session.memberId))
+    !(session.role === 'Account Creator' && task.assignedTo.includes(session.memberId))
   ) {
     return Response.json({ error: 'Not assigned to you.' }, { status: 403 });
   }
 
-  if (linkedId(task.fields['Customer']) !== customerId) {
+  if (task.customer[0] !== customerId) {
     return Response.json(
       { error: 'Task does not belong to this customer.' },
       { status: 400 },
@@ -96,15 +92,13 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  // Mark task complete + flip flag on customer. Auto 2 picks up the status
-  // change to activate dependent tasks.
-  await updateRecord('Tasks', taskId, {
-    Status: 'Completed',
-    'Completed At': new Date().toISOString(),
+  // Mark task complete + flip flag on customer. Auto 2 (Phase 3) picks up
+  // the status change to activate dependent tasks.
+  await updateTaskFields(taskId, {
+    status: 'Completed',
+    completedAt: new Date(),
   });
-  await updateRecord('Customers', customerId, {
-    'Credentials Sent': true,
-  });
+  await updateCustomerFields(customerId, { credentialsSent: true });
 
   // Non-fatal audit event.
   try {

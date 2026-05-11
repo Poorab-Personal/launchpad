@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getCustomerById, updateCustomerFields } from '@/lib/db';
-import { updateRecord } from '@/lib/airtable-client';
+import { getCustomerById, updateCustomerFields, updateTaskStatus } from '@/lib/db';
 
 /**
  * POST /api/customers/[id]/payment-setup/confirm
@@ -47,8 +46,8 @@ export async function POST(
     selectedPlanName: planName,
   });
 
-  // Mark the task Completed (Auto 2 will then unblock dependents)
-  await updateRecord('Tasks', taskId, { Status: 'Completed' });
+  // Mark the task Completed (Auto 2 will then unblock dependents — Phase 3)
+  await updateTaskStatus(taskId, 'Completed');
 
   return Response.json({ ok: true });
 }

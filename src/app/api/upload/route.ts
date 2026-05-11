@@ -1,12 +1,19 @@
 import { NextRequest } from 'next/server';
 import { put } from '@vercel/blob';
-import { getRecord, updateRecord } from '@/lib/airtable-client';
+import { getCustomerById, updateCustomerFields } from '@/lib/db';
 
 // Per-field append limits. null = no limit. Fields not in this map are rejected.
+// Keys are the request fieldName values; mapped to schema camelCase fields below.
 const FIELD_LIMITS: Record<string, number | null> = {
   'Agent Photo': 10,
   'Business Logo': 10,
   'Other Assets': null,
+};
+
+const FIELD_NAME_TO_COLUMN: Record<string, 'agentPhoto' | 'businessLogo' | 'otherAssets'> = {
+  'Agent Photo': 'agentPhoto',
+  'Business Logo': 'businessLogo',
+  'Other Assets': 'otherAssets',
 };
 
 const MAX_FILE_SIZE = 3_500_000; // 3.5MB — Vercel body limit is 4.5MB, leave room for multipart overhead
@@ -38,11 +45,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Read existing attachments and append (preserves existing files)
-  const record = await getRecord('Customers', customerId);
-  const existingRaw = record.fields[fieldName];
-  const existing = Array.isArray(existingRaw) ? existingRaw : [];
+  const column = FIELD_NAME_TO_COLUMN[fieldName];
+  const customer = await getCustomerById(customerId);
+  if (!customer) {
+    return Response.json({ error: `Customer ${customerId} not found` }, { status: 404 });
+  }
 
+  // The mapper in db.ts hydrates jsonb rows into AirtableAttachment shape
+  // ({id, url, filename}) for the Customer type, but the underlying jsonb
+  // also carries size/contentType for downloads. Read the legacy-typed
+  // attachments and round-trip them as the richer jsonb shape on write.
+  const existing = (customer[column] ?? []) as unknown as Array<Record<string, unknown>>;
   const limit = FIELD_LIMITS[fieldName];
   if (limit !== null && existing.length >= limit) {
     return Response.json(
@@ -51,19 +64,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Upload to Vercel Blob with random suffix to avoid collisions on
-  // duplicate filenames (now relevant since these fields append).
   const blob = await put(file.name, file, { access: 'public', addRandomSuffix: true });
-  const newAttachment = { url: blob.url, filename: file.name };
 
-  // Airtable preserves existing attachments when writing back as long as the
-  // {id} fields are kept. The records returned from getRecord include {id},
-  // so spreading them is safe.
+  // jsonb shape (matches Drizzle schema notes in customers.ts): an array of
+  // { url, filename, size, contentType } objects.
+  const newAttachment = {
+    url: blob.url,
+    filename: file.name,
+    size: file.size,
+    contentType: file.type,
+  };
   const attachmentArray = [...existing, newAttachment];
 
-  await updateRecord('Customers', customerId, {
-    [fieldName]: attachmentArray,
-  });
+  await updateCustomerFields(customerId, { [column]: attachmentArray });
 
   return Response.json({
     url: blob.url,

@@ -378,6 +378,43 @@ export async function getCustomerById(id: string): Promise<Customer | null> {
   return mapDbCustomer(row, await channelCodeFor(row.channelId));
 }
 
+/** Look up a Customer by Contact Email (case-insensitive). */
+export async function getCustomerByEmail(email: string): Promise<Customer | null> {
+  const row = await db.query.customers.findFirst({
+    where: sql`LOWER(${schema.customers.contactEmail}) = LOWER(${email})`,
+  });
+  if (!row) return null;
+  return mapDbCustomer(row, await channelCodeFor(row.channelId));
+}
+
+/**
+ * Create a new Customer. Required: name, contactEmail, platformEmail,
+ * type, and either `channel` (code: 'Standard'|'Keyes'|'BW') OR a
+ * pre-resolved `channelId`.
+ *
+ * workflowKey is computed app-side from type + channel.code per architect
+ * Q1 signoff 2026-05-11 (no Postgres generated column because channels is
+ * a FK lookup, not an inline string).
+ */
+export async function createCustomer(args: {
+  name: string;
+  contactEmail: string;
+  platformEmail: string;
+  type: Customer['type'];
+  channel: string;                                                   // code: 'Standard' | 'Keyes' | 'BW'
+  currentStage: string;
+} & Partial<Omit<typeof schema.customers.$inferInsert, 'channelId' | 'workflowKey'>>): Promise<Customer> {
+  const { channel, ...rest } = args;
+  const channelId = await channelIdForCode(channel);
+  if (!channelId) throw new Error(`Unknown channel code: ${channel}`);
+  const workflowKey = `${args.type}-${channel}`;
+  const [row] = await db
+    .insert(schema.customers)
+    .values({ ...rest, channelId, workflowKey })
+    .returning();
+  return mapDbCustomer(row, channel);
+}
+
 /**
  * Update Customer fields. Accepts camelCase keys matching the Drizzle schema
  * (NOT the Airtable Title Case keys the old airtable.ts version used).
@@ -409,6 +446,41 @@ export async function getTasksForCustomer(customerId: string): Promise<Task[]> {
     .where(eq(schema.tasks.customerId, customerId))
     .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
   return rows.map(mapDbTask);
+}
+
+export async function getTaskById(taskId: string): Promise<Task | null> {
+  const row = await db.query.tasks.findFirst({ where: eq(schema.tasks.id, taskId) });
+  return row ? mapDbTask(row) : null;
+}
+
+/** Generic partial Task update. Accepts camelCase fields matching the Drizzle schema. */
+export async function updateTaskFields(
+  taskId: string,
+  fields: Partial<typeof schema.tasks.$inferInsert>,
+): Promise<Task> {
+  const [row] = await db
+    .update(schema.tasks)
+    .set(fields)
+    .where(eq(schema.tasks.id, taskId))
+    .returning();
+  if (!row) throw new Error(`Task ${taskId} not found`);
+  return mapDbTask(row);
+}
+
+/** All tasks, ordered by stage/task order. Used by webhooks + workspace dashboards. */
+export async function getAllTasks(): Promise<Task[]> {
+  const rows = await db
+    .select()
+    .from(schema.tasks)
+    .orderBy(asc(schema.tasks.stageOrder), asc(schema.tasks.taskOrder));
+  return rows.map(mapDbTask);
+}
+
+export async function createTask(
+  fields: typeof schema.tasks.$inferInsert,
+): Promise<Task> {
+  const [row] = await db.insert(schema.tasks).values(fields).returning();
+  return mapDbTask(row);
 }
 
 export async function updateTaskStatus(taskId: string, status: TaskStatus): Promise<Task> {

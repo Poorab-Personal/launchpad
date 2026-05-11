@@ -1,8 +1,13 @@
 import { NextRequest } from 'next/server';
 import { put } from '@vercel/blob';
 import { requireSession } from '@/lib/auth/dal';
-import { getRecord, updateRecord } from '@/lib/airtable-client';
-import { createEvent, getCustomerById } from '@/lib/db';
+import {
+  createEvent,
+  getCustomerById,
+  getTaskById,
+  updateCustomerFields,
+  updateTaskFields,
+} from '@/lib/db';
 import { sendEmail } from '@/lib/email/send';
 
 const MAX_FILE_SIZE = 3_500_000; // 3.5MB
@@ -10,17 +15,13 @@ const MAX_FILE_SIZE = 3_500_000; // 3.5MB
 /** Send-to-customer task names. Internal tasks (Create Designs / Revise Design (Internal Round N)) are everything else that hits this route. */
 const SEND_TO_CUSTOMER_PATTERN = /^Upload (Revised )?Proof/i;
 
-type AirtableAttachment = { id?: string; url: string; filename?: string; type?: string; size?: number };
-
-function linkedId(field: unknown): string | null {
-  if (!Array.isArray(field) || field.length === 0) return null;
-  const first = field[0];
-  return typeof first === 'string' ? first : (first as { id: string })?.id ?? null;
-}
-
-function isAttachmentArray(v: unknown): v is AirtableAttachment[] {
-  return Array.isArray(v);
-}
+type AttachmentJson = {
+  id?: string;
+  url: string;
+  filename?: string;
+  size?: number;
+  contentType?: string;
+};
 
 /**
  * Workspace design-upload endpoint. Branches by task name:
@@ -67,19 +68,18 @@ export async function POST(request: NextRequest) {
   }
 
   // Auth: must be assigned to this task (or admin)
-  const task = await getRecord('Tasks', taskId);
-  const assignedTo = task.fields['Assigned To'];
-  const assignedIds = Array.isArray(assignedTo)
-    ? assignedTo.map((a) => (typeof a === 'string' ? a : (a as { id: string }).id))
-    : [];
-  if (session.role !== 'Admin' && !assignedIds.includes(session.memberId)) {
+  const task = await getTaskById(taskId);
+  if (!task) {
+    return Response.json({ error: 'Task not found.' }, { status: 404 });
+  }
+  if (session.role !== 'Admin' && !task.assignedTo.includes(session.memberId)) {
     return Response.json({ error: 'Not assigned to you.' }, { status: 403 });
   }
-  if (linkedId(task.fields['Customer']) !== customerId) {
+  if (task.customer[0] !== customerId) {
     return Response.json({ error: 'Task does not belong to this customer.' }, { status: 400 });
   }
 
-  const taskName = (task.fields['Task Name'] as string) ?? '';
+  const taskName = task.taskName;
   const isSendToCustomer = SEND_TO_CUSTOMER_PATTERN.test(taskName);
 
   // Path validation. Internal: must have at least one file. Send: must have at
@@ -96,60 +96,52 @@ export async function POST(request: NextRequest) {
 
   // Upload any new files to Blob in parallel. Random suffix prevents
   // collisions when the same filename is uploaded again.
-  const uploaded = await Promise.all(
+  const uploaded: AttachmentJson[] = await Promise.all(
     newFiles.map(async (f) => {
       const blob = await put(f.name, f, { access: 'public', addRandomSuffix: true });
-      return { url: blob.url, filename: f.name } as AirtableAttachment;
+      return { url: blob.url, filename: f.name, size: f.size, contentType: f.type };
     }),
   );
 
   // Always append uploads to Drafts (canonical store of work-in-progress).
-  const customerRecord = await getRecord('Customers', customerId);
-  const existingDrafts = isAttachmentArray(customerRecord.fields['Design Drafts'])
-    ? (customerRecord.fields['Design Drafts'] as AirtableAttachment[])
-    : [];
+  const customer = await getCustomerById(customerId);
+  if (!customer) {
+    return Response.json({ error: 'Customer not found.' }, { status: 404 });
+  }
+  const existingDrafts = (customer.designDrafts ?? []) as unknown as AttachmentJson[];
   const draftsAfterUpload = [...existingDrafts, ...uploaded];
 
   if (!isSendToCustomer) {
     // INTERNAL path — Drafts only, no Design Proof touch, no Updated At stamp.
-    await updateRecord('Customers', customerId, {
-      'Design Drafts': draftsAfterUpload,
-    });
+    await updateCustomerFields(customerId, { designDrafts: draftsAfterUpload });
   } else {
     // SEND path — also build the curated set and replace Design Proof.
     // Selected drafts come from the EXISTING drafts (pre-upload). Match by id.
-    // Preserve original upload order (don't sort by tick order).
     const selectedSet = new Set(selectedDraftIds);
-    const selectedDrafts = existingDrafts.filter(
-      (d) => d.id && selectedSet.has(d.id),
-    );
-    // Strip the Airtable id when re-asserting attachments — Airtable expects
-    // {url, filename} for new attachments. Keeping ids is fine for re-attaching
-    // existing files but stripping is safer and works either way.
-    const customerFacingSet: AirtableAttachment[] = [
-      ...selectedDrafts.map((d) => ({ url: d.url, filename: d.filename })),
+    const selectedDrafts = existingDrafts.filter((d) => d.id && selectedSet.has(d.id));
+    const customerFacingSet: AttachmentJson[] = [
+      ...selectedDrafts.map((d) => ({ url: d.url, filename: d.filename, size: d.size, contentType: d.contentType })),
       ...uploaded,
     ];
 
     if (customerFacingSet.length === 0) {
-      // Defensive — checked above, but belt + suspenders so we never overwrite Design Proof with [].
       return Response.json(
         { error: 'Refusing to send empty proof set to customer.' },
         { status: 400 },
       );
     }
 
-    await updateRecord('Customers', customerId, {
-      'Design Drafts': draftsAfterUpload,
-      'Design Proof': customerFacingSet,
-      'Design Proofs Updated At': new Date().toISOString(),
+    await updateCustomerFields(customerId, {
+      designDrafts: draftsAfterUpload,
+      designProof: customerFacingSet,
+      designProofsUpdatedAt: new Date(),
     });
   }
 
-  // Mark task complete — triggers Auto 2 to activate downstream tasks
-  await updateRecord('Tasks', taskId, {
-    Status: 'Completed',
-    'Completed At': new Date().toISOString(),
+  // Mark task complete — Auto 2 (Phase 3) activates downstream tasks
+  await updateTaskFields(taskId, {
+    status: 'Completed',
+    completedAt: new Date(),
   });
 
   // Audit event — non-fatal.
@@ -177,10 +169,9 @@ export async function POST(request: NextRequest) {
   const isRevisionUpload = /^Upload Revised Proof \(Round/i.test(taskName);
   if (isRevisionUpload) {
     try {
-      const customer = await getCustomerById(customerId);
-      if (customer && customer.contactEmail) {
+      if (customer.contactEmail) {
         const portalBase = customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
-        const portalUrl = `${portalBase}/r/${customer.id}`;
+        const portalUrl = `${portalBase}/r/${customer.accessToken}`;
         const fname = customer.name.trim().split(/\s+/)[0] || 'there';
         await sendEmail({
           template: 'design-ready',

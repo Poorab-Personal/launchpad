@@ -1,66 +1,61 @@
 import { NextRequest } from 'next/server';
-import { updateRecord } from '@/lib/airtable-client';
+import { updateCustomerFields } from '@/lib/db';
 
-/** Map camelCase field names to Airtable Title Case field names */
-const fieldMap: Record<string, string> = {
-  name: 'Name',
-  contactEmail: 'Contact Email',
-  platformEmail: 'Platform Email',
-  phone: 'Phone',
-  businessName: 'Business Name',
-  businessAddress: 'Business Address',
-  website: 'Website',
-  serviceAreas: 'Service Areas',
-  localContentAreas: 'Local Content Areas',
-  bio: 'Bio',
-  licenseNumber: 'License Number',
-  topics: 'Topics',
-  hashtags: 'Hashtags',
-  gmbName: 'GMB Name',
-  mlsIds: 'MLS IDs',
-  specialInstructions: 'Special Instructions',
-  hubspotDealId: 'HubSpot Deal ID',
-  stripePaymentId: 'Stripe Payment ID',
-  addOnStripePaymentId: 'Add-On Stripe Payment ID',
-  productTier: 'Product Tier',
-  paymentStatus: 'Payment Status',
-  designApproval: 'Design Approval',
-  designFeedback: 'Design Feedback',
-  currentStage: 'Current Stage',
-  stageEnteredAt: 'Stage Entered At',
-  accountCreated: 'Account Created',
-  credentialsSent: 'Credentials Sent',
-  callBooked: 'Call Booked',
-  callCompleted: 'Call Completed',
-  callDate: 'Call Date',
-  noShowCount: 'No Show Count',
-  designRevisionCount: 'Design Revision Count',
-  otherEmails: 'Other Emails',
-  feedbackRating: 'Feedback Rating',
-  feedbackComments: 'Feedback Comments',
-  hubspotContactUrl: 'HubSpot Contact URL',
-  hubspotDealUrl: 'HubSpot Deal URL',
-  dealValue: 'Deal Value',
-  dealCloseDate: 'Deal Close Date',
-  salesRep: 'Sales Rep',
-  leadSource: 'Lead Source',
-  subscriptionStatus: 'Subscription Status',
-  billingCycle: 'Billing Cycle',
-  mrr: 'MRR',
-  renewalDate: 'Renewal Date',
-  hasVoice: 'Has Voice',
-  hasAvatar: 'Has Avatar',
-  voiceStage: 'Voice Stage',
-  avatarStage: 'Avatar Stage',
-  voiceStripeId: 'Voice Stripe ID',
-  avatarStripeId: 'Avatar Stripe ID',
-  stripeCustomerId: 'Stripe Customer ID',
-  stripeSubscriptionId: 'Stripe Subscription ID',
-  selectedStripePriceId: 'Selected Stripe Price ID',
-  selectedPlanName: 'Selected Plan Name',
-  atRisk: 'At Risk',
-  atRiskReason: 'At Risk Reason',
-};
+// Whitelist of customer fields the PATCH endpoint accepts. Anything outside
+// this list is silently dropped (prevents accidental writes to system fields
+// like access_token, id, created_at). The fieldMap Title-Case translation
+// from the airtable.ts era is gone — Drizzle accepts camelCase directly.
+const ALLOWED: ReadonlySet<string> = new Set([
+  'name',
+  'contactEmail',
+  'platformEmail',
+  'phone',
+  'businessName',
+  'businessAddress',
+  'website',
+  'serviceAreas',
+  'localContentAreas',
+  'bio',
+  'licenseNumber',
+  'topics',
+  'hashtags',
+  'gmbName',
+  'mlsIds',
+  'specialInstructions',
+  'hubspotDealId',
+  'stripePaymentId',
+  'addOnStripePaymentId',
+  'productTier',
+  'paymentStatus',
+  'designApproval',
+  'designFeedback',
+  'currentStage',
+  'stageEnteredAt',
+  'accountCreated',
+  'credentialsSent',
+  'callBooked',
+  'callCompleted',
+  'callDate',
+  'noShowCount',
+  'designRevisionCount',
+  'otherEmails',
+  'subscriptionStatus',
+  'billingCycle',
+  'mrr',
+  'renewalDate',
+  'hasVoice',
+  'hasAvatar',
+  'voiceStage',
+  'avatarStage',
+  'voiceStripeId',
+  'avatarStripeId',
+  'stripeCustomerId',
+  'stripeSubscriptionId',
+  'selectedStripePriceId',
+  'selectedPlanName',
+  'atRisk',
+  'atRiskReason',
+]);
 
 export async function PATCH(
   request: NextRequest,
@@ -73,23 +68,19 @@ export async function PATCH(
     return Response.json({ error: 'Request body must contain fields to update' }, { status: 400 });
   }
 
-  // Map camelCase keys to Airtable field names
-  const airtableFields: Record<string, unknown> = {};
+  const fields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body)) {
-    const airtableKey = fieldMap[key];
-    if (airtableKey) {
-      airtableFields[airtableKey] = value;
-    }
+    if (ALLOWED.has(key)) fields[key] = value;
   }
 
-  if (Object.keys(airtableFields).length === 0) {
+  if (Object.keys(fields).length === 0) {
     return Response.json({ error: 'No recognized fields to update' }, { status: 400 });
   }
 
-  const record = await updateRecord('Customers', id, airtableFields);
+  const customer = await updateCustomerFields(id, fields);
 
   return Response.json({
-    id: record.id,
-    updated: Object.keys(airtableFields),
+    id: customer.id,
+    updated: Object.keys(fields),
   });
 }

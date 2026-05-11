@@ -2,6 +2,13 @@ import { NextRequest } from 'next/server';
 import { getRecords, updateRecord, createRecord } from '@/lib/airtable-client';
 import { createEvent, checkAndAdvanceStage } from '@/lib/db';
 
+// PHASE 3 TODO: this route is the design-approval automation (Auto 4/5
+// equivalent). Body needs the full Auto 2 stage-advance logic which Phase 3
+// will port to src/lib/automations/. Until then, this route still imports
+// from @/lib/airtable-client and uses checkAndAdvanceStage as a no-op stub —
+// approvals won't advance stage on the postgres-migration branch until
+// Phase 3 ships. Main branch (Airtable Auto 4/5) continues to work.
+
 /** Airtable single select fields may be strings or { name: string } objects */
 function selectVal(field: unknown): string {
   if (typeof field === 'string') return field;

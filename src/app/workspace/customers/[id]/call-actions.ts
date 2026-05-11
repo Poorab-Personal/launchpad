@@ -6,9 +6,9 @@ import {
   createCall,
   updateCall,
   createEvent,
+  getCallById,
   getCustomerById,
 } from '@/lib/db';
-import { getRecord } from '@/lib/airtable-client';
 import type { CallType, CallStatus, Call } from '@/types';
 
 const CSM_ROLES = new Set(['CSM', 'Senior CSM', 'Admin']);
@@ -30,15 +30,10 @@ async function assertCallBelongsToCustomer(
   callId: string,
   expectedCustomerId?: string,
 ): Promise<string> {
-  const record = await getRecord('Calls', callId);
-  const linked = record.fields['Customer'];
-  const linkedIds = Array.isArray(linked)
-    ? linked.map((r) => (typeof r === 'string' ? r : (r as { id: string }).id))
-    : [];
-  if (linkedIds.length === 0) {
-    throw new Error('Call has no linked customer.');
-  }
-  const customerId = linkedIds[0];
+  const call = await getCallById(callId);
+  if (!call) throw new Error('Call not found.');
+  const customerId = call.customer[0];
+  if (!customerId) throw new Error('Call has no linked customer.');
   if (expectedCustomerId && customerId !== expectedCustomerId) {
     throw new Error('Call does not belong to this customer.');
   }
