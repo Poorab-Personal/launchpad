@@ -10,12 +10,15 @@ export type ViewAsRole = (typeof ALLOWED_ROLES)[number];
  * Cookie value formats:
  *   ""              → clear (no override, view as Admin default)
  *   "role:Designer" → view UI for that role generically
- *   "member:recXXX" → impersonate a specific Team Member (uses their role)
+ *   "member:UUID"   → impersonate a specific Team Member (uses their role).
+ *                     Post-migration: UUID, not Airtable rec ID.
  */
 export type ViewAsContext =
   | { kind: 'none' }
   | { kind: 'role'; role: ViewAsRole }
   | { kind: 'member'; memberId: string };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parse(value: string | undefined): ViewAsContext {
   if (!value) return { kind: 'none' };
@@ -28,7 +31,7 @@ function parse(value: string | undefined): ViewAsContext {
   }
   if (value.startsWith('member:')) {
     const memberId = value.slice('member:'.length);
-    if (/^rec[a-zA-Z0-9]+$/.test(memberId)) {
+    if (UUID_RE.test(memberId)) {
       return { kind: 'member', memberId };
     }
     return { kind: 'none' };

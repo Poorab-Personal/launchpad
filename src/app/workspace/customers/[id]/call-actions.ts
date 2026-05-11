@@ -92,7 +92,9 @@ export async function logCall(formData: FormData) {
 
   const csmIdRaw = String(formData.get('csmId') ?? '').trim();
   const csmId =
-    csmIdRaw && /^rec[a-zA-Z0-9]+$/.test(csmIdRaw) ? csmIdRaw : session.memberId;
+    csmIdRaw && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(csmIdRaw)
+      ? csmIdRaw
+      : session.memberId;
 
   const notes = String(formData.get('notes') ?? '').trim();
   const recordingUrl = String(formData.get('recordingUrl') ?? '').trim();

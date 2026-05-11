@@ -26,7 +26,7 @@ export function parseBookFilter(value: string | undefined): BookFilter {
   if (value === 'all') return { kind: 'all' };
   if (value.startsWith('member:')) {
     const memberId = value.slice('member:'.length);
-    if (/^rec[a-zA-Z0-9]+$/.test(memberId)) {
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(memberId)) {
       return { kind: 'member', memberId };
     }
   }
