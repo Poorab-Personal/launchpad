@@ -10,7 +10,7 @@
  * Invoked from db.updateTaskStatus / db.updateTaskFields whenever a task
  * transitions to Completed. No route-level changes needed.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
@@ -146,6 +146,25 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
             ),
           );
       }
+    }
+
+    // Bridge to Auto 8: marking the task complete is the canonical CSM
+    // signal that the onboarding call is done. Cascade the same signal to
+    // the corresponding Calls record's status — updateCall() will then fire
+    // handleCallCompleted, which creates the Stripe subscription for
+    // setup-intent-at-intake workflows (B2B-Keyes). Without this bridge,
+    // CSMs marking the task would never start the trial.
+    const openOnboardingCall = await db.query.calls.findFirst({
+      where: and(
+        eq(schema.calls.customerId, customerId),
+        eq(schema.calls.type, 'Onboarding'),
+        ne(schema.calls.status, 'Completed'),
+      ),
+      orderBy: [desc(schema.calls.scheduledDate)],
+    });
+    if (openOnboardingCall) {
+      const { updateCall } = await import('@/lib/db');
+      await updateCall(openOnboardingCall.id, { status: 'Completed' });
     }
   }
 
