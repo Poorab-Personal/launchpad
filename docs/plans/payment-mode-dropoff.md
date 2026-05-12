@@ -1,6 +1,12 @@
 # Plan — Payment Mode Config + Drop-off Handling
 
-**Status:** Draft, pending architect review
+**Status (post-cutover 2026-05-12):** Phase 1 (SetupIntent flow + Stripe Plans table + Calls-driven sub creation) **shipped pre-migration** and re-ported to Postgres in Phase 3.6 of the Airtable→Postgres migration. Phase 2+ (dropoff reminder cron, At Risk surfacing UI, CSM action panel) — not yet shipped; revisit when actually needed.
+
+Doc retained as the design-of-record for the payment-mode shape.
+
+---
+
+**Status (original):** Draft, pending architect review
 **v2 — applies architect review 2026-05-06**
 **Author:** Claude (LaunchPad)
 **Date:** 2026-05-06

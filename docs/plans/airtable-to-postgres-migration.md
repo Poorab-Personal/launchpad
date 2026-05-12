@@ -1,6 +1,19 @@
 # Plan — Airtable → Postgres Migration
 
-**Status:** Draft v2, applies Plan-agent review 2026-05-11
+**Status: ✅ COMPLETE.** Shipped 2026-05-12. `postgres-migration` branch merged to `main`. Airtable base deleted, plan canceled. Below is the original plan doc retained for historical reference.
+
+Outcome at cutover:
+- Phases 0–3 shipped (schemas, data layer, automations)
+- Phase 4 PITR drill verified
+- Phase 7.4 + 7.6 code retirement + doc rewrite shipped
+- **Phase 5 (admin CRUD)** — DEFERRED INDEFINITELY (Neon UI sufficient at current scale)
+- **Phase 6 (HubSpot Zap rewire)** — deferred until production custom domain
+
+**Original plan begins below.**
+
+---
+
+**Status (original):** Draft v2, applies Plan-agent review 2026-05-11
 **Author:** Claude (LaunchPad), prompted by poorab@
 **Date:** 2026-05-11
 **Reviewers wanted:** push back on scope, the config-editing decision, the automation port, the "things we might miss" audit, and the payment-mode Phase 1 re-port plan in §13.

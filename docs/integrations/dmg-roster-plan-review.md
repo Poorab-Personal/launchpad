@@ -1,5 +1,7 @@
 # Review: DMG Roster Integration Plan
 
+**Status:** Historical — architect review of the v1 DMG roster plan, pre-Airtable-cutover. Some observations (especially around Airtable Roster table behavior) no longer apply post-migration. Retained for traceability when the plan is picked back up.
+
 **Reviewer:** Architect (Opus 4.7, 1M context)
 **Date:** 2026-05-06
 **Plan:** `docs/integrations/dmg-roster-plan.md`

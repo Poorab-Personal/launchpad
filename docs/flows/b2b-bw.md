@@ -2,6 +2,11 @@
 
 > **Status:** Vetted and approved. This is the source of truth for the B2B-BW workflow.
 > If any changes are made to stages, tasks, or dependencies, update this file immediately.
+>
+> **Implementation note (post-cutover 2026-05-12):** the customer journey here is unchanged. The implementation moved from Airtable to Postgres. "Auto N" references in this doc map to `src/lib/automations/`:
+> - Auto 1 → `generate-tasks.ts` · Auto 2 → `activate-dependents.ts` · Auto 4 → in `activate-dependents.ts` (Mark Onboarding Call Complete branch) · Auto 5/6 emails → `trigger-email.ts` · Design approval (n/a for B2B-BW — no design phase).
+>
+> B2B-BW has **no Stripe trial** in the customer-facing flow, but Auto 8 (`handle-call-completed.ts`) still runs on call completion if the workflow template specifies `setup-intent-at-intake`. Today B2B-BW does not.
 
 ## Overview
 

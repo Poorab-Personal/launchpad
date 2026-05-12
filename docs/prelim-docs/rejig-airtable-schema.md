@@ -1,5 +1,8 @@
 # Rejig Onboarding — Airtable Schema
 
+> **SUPERSEDED (2026-05-12).** This is a pre-build planning doc. LaunchPad has since shipped on Postgres, not Airtable. Retained for historical context only.
+> Current source of truth: `docs/schema/production-schema.md` and `src/db/schema/`.
+
 ## Overview
 
 5 tables that power the entire onboarding system for both D2C and Enterprise flows.

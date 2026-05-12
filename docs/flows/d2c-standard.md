@@ -2,6 +2,14 @@
 
 > **Status:** Vetted and approved. This is the source of truth for the D2C Standard workflow.
 > If any changes are made to stages, tasks, or dependencies, update this file immediately.
+>
+> **Implementation note (post-cutover 2026-05-12):** the customer journey here is unchanged. The implementation moved from Airtable to Postgres. Where this doc says "Auto N", read the corresponding port in `src/lib/automations/`:
+> - Auto 1 → `generate-tasks.ts` (called inline from `POST /api/customers`)
+> - Auto 2 → `activate-dependents.ts` (`handleTaskCompleted`, called from `updateTaskStatus`/`updateTaskFields`)
+> - Auto 4 → in `activate-dependents.ts` (Mark Onboarding Call Complete branch)
+> - Auto 5/6 (emails) → `trigger-email.ts`
+> - Auto 8 (Stripe sub) → `handle-call-completed.ts`
+> - Design approval → `design-approval.ts`
 
 ## Overview
 
@@ -162,20 +170,25 @@ HubSpot deal closes → Zapier creates Customer record in Airtable → Auto 1 ge
 
 ---
 
-## Automations Required
+## Automations (post-cutover state)
 
-### Existing (built)
-- **Auto 1:** New Customer → Generate Tasks from Templates
-- **Auto 2:** Task Completed → Activate Dependents + Advance Stage
+All automations live in `src/lib/automations/` as inline TS that runs inside the same request/transaction as the trigger. No external automation engine.
 
-### To Build
-- **Auto 4:** Client Task Activated → Email Customer (via Gmail integration, from CSM's email)
-- **Auto 5:** Design Changes Requested → Create Revision Tasks (Round N) or escalate at 3
-- **Auto 6:** No Show → Create Reschedule Task + increment No Show Count
-- **Auto 7:** Reminder Scheduler → Scan stalled client tasks, send reminders per task config (Reminder After Days, Max Reminders), escalate to CSM after max
+### Built
+- **Auto 1 — `generate-tasks.ts`** — New Customer → Generate Tasks from Templates. Atomic with customer insert via `db.transaction`.
+- **Auto 2 — `activate-dependents.ts` (`handleTaskCompleted`)** — Task Completed → Activate Dependents + Advance Stage + log events. Race-guarded conditional UPDATE.
+- **Auto 4 — `activate-dependents.ts`** — Mark Onboarding Call Complete → set Customer.csm_team_member_id + stamp Check-In Calendly URLs + bridge to Auto 8.
+- **Auto 5 — `trigger-email.ts`** — Welcome email on customer create, fire-and-forget after tx commits.
+- **Auto 6 — `trigger-email.ts`** — Design Ready email when Review & Approve task activates.
+- **Auto 8 — `handle-call-completed.ts`** — Onboarding call completed (Calls.status flips) → create Stripe subscription with trial for setup-intent-at-intake workflows.
+- **Design approval — `design-approval.ts`** — `handleDesignApproved` (complete review task, cascade revisions) + `handleDesignChangesRequested` (3-task revision chain in single tx).
 
-### Disabled
-- **Auto 3:** In Review Interception — replaced by separate Review Designs task
+### Not yet built
+- **No Show automation** — when a CSM marks the Onboarding Call as `No Show`, create a Reschedule task + increment Customer.noShowCount. Currently no-show handling is manual.
+- **Stalled-task reminder cron** — Vercel cron scanning Active tasks past their `+3d / +7d / +12d` thresholds; sets `Customer.at_risk` per the payment-mode plan. See `docs/plans/payment-mode-dropoff.md` Phase 2+.
+
+### Retired
+- **Auto 3 (In Review Interception)** — was never enabled; design review now flows through the explicit Review Designs task.
 
 ---
 

@@ -1,5 +1,7 @@
 # Review — Stripe Plans table proposal
 
+**Status:** Historical — architect review of the original Stripe Plans table proposal. Stripe Plans table shipped (now `stripe_plans` in Postgres); review notes reflected in the final shape. Retained for traceability.
+
 **Reviewer perspective:** architect with skin in the "don't over-engineer" game; you've burned time on this before.
 
 **Headline verdict:** the proposal is mostly right but is heavier than today's reality requires. You have a 2-row problem (Keyes Monthly, Keyes Quarterly Prepay) and you're proposing a 9-column dimension table with link fields, defaults, ordering, and active flags. Some of that earns rent. Some is speculative and can wait. The sin you're closest to repeating is *imagining* the add-on shape before any add-on actually ships through LaunchPad — and pre-baking it into Plans on day one.

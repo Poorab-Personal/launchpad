@@ -1,5 +1,7 @@
 # Review — Payment Mode Config + Drop-off Handling
 
+**Status:** Historical — architect review of the v1 payment-mode plan. Decisions captured here were folded into the v2 plan and are now reflected in shipped code. Retained for traceability.
+
 **Reviewer:** Architect (read-only review pass)
 **Reviewing:** `/Users/poorabshah/dev/rejig-ai/launchdeck/docs/plans/payment-mode-dropoff.md`
 **Date:** 2026-05-06

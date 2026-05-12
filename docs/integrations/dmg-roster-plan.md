@@ -1,6 +1,15 @@
 # Plan: B2B Roster Integration (Delta Media Group)
 
-**Status:** Draft, pending review
+**Status (post-cutover 2026-05-12):** Not yet built. Drafted pre-migration assuming a hybrid Airtable+Postgres future. Post-migration revisions needed before implementation:
+- "Airtable handoff" sections (§4.2 etc.) are obsolete — Customer creation now lands in Postgres natively via `db.transaction` in `POST /api/customers`.
+- `customer_record_id TEXT` (Airtable rec ID) referenced throughout — replace with `customer_id uuid REFERENCES customers(id)`.
+- The three-step "create Airtable Roster row + create Airtable Customer row + UPDATE roster_agents" becomes one Drizzle transaction.
+
+Architecture intent unchanged; storage target shifts from hybrid to Postgres-native.
+
+---
+
+**Status (original):** Draft, pending review
 **v2 — applies architect review 2026-05-06**
 **Author:** poorab@ + Claude
 **Last updated:** 2026-05-06

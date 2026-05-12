@@ -1,5 +1,8 @@
 # Rejig Onboarding System — Context & Architecture Brief
 
+> **SUPERSEDED (2026-05-12).** Pre-build planning doc. The business framing (D2C + B2B onboarding pain) is still accurate, but the implementation choices (Airtable, Zapier, etc.) have all been replaced by Postgres + inline Next.js automations. Retained for historical context only.
+> Current source of truth: `CLAUDE.md`, `docs/architecture.md`, `docs/schema/production-schema.md`.
+
 ## The Business
 
 Rejig.ai is a B2B SaaS platform for real estate agents and brokerages. Customers pay for the platform, go through an onboarding process (which includes design work, account setup, and training), and then use the product ongoing at app.rejig.ai.

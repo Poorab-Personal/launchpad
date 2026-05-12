@@ -1,10 +1,18 @@
-# HubSpot → Zapier → Airtable Integration
+# HubSpot → LaunchPad Customer Creation
 
-## Overview
+**Status (post-cutover 2026-05-12):** **DEFERRED rewire.** This doc described the old Airtable-based Zap. Post-cutover, HubSpot deals **do not yet flow into LaunchPad** — Phase 6 of the migration plan (rewire the Zap to POST to `/api/customers`) is deferred until LaunchPad has a stable production custom domain.
 
-When a D2C deal closes in HubSpot, Zapier creates a Customer record in Airtable. Airtable Auto 1 generates tasks automatically.
+While deferred, new HubSpot deals go nowhere — they sit in HubSpot. The Airtable Zap that previously created Customer rows has been disabled (or its target base deleted). New LaunchPad customers must be created manually via `/admin → Add Customer`.
 
-## Zapier Setup
+**This doc is retained as the reference for what the rewired Zap should produce.** Once a production domain is in place, follow this spec but point at the LaunchPad route, not Airtable.
+
+---
+
+## What the rewired Zap will do
+
+When a D2C deal closes in HubSpot, Zapier POSTs to LaunchPad's customer-creation endpoint. LaunchPad's `POST /api/customers` route inserts the customer + generates tasks atomically (Auto 1 runs inline in the transaction).
+
+## Zapier setup (when ready)
 
 ### Trigger
 - **App:** HubSpot
@@ -12,64 +20,59 @@ When a D2C deal closes in HubSpot, Zapier creates a Customer record in Airtable.
 - **Filter:** Deal Stage = "Closed Won"
 
 ### Action
-- **App:** Airtable
-- **Event:** Create Record
-- **Table:** Customers
+- **App:** Webhooks by Zapier
+- **Event:** POST
+- **URL:** `https://<production-domain>/api/customers`
+- **Headers:**
+  - `Content-Type: application/json`
+  - `X-Zapier-API-Key: <shared secret>` (add an auth check to the route — see notes below)
+- **Body (JSON):** map HubSpot fields:
 
-### Field Mapping
+```json
+{
+  "name": "{{HubSpot.full_name_or_deal_name}}",
+  "type": "D2C",
+  "channel": "Standard",
+  "email": "{{HubSpot.contact_email}}",
+  "phone": "{{HubSpot.contact_phone}}",
+  "businessName": "{{HubSpot.company_name}}",
+  "hubspotDealId": "{{HubSpot.deal_id}}"
+}
+```
 
-| Airtable Field | HubSpot Source | Notes |
-|---|---|---|
-| Name | Contact: Full Name | Or Deal: Deal Name |
-| Type | (hardcode) "D2C" | All HubSpot deals are D2C |
-| Channel | Deal: Lead Source or Pipeline | Maps to workflow key. Use "Standard" as default |
-| Contact Email | Contact: Email | Primary email |
-| Phone | Contact: Phone | |
-| HubSpot Deal ID | Deal: Deal ID | |
-| HubSpot Contact URL | (formula) | `https://app.hubspot.com/contacts/{YOUR_PORTAL_ID}/contact/` + Contact ID |
-| HubSpot Deal URL | (formula) | `https://app.hubspot.com/contacts/{YOUR_PORTAL_ID}/deal/` + Deal ID |
-| Stripe Payment ID | Deal: Custom Property | If you store Stripe ID on the deal |
-| Product Tier | Deal: Product/Line Item | "Premium" or "Luxury" |
-| Payment Status | (hardcode) "Paid" | Deal is closed = paid |
-| Deal Value | Deal: Amount | |
-| Deal Close Date | Deal: Close Date | |
-| Sales Rep | Deal: Deal Owner Name | |
-| Lead Source | Deal: Lead Source | Or Deal: Original Source |
+### Response handling
 
-### After Record Created
+The route returns:
+```json
+{
+  "id": "<uuid>",
+  "accessToken": "<uuid>",
+  "name": "...",
+  ...
+}
+```
 
-Airtable Auto 1 fires automatically:
-1. Generates 16 tasks from D2C-Standard workflow templates
-2. Sets Current Stage to "Getting Started"
-3. Logs "Customer Created" event
+Use `accessToken` to build the portal URL: `https://<production-domain>/r/{{accessToken}}`. Optionally have Zapier send that link in a follow-up notification.
 
-### Welcome Email
+### Welcome email
 
-Add a second Zapier step (or handle via Airtable automation):
-- **Action:** Send Email (Gmail or SendGrid)
-- **To:** Customer's Contact Email
-- **From:** success@rejig.ai (or configured sender)
-- **Subject:** "Welcome to Rejig — Let's get started!"
-- **Body:** Include portal link: `https://onboarding.rejig.ai/r/{Airtable Record ID}`
+Already handled — LaunchPad's `POST /api/customers` triggers the Welcome email via Resend automatically (Auto 5 port). No separate Zapier step needed.
 
-Note: Zapier's Airtable "Create Record" action returns the record ID. Use this to construct the portal URL.
+## Notes for the rewire
 
-## HubSpot Portal ID
+1. **Auth.** Today's `POST /api/customers` has no API-key check. Before pointing real HubSpot deals at it, add a `X-Zapier-API-Key` header validation gate.
+2. **Channel mapping.** HubSpot won't natively know about B2B brokerages. For B2B deals, use a different Zap or include the `channel` value (`Keyes`, `BW`, etc.) explicitly in the deal data.
+3. **Idempotency.** If Zapier retries on transient failures, you may get duplicate customer rows. Consider:
+   - Adding a UNIQUE index on `customers.hubspot_deal_id` (currently nullable; would need a NOT-VALID check first)
+   - Or having the route detect-and-skip when `hubspotDealId` already exists
+4. **Stripe Customer creation.** For D2C-Standard with `payment_mode = pre-paid`, no Stripe Customer is created at customer-insert time (legacy assumption: payment already happened in HubSpot via Stripe). If you later move D2C to setup-intent-at-intake, the route will auto-create the Stripe Customer per Phase 1 logic.
 
-Replace `{YOUR_PORTAL_ID}` in the URL formulas with your actual HubSpot portal ID.
-Find it at: HubSpot → Settings → Account Defaults → Portal ID.
+## What's gone vs. the legacy spec
 
-## Stripe Data (Phase 2)
+The legacy doc had ~14 fields mapped from HubSpot → Airtable, including `HubSpot Contact URL`, `HubSpot Deal URL`, `Sales Rep`, `Lead Source`, `Deal Value`, `Deal Close Date`, `Product Tier`, `Payment Status`. None of those columns exist in the Postgres `customers` schema today — they were stored in Airtable but never read by app code. If any of them turn out to be useful for the CSM workspace later, add the columns then (one migration each, no big deal).
 
-Subscription data from Stripe will be pulled separately (not through Zapier/HubSpot):
-- Stripe webhook → our API → updates Customer record
-- Fields: Subscription Status, Billing Cycle, MRR, Renewal Date
-- This happens after the customer starts their subscription, not at deal close
+## See also
 
-## Testing
-
-1. Create a test deal in HubSpot and move to "Closed Won"
-2. Verify Zapier triggers and creates the Airtable record
-3. Verify Auto 1 generates tasks
-4. Check the portal URL works: `onboarding.rejig.ai/r/{record-id}`
-5. Verify HubSpot Contact URL and Deal URL are clickable in Airtable
+- `docs/plans/airtable-to-postgres-migration.md` — Phase 6 description
+- `CLAUDE.md` — overall architecture; `POST /api/customers` flow
+- Memory: `pending_todos.md` Phase 6 entry

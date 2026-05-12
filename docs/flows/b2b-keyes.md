@@ -2,6 +2,9 @@
 
 > **Status:** Vetted and approved. This is the source of truth for the B2B-Keyes workflow.
 > If any changes are made to stages, tasks, or dependencies, update this file immediately.
+>
+> **Implementation note (post-cutover 2026-05-12):** the customer journey here is unchanged. The implementation moved from Airtable to Postgres. "Auto N" references in this doc map to `src/lib/automations/`:
+> - Auto 1 → `generate-tasks.ts` · Auto 2 → `activate-dependents.ts` · Auto 4 → in `activate-dependents.ts` (Mark Onboarding Call Complete branch) · Auto 5/6 emails → `trigger-email.ts` · Auto 8 Stripe sub → `handle-call-completed.ts` · Design approval → `design-approval.ts`.
 
 ## Overview
 

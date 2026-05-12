@@ -1,6 +1,14 @@
 # Integration Notes — Payment Mode + DMG Roster
 
-**Status:** Companion doc to the two v2 plans
+**Status (post-cutover 2026-05-12):** Historical — both plans this doc coordinated have moved on:
+- Payment-mode Phase 1 shipped and was re-ported to Postgres in the migration (Phase 3.6). See `payment-mode-dropoff.md` for current status.
+- DMG roster plan is post-cutover-aware (Postgres-native by design). See `docs/integrations/dmg-roster-plan.md`.
+
+The cross-cutting concerns documented here (Brokerages schema delta, B2B-Keyes flow doc edits, Vercel Cron infrastructure, env vars) are now either resolved by the migration or live in the individual plans. Retained for reference.
+
+---
+
+**Status (original):** Companion doc to the two v2 plans
 **Date:** 2026-05-06
 
 These two plans were drafted independently and reviewed independently. This doc captures the places they touch each other so neither implementation surprises the other.

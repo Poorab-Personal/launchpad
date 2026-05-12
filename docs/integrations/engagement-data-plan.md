@@ -1,11 +1,15 @@
 # Plan — Engagement Data Integration + Churn-Risk Intelligence
 
-**Status:** Draft v2, applies Plan-agent review 2026-05-11
+**Status (post-cutover 2026-05-12):** Not yet built. The Postgres migration prereq this plan was waiting on is now COMPLETE — implementation can proceed when scheduled. No revisions needed; the plan was authored Postgres-native from the start.
+
+---
+
+**Status (original):** Draft v2, applies Plan-agent review 2026-05-11
 **Author:** Claude (LaunchPad), based on convo with poorab@
 **Date:** 2026-05-11
 **Reviewers wanted:** push back on the join strategy, the rule set, the `at_risk_reason` write contract with payment-mode plan, the case-library model, and the LLM-vs-classical sequencing.
 
-**Prereq:** assumes the Airtable → Postgres migration (`docs/plans/airtable-to-postgres-migration.md`) is landed. All schema sketches here are Postgres-native.
+**Prereq (now satisfied):** assumes the Airtable → Postgres migration (`docs/plans/airtable-to-postgres-migration.md`) is landed. All schema sketches here are Postgres-native.
 
 ## Changes from v1 (post Plan-agent review)
 
