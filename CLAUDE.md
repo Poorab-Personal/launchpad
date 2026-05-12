@@ -4,117 +4,149 @@
 
 ## What This Is
 
-LaunchPad is Rejig.ai's unified customer onboarding system. Rejig is a B2B SaaS platform for real estate agents and brokerages. LaunchPad replaces 8+ disconnected tools (HubSpot, Stripe, Google Forms/Sheets, Shortcut, Calendly, email threads) with a single onboarding pipeline.
+LaunchPad is Rejig.ai's unified customer onboarding system. Rejig is a B2B SaaS platform for real estate agents and brokerages. LaunchPad consolidates intake, design approval, payment capture, scheduling, account creation, and follow-ups into a single pipeline.
 
 Two customer types:
 - **D2C** (SMB agents): full flow with intake forms, design approval, account setup, onboarding call, check-ins
-- **B2B** (enterprise brokerages like Keyes, Baird & Warner): agents self-onboard via brokerage landing page, data pre-populated from roster API, no design step
+- **B2B** (enterprise brokerages like Keyes, Baird & Warner): agents self-onboard via brokerage landing page, data pre-populated from roster API, B2B-Keyes uses Stripe trial / setup-intent
 
 ## Architecture (3 Layers)
 
 ```
-Layer 1: Airtable          — System of record. ALL business logic lives here.
-         (7 tables,          Automations handle task generation, dependency
-          automations)        activation, stage advancement, event logging.
+Layer 1: Vercel Postgres / Neon    — Single source of truth.
+         (Drizzle ORM)                Drizzle migrations as schema source-of-truth.
+                                      Vercel Blob for file attachments.
 
-Layer 2: Zapier             — Integrations. HubSpot deal close -> create customer.
-         (external)           Calendly booking -> update task. Slack notifications.
+Layer 2: Vercel cron + inline TS    — Automations run as TypeScript inside the
+         (src/lib/automations/)        same process as the routes that trigger
+                                      them. No external automation engine.
 
-Layer 3: Next.js Portal     — Thin read/write layer. Customer portal + admin UI.
-         (this repo)          NO business logic. Just CRUD against Airtable API.
+Layer 3: Next.js                    — /r portal (customers), /b landing (B2B
+         (this repo)                  signup), /workspace (internal team UI),
+                                      /admin (lightweight admin). Reads/writes
+                                      Postgres via src/lib/db.ts.
 ```
 
-**Key principle: the Next.js app is "dumb."** It reads data from Airtable, renders UI, and writes field updates back. Airtable automations do the rest.
+**Key principle: automations live next to the data layer.** When a task completes via `updateTaskStatus`/`updateTaskFields`, `handleTaskCompleted` runs inline (same transaction surface) and handles dependent activation, stage advancement, CSM routing, email triggers, Stripe sub creation. No async webhooks; no external automation platform.
 
 ## Tech Stack
 
 - Next.js 16 (App Router), React 19, TypeScript
 - Tailwind CSS 4
-- Airtable REST API (no SDK — raw fetch via `src/lib/airtable-client.ts`)
-- Airtable Base ID: `appDx9IX83FLEAHZg`
+- Drizzle ORM + Vercel Postgres (Neon serverless driver)
+- Vercel Blob for file storage
+- Stripe (subscriptions, SetupIntent, webhooks)
+- Resend (transactional email)
+- Vitest for tests
 
 ## Key Architectural Decisions
 
-- **Workflow Key = `{Type}-{Channel}`** drives template lookup. D2C channels all map to `D2C-Standard` for now. B2B channels map to `B2B-Keyes`, `B2B-BW`, etc.
-- **Task dependencies are comma-separated task names** in a single text field (Depends On). Multi-dependency supported, but each task should list ALL its prerequisites. Airtable automations split by comma and check all.
-- **Review flows use separate tasks** (e.g., "Create Designs" -> team review -> "Upload Proof to Customer" -> "Review & Approve Your Brand Kit"). The `Has Team Review` checkbox on a task triggers the In Review intercept automation.
-- **API routes are thin CRUD** -- Airtable automations handle task generation (Auto 1), dependency activation + stage advancement (Auto 2), and In Review interception (Auto 3).
-- **Roster -> Customer is a one-time copy**, not a live sync. After creation, the Customer record is independent.
-- **Internal team uses Airtable Interface Designer**, not the Next.js admin. The `/admin` routes exist for quick customer creation and overview, but daily workflow happens in Airtable.
-- **Customer portal at `/r/[token]`** where token = Airtable record ID (from `RECORD_ID()` formula).
-- **Design approval lives on the Customer record** (`Design Approval` field), not on a task. The portal writes `Approved` or `Changes Requested` to the Customer record, which triggers Airtable automations.
+- **Postgres is the system of record.** No external sync, no second database, no spreadsheet truth. The Airtable migration retired 2026-05-12.
+- **Workflow Key = `{Type}-{Channel}`** drives template lookup. `Channel` is an FK to a small `channels` lookup table (Standard / Keyes / BW), preventing the `"BW"` vs `"Baird & Warner"` typo class.
+- **Task dependencies are a real junction table** (`task_dependencies`), not comma-separated text. Multi-dependency supported; activation checks `task_dependencies` and the source rows' status.
+- **Review flows use separate tasks** (Create Designs → Review Designs → Upload Proof → Review & Approve Your Brand Kit). The customer-facing approval writes `Customer.designApproval = Approved | Changes Requested`, which dispatches into `src/lib/automations/design-approval.ts`.
+- **API routes are thin dispatchers.** Business logic lives in `src/lib/db.ts` (reads/writes) and `src/lib/automations/*.ts` (transitions). Routes parse input, call helpers, return responses.
+- **Customer portal at `/r/[accessToken]`** where `accessToken` is a UUID on the `customers` table (not the row id — separate, indexed, unique).
+- **Atomic customer creation.** `POST /api/customers` inserts the Customer + generates all tasks + wires dependencies + logs the Customer Created event inside a single `db.transaction`. Either all happens or none does — replaces the legacy Airtable Auto-1 race.
 
-## Data Model (7 Airtable Tables)
+## Data Model (12 Postgres Tables + 5 enums)
 
+Operational:
 | Table | Purpose |
 |---|---|
-| Customers | One row per customer/agent being onboarded |
-| Tasks | All tasks (client + team) per customer |
-| Workflow Templates | Blueprint rows defining stages/tasks per workflow key |
-| Roster | Broker agent data synced from external APIs (B2B only) |
-| Events | Audit log of every state change |
-| Team Members | Internal team (designers, CSMs, ops) |
-| Brokerages | Brokerage-level config (landing page slug, workflow key, roster API) |
+| `customers` | One row per customer/agent being onboarded (71 columns) |
+| `tasks` | All tasks (client + team) per customer |
+| `task_dependencies` | Junction table for task graph |
+| `calls` | CSM/onboarding calls per customer (Calendly-keyed for idempotency) |
+| `events` | Audit log of every state change |
+| `roster` | Bridge row for B2B agents one-time-copied from DMG roster |
 
-Full schema: `docs/schema/production-schema.md`
+Config / reference:
+| Table | Purpose |
+|---|---|
+| `workflow_templates` | Blueprint rows defining stages/tasks per workflow key |
+| `channels` | Lookup: `Standard`, `Keyes`, `BW` (FK target for `customers.channel_id`) |
+| `brokerages` | Brokerage-level config (landing page slug, workflow key, Calendly URL) |
+| `team_members` | Internal team (designers, CSMs, ops) with multi-role array |
+| `stripe_plans` | Per-workflow Stripe price options |
+| `settings` | Key-value app settings (e.g. `portal_base_url`) |
+
+Postgres-native enums: `customer_type`, `task_status`, `task_type`, `attachment_type`, `team_role`, `payment_mode`, `subscription_status`, `at_risk_reason`, `at_risk_source`, `onboarding_status`, `actor_type`, `design_approval`, `product_tier`, `payment_status`, `call_type`, `call_status`, `product`.
+
+Drizzle schemas live in `src/db/schema/*.ts`. Inferred types via `$inferSelect` / `$inferInsert` per table.
+
+Full schema reference: `docs/schema/production-schema.md`
 Architecture details: `docs/architecture.md`
 
 ## Project Structure
 
 ```
 src/
-  types/index.ts              -- TypeScript interfaces for all 7 tables
+  db/
+    index.ts                  -- Drizzle client + Neon serverless Pool
+    schema/                   -- One file per table + enums.ts shared
+    migrations/               -- Generated by drizzle-kit; checked in
   lib/
-    airtable-client.ts        -- Low-level Airtable REST API wrapper (CRUD, batch)
-    airtable.ts               -- Data layer: mappers (Airtable -> TS), public API functions
+    db.ts                     -- Public data-access API. Same surface every consumer uses.
+    automations/
+      generate-tasks.ts       -- POST /api/customers → atomically create customer + tasks
+      activate-dependents.ts  -- handleTaskCompleted: activate deps, advance stage, CSM routing,
+                                 Design Ready email, Stripe sub bridge for Onboarding Call
+      design-approval.ts      -- handleDesignApproved + handleDesignChangesRequested
+      handle-call-completed.ts-- Stripe sub creation for setup-intent-at-intake workflows
+      trigger-email.ts        -- Welcome / Design Ready email send via Resend
+    stripe.ts                 -- Stripe SDK wrapper (createCustomer, createSubscription, webhook verify)
+    email/                    -- Resend wrapper + React Email templates
+    auth/                     -- Magic-link auth + view-as switcher for /workspace
   app/
-    r/[token]/page.tsx         -- Customer portal (server component)
-    admin/
-      page.tsx                 -- Admin customer list
-      [customerId]/page.tsx    -- Admin customer detail
-      add-customer-form.tsx    -- Add customer form (client component)
+    r/[token]/page.tsx        -- Customer portal (server component; portal_token lookup)
+    b/[slug]/                 -- B2B brokerage landing page
+    workspace/                -- Internal team UI (Designer / CSM / Account Creator / Admin)
+    admin/                    -- Lightweight admin pages (customer list, add)
     api/
-      customers/
-        route.ts               -- POST: create customer (thin CRUD)
-        [id]/
-          route.ts             -- PATCH: update customer fields
-          design-approval/
-            route.ts           -- POST: design approval/rejection flow
-      tasks/
-        [taskId]/route.ts      -- PATCH: update task status
+      customers/              -- POST: create (inline Auto 1); PATCH: update fields
+      tasks/[taskId]/         -- PATCH: update status (fires Auto 2 inline)
+      calls/[callId]/         -- PATCH: update (fires Auto 8 inline on Onboarding completed)
+      customers/[id]/design-approval/  -- POST: dispatcher to design-approval automations
+      customers/[id]/payment-setup/    -- Stripe SetupIntent + confirm routes
+      webhooks/stripe/        -- Stripe webhook (subscription events)
+      webhooks/calendly/      -- Calendly invitee.created → upsert call + complete schedule task
+      upload/                 -- Vercel Blob signed-upload for attachment fields
+      email/send/             -- Generic email-trigger route (used by Airtable historically; preserved during cutover)
   components/
-    TaskList.tsx               -- Portal task list grouped by stage
-    tasks/
-      TaskRenderer.tsx         -- Switch on attachmentType -> render correct component
-      PlainTask.tsx            -- Simple mark-complete task
-      FormTask.tsx             -- Intake form task
-      FileUploadTask.tsx       -- File upload task
-      EmbedTask.tsx            -- Embedded content (Calendly, video)
-      ProofTask.tsx            -- Design proof review with approve/reject
+    TaskList.tsx              -- Portal task list grouped by stage; optimistic activation
+    tasks/                    -- TaskRenderer + per-type renderers (Form, Proof, Embed, FileUpload, PlainTask, PaymentSetup)
 
 scripts/
-  setup-production.ts          -- Creates all 7 Airtable tables + seeds data
-  airtable-automations/
-    auto1-generate-tasks.js    -- New Customer -> Generate Tasks from Templates
-    auto2-activate-dependents.js -- Task Completed -> Activate Dependents + Advance Stage
-    auto3-in-review-intercept.js -- In Review interception (currently disabled)
-    README.md                  -- Setup instructions for Airtable automations
+  migrate.ts                  -- npm run db:migrate  (Drizzle migrations against Neon)
+  test-db-connection.ts       -- npm run db:test
+  list-tables.ts              -- npm run db:list
+  smoke-{db,auto1,auto2}.ts   -- Manual smoke checks against real Neon (auto2 self-cleans)
+  pitr-drill-{prep,verify}.ts -- Periodic PITR restore drill — proves backups work
 
 docs/
-  schema/production-schema.md  -- Production Airtable schema (SOURCE OF TRUTH)
-  architecture.md              -- System architecture, data flows, patterns
-  flows/d2c-standard.md        -- D2C Standard onboarding flow (VETTED, SOURCE OF TRUTH)
-  flows/b2b-keyes.md           -- B2B Keyes onboarding flow (VETTED, SOURCE OF TRUTH)
-  flows/b2b-bw.md              -- B2B Baird & Warner onboarding flow (VETTED, SOURCE OF TRUTH)
-  prelim-docs/                 -- SUPERSEDED planning docs (historical reference only)
+  schema/production-schema.md -- Postgres schema reference (Drizzle is source-of-truth code-wise)
+  architecture.md             -- Subsystems and data flow
+  plans/                      -- Architecture plans (incl. completed Airtable→Postgres migration)
+  integrations/               -- Per-integration plans (DMG roster, engagement data, etc.)
+  flows/                      -- Per-workflow stage+task vetted maps
 ```
 
 ## Environment Variables
 
-Required in `.env.local`:
+Required in `.env.local` (and Vercel Production/Preview/Development):
 ```
-AIRTABLE_PAT=pat...         # Personal Access Token (never commit)
-AIRTABLE_BASE_ID=appDx9IX83FLEAHZg
+POSTGRES_URL                          # pooled — runtime queries
+POSTGRES_URL_NON_POOLING              # direct — migrations only
+BLOB_READ_WRITE_TOKEN                 # Vercel Blob
+
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+
+RESEND_API_KEY                        # transactional email
+SESSION_SECRET                        # magic-link JWT signing
+ADMIN_PASSWORD                        # gates /admin in production
 ```
 
 ## Scripts
@@ -123,40 +155,40 @@ AIRTABLE_BASE_ID=appDx9IX83FLEAHZg
 npm run dev                   # Start dev server
 npm run build                 # Production build
 npm run lint                  # ESLint
+npm test                      # Vitest (Stripe webhook regression suite)
 
-npx tsx scripts/setup-production.ts  # Create all 7 Airtable tables + seed data
-                                      # (destructive — recreates from scratch)
+npm run db:generate           # Drizzle-kit generate (creates a new migration from schema diff)
+npm run db:migrate            # Apply pending migrations to current POSTGRES_URL
+npm run db:list               # Print table + row counts (sanity check)
+npm run db:studio             # Drizzle Studio (browse data)
+npm run db:test               # Smoke: connect, run version() + NOW()
 ```
 
-After running `setup-production.ts`, manually set up Airtable automations using the scripts in `scripts/airtable-automations/` and the instructions in `scripts/airtable-automations/README.md`.
+Deploy: `git push` to `main`. Vercel auto-deploys via GitHub integration.
 
 ## Important Patterns
 
-### Airtable Field Name Mapping
-- Airtable uses Title Case field names (`Task Name`, `Visible To Client`)
-- TypeScript uses camelCase (`taskName`, `visibleToClient`)
-- Mappers in `src/lib/airtable.ts` handle the conversion
-- API routes use a `fieldMap` object to translate camelCase request body -> Title Case Airtable fields
+### Drizzle field naming
+- Postgres columns: `snake_case`
+- TS property names: `camelCase` (via Drizzle's `propName('column_name')` declaration)
+- Inferred types via `typeof tableName.$inferSelect` / `$inferInsert`. Consumers pass camelCase fields; no Title-Case translation anywhere.
 
-### Single Select Format Differences
-- **Airtable REST API** (used by Next.js): single selects are plain strings (`"Active"`, `"Draft"`)
-- **Airtable Scripting API** (used in automations): single selects must be objects (`{ name: "Active" }`)
-- The `selectValue()` helper in `airtable.ts` handles both formats for reading
+### Atomic transactions
+- Customer creation is wrapped in `db.transaction(async (tx) => { ... })`. Auto 1's `generateTasksFromTemplate` accepts the tx so customer+tasks land or fail together.
+- Auto 2 (task complete → dependent activation + stage advance) runs after the task's PATCH commits. Race-guarded by conditional UPDATE: `WHERE status='Draft'`.
 
-### Linked Records
-- Linked record fields return arrays of `{ id: "recXXX" }` objects (or sometimes just string arrays)
-- The `linkedIds()` helper normalizes these to `string[]`
-- When writing linked records, always pass `[{ id: "recXXX" }]` or `["recXXX"]`
+### Attachments via Vercel Blob
+- `customers.{agent_photo, business_logo, other_assets, design_proof, design_drafts}` are jsonb arrays of `{ url, filename, size, contentType }` objects.
+- New uploads: `POST /api/upload` writes to Vercel Blob, appends the metadata to the jsonb array on the Customer row.
 
-### Attachments
-- Attachment fields return arrays of `{ url, filename, ... }` objects
-- URLs are temporary (expire) — they're Airtable CDN URLs, not permanent
+### Channel discipline
+- `Customer.channel_id` is an FK to `channels.id`. Inserting an unknown channel fails at the DB layer. Workflow key resolved at insert as `${type}-${channel.code}`. `CHECK` constraint on `workflow_key` format as belt-and-suspenders.
 
 ## What NOT To Do
 
-- **Do NOT add business logic to API routes.** Task generation, dependency activation, stage advancement, and event logging belong in Airtable automations, not in Next.js code. The only exception is the design approval endpoint, which includes dependency/stage logic as a bridge until the Airtable automation equivalent is built.
-- **Do NOT use multi-record Depends On links.** The Depends On field is a text field with comma-separated task names, not a linked record field. This avoids Airtable automation race conditions.
-- **Do NOT use the Has Team Review flag for the design approval flow.** Design approval uses a separate set of tasks (Create Designs -> Upload Proof -> Review & Approve Brand Kit) with the Customer.Design Approval field as the trigger.
-- **Do NOT assume Roster data stays in sync with Customer data.** Roster -> Customer is a one-time copy. Changes to the Roster table do not propagate to existing Customer records.
-- **Do NOT hardcode workflow logic.** All stage/task definitions come from the Workflow Templates table. To add a new workflow, add rows to that table with a new Workflow Key.
-- **Do NOT reference the prelim-docs as current.** The files in `docs/prelim-docs/` are superseded by `docs/schema/production-schema.md` and `docs/architecture.md`.
+- **Do NOT write to `Customer.tasks` / `Customer.events` as denormalized arrays.** These are reverse FKs queried via `db.query.customers.findFirst({ with: { tasks: true } })` or the dedicated readers. The mapper hardcodes them to `[]`.
+- **Do NOT add business logic inside API routes.** Routes are thin dispatchers. Business logic belongs in `src/lib/db.ts` or `src/lib/automations/*.ts`.
+- **Do NOT bypass `updateTaskStatus` / `updateTaskFields` / `updateCall`** when transitioning a task or call. These wrap the Auto 2 / Auto 8 triggers; raw `db.update(tasks)` bypasses Auto 2 entirely.
+- **Do NOT hardcode workflow logic.** All stage/task definitions live in `workflow_templates`. New workflow = new rows with a new `workflow_key`.
+- **Do NOT add `recXXX`-format Airtable record-ID regex checks anywhere.** All IDs are UUIDs now.
+- **Do NOT reference the prelim-docs as current.** The files in `docs/prelim-docs/` are historical only.

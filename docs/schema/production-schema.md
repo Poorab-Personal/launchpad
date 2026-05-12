@@ -1,466 +1,121 @@
-# LaunchPad — Production Airtable Schema
+# Production Schema Reference
 
-## Data Model
+**Authoritative source:** Drizzle schemas in `src/db/schema/*.ts`. This doc is a high-level reference for humans — the code is always more current.
 
-```
-Customer Type
-├── D2C
-│   └── Channel: Direct Sales, Paid Marketing, Webinar, Referral, ...
-│   └── Workflow Key: D2C-Standard (all channels share this for now)
-└── B2B
-    └── Channel (= Brokerage): Keyes, B&W, ...
-    └── Workflow Key: B2B-Keyes, B2B-BW, ...
+Inspect live state with:
+```bash
+npm run db:list           # tables + row counts + constraint summary
+npm run db:studio         # Drizzle Studio in your browser
 ```
 
-Workflow Key = `{Type}-{Channel}` — determines which template rows generate tasks.
-All D2C channels currently map to `D2C-Standard`. When a channel needs its own flow, add new template rows (e.g., `D2C-Webinar`).
+## Tables
 
----
+### Operational
 
-## Table 1: Customers
-
-One row per customer/agent being onboarded. Fields are populated in stages:
-- **At creation** (HubSpot → Zapier for D2C, or agent raises hand for B2B): name, email, phone, deal IDs, payment info
-- **During intake** (customer fills portal form): business info, bio, service areas, etc.
-- **During onboarding** (uploads, automations): assets, stage tracking, flags
-
-| Field Name | Type | Set By | Notes |
+| Table | File | Purpose | Key columns |
 |---|---|---|---|
-| **Identity** | | | |
-| Name | Single line text | Zapier / Roster copy | Primary field |
-| Type | Single select | System | `D2C`, `B2B` |
-| Channel | Single line text | System | D2C: `Direct Sales`, `Paid Marketing`, `Webinar`, `Referral`. B2B: brokerage name from Brokerage record |
-| Workflow Key | Formula | Auto | `{Type} & "-" & {Channel}` |
-| Contact Email | Email | Zapier / Roster copy | Primary communication email |
-| Platform Email | Email | Customer (intake) | Email for app.rejig.ai login — may differ from contact email |
-| Phone | Phone number | Zapier / Roster copy | |
-| **Business Info** (populated via intake form or roster copy) | | | |
-| Business Name | Single line text | Customer / Roster copy | |
-| Business Address | Long text | Customer | |
-| Website | URL | Customer / Roster copy | |
-| Service Areas | Long text | Customer / Roster copy | Comma-separated or multi-line |
-| Bio | Long text | Customer / Roster copy | Agent/business bio |
-| License Number | Single line text | Customer / Roster copy | |
-| Topics | Long text | Customer / Roster copy | Account-level content topics |
-| Hashtags | Single line text | Customer / Roster copy | Preferred hashtags |
-| GMB Name | Single line text | Customer / Roster copy | Google My Business name |
-| MLS IDs | Long text | Customer / Roster copy | JSON or comma-separated |
-| Special Instructions | Long text | Customer | Notes for design team |
-| **Assets** (populated via upload task) | | | |
-| Agent Photo | Attachment | Customer | Photo file — designer downloads from here |
-| Business Logo | Attachment | Customer | Logo file |
-| Other Assets | Attachment | Customer | Additional brand assets |
-| **Payment & Deal** (D2C only) | | | |
-| HubSpot Deal ID | Single line text | Zapier | Primary key for D2C identity |
-| Stripe Payment ID | Single line text | Zapier | |
-| Add-On Stripe Payment ID | Single line text | Zapier | D2C with add-ons (Voice, Avatar) |
-| Product Tier | Single select | Zapier | `Premium`, `Luxury` |
-| Payment Status | Single select | Zapier | `Paid`, `Waived` |
-| **Enterprise** (B2B only) | | | |
-| Brokerage | Link to Brokerages | System | Links to brokerage config record |
-| Roster Record | Link to Roster | System | Links to source roster record (one-time copy, not live sync) |
-| **Assignment** | | | |
-| CSM Assigned | Link to Team Members | System / Manual | Linked record — pull CSM email, Slack handle from Team Members |
-| **Design Workflow** (D2C only) | | | |
-| Design Approval | Single select | Customer (portal) | `Pending`, `Approved`, `Changes Requested` — customer's approval |
-| Design Feedback | Long text | Customer | Feedback text when requesting changes |
-| **Status Tracking** | | | |
-| Current Stage | Single line text | Automation | Set by automation on creation + stage advancement |
-| Stage Entered At | Date (w/ time) | Automation | |
-| Account Created | Checkbox | Automation | Set when "Create Customer Account" task completes |
-| Credentials Sent | Checkbox | Automation | Set when "Send Credentials" task completes |
-| Call Booked | Checkbox | Calendly / Zapier | Set when Calendly booking confirmed |
-| Call Completed | Checkbox | CSM | Checked after onboarding call |
-| **Stripe** (added Phase 0 of payment-mode rollout, 2026-05-06) | | | |
-| Stripe Customer ID | Single line text | System | Created at Customer creation for `setup-intent-at-intake` workflows; lazily backfilled for pre-paid D2C; never set for invoice/none |
-| Stripe Subscription ID | Single line text | System | Set by Calls-driven sub creation (Phase 1) once Onboarding call completes |
-| **Drop-off / At Risk** (added Phase 0, 2026-05-06) | | | |
-| At Risk | Checkbox | Automation / CSM | Set by drop-off cron after 3rd reminder, or by CSM action |
-| At Risk Reason | Single select | Automation / CSM | `No CC`, `No Booking`, `No Approval`, `No Form`, `CSM Flagged`. Cleared when At Risk goes false |
-| **System** | | | |
-| Access Token | Formula | Auto | `RECORD_ID()` — portal URL token |
-| Tasks | Link to Tasks | Auto | Reverse link |
-| Events | Link to Events | Auto | Reverse link |
-| Created At | Created time | Auto | |
-| Last Modified | Last modified time | Auto | |
+| `customers` | `customers.ts` | Customer/agent onboarding record (~71 cols) | `id`, `access_token`, `name`, `type` (D2C/B2B), `channel_id` (FK), `workflow_key`, `current_stage`, `stripe_customer_id`, `stripe_subscription_id`, `at_risk`, `at_risk_reason`, design fields, payment fields, status flags |
+| `tasks` | `tasks.ts` | All tasks (client + team) per customer | `id`, `customer_id` (FK cascade), `task_name`, `stage`, `stage_order`, `task_order`, `status` (Draft/Active/In Review/Completed/Rejected), `task_type` (Client/Team), `assigned_to_team_member_id` (FK), `attachment_type`, `product` |
+| `task_dependencies` | `tasks.ts` | Junction table: which task depends on which | `task_id`, `depends_on_task_id` (both FK to tasks, cascade) |
+| `calls` | `calls.ts` | Onboarding / Check-In / Ad-hoc calls | `id`, `customer_id`, `type`, `scheduled_date`, `status`, `csm_team_member_id`, `calendly_event_uuid` (UNIQUE for idempotency) |
+| `events` | `events.ts` | Audit log of every state change | `id`, `customer_id`, `event_type`, `actor_type`, `details` (jsonb), `related_task_id`, `related_call_id`, `created_at` |
+| `roster` | `roster.ts` | One-time bridge row for B2B agents from DMG sync | `id`, `customer_id` (set null on cascade), `brokerage_id`, `email`, asset URLs |
 
----
+### Config / Reference
 
-## Table 2: Tasks
-
-All tasks per customer — both client-facing and internal.
-
-| Field Name | Type | Notes |
+| Table | File | Purpose |
 |---|---|---|
-| Task Name | Single line text | Primary field |
-| Customer | Link to Customers | Each task belongs to one customer |
-| Task Type | Single select | `Client`, `Team` |
-| Stage | Single line text | Stage this task belongs to |
-| Status | Single select | `Draft`, `Active`, `In Review`, `Completed`, `Rejected` |
-| Task Order | Number (integer) | Display order within a stage |
-| Assigned To | Link to Team Members | Who is working on this. Blank for client tasks |
-| Visible To Client | Checkbox | If true, customer sees this in the portal |
-| Depends On | Single line text | Comma-separated task names that must ALL complete before this activates. Blank = no dependency |
-| Has Team Review | Checkbox | If true, task goes to `In Review` before `Completed`. Senior must approve |
-| Attachment Type | Single select | `None`, `Form`, `File Upload`, `Embed`, `Proof` |
-| Embed URL | URL | Calendly link, Loom video URL, etc. Populated from template |
-| Instructions | Long text | Shown to assignee (team) or customer (client) |
-| Tags | Multiple select | `Design Change`, `Dev Request`, `Priority`, `Follow Up` |
-| Notes | Long text | Internal notes |
-| Due Date | Date | Optional |
-| Completed At | Date (w/ time) | Set by automation when Status → Completed |
-| Activated At | Date (w/ time) | Set when task first transitions to Active |
-| Days Active | Formula | Days since Active; blank for Draft/Completed/Rejected |
-| Last Reminder At | Date (w/ time) | Set by drop-off cron when a reminder was sent. Reminder number computed as `floor((now − Activated At) / 4d)` |
-| Created At | Created time | Auto |
+| `workflow_templates` | `workflowTemplates.ts` | Blueprint rows defining stages/tasks per `workflow_key`. Read by Auto 1 (`generateTasksFromTemplate`) at customer creation. |
+| `channels` | `channels.ts` | Lookup: `Standard`, `Keyes`, `BW`. Seeded once at migration. FK target for `customers.channel_id` — prevents the `"BW"` vs `"Baird & Warner"` typo class. |
+| `brokerages` | `brokerages.ts` | Brokerage-level config (landing page slug, default Calendly URL, default workflow key) |
+| `team_members` | `teamMembers.ts` | Internal team. `roles` is a `team_role[]` array (multi-role). `is_default` flags the default member per role for Auto 1 assignments. |
+| `stripe_plans` | `stripePlans.ts` | Per-workflow Stripe price options. Read by Capture Payment Method task to populate the plan picker. |
+| `settings` | `settings.ts` | Key-value app settings (e.g. `portal_base_url`) |
 
-### Status Flow
+## Enums
 
-```
-Draft → Active → Completed                   (normal task)
-Draft → Active → In Review → Completed       (team task with Has Team Review)
-Draft → Active → In Review → Rejected → Active → In Review → ...  (revision loop)
+Defined in `src/db/schema/enums.ts`. Centralized so multiple tables share values.
+
+| Enum | Values |
+|---|---|
+| `customer_type` | `D2C`, `B2B` |
+| `task_type` | `Client`, `Team` |
+| `task_status` | `Draft`, `Active`, `In Review`, `Completed`, `Rejected` |
+| `attachment_type` | `None`, `Form`, `File Upload`, `Embed`, `Proof`, `Payment Setup` |
+| `team_role` | `Designer`, `Senior Designer`, `CSM`, `Senior CSM`, `Account Creator`, `Sales`, `Admin` |
+| `payment_mode` | `pre-paid`, `setup-intent-at-intake`, `invoice`, `none` |
+| `subscription_status` | `Active`, `Trial`, `Past Due`, `Cancelled` |
+| `at_risk_reason` | `No CC`, `No Booking`, `No Approval`, `No Form`, `CSM Flagged`, `Inactive`, `Trial Ending`, `Disengaged`, `No Listings`, `Engagement Falling`, `Churned` (split ownership: first 5 owned by payment-mode plan, rest by engagement plan) |
+| `at_risk_source` | `engagement`, `payment-mode`, `csm` |
+| `onboarding_status` | `Not Started`, `In Progress`, `Completed` |
+| `actor_type` | `Customer`, `Team Member`, `System` |
+| `design_approval` | `Pending`, `Approved`, `Changes Requested` |
+| `product_tier` | `Premium`, `Luxury` |
+| `payment_status` | `Paid`, `Waived` |
+| `call_type` | `Onboarding`, `Check-In 1`, `Check-In 2`, `Ad-hoc` |
+| `call_status` | `Scheduled`, `Completed`, `No Show`, `Rescheduled`, `Canceled` |
+| `product` | `Core`, `Voice`, `Avatar` |
+
+## Constraints + Indexes
+
+`customers`:
+- `access_token` UNIQUE — portal URL key
+- `channel_id` FK to `channels.id` (validates against typo class)
+- `workflow_key` CHECK regex `^(D2C|B2B)-` — belt-and-suspenders on the format
+- `brokerage_id` FK to `brokerages.id` (set null), `roster_record_id` FK to `roster.id` (set null), `csm_team_member_id` FK to `team_members.id` (set null)
+- Indexes on `platform_email`, `contact_email`, `workflow_key` — high-traffic lookup paths
+
+`tasks`:
+- `customer_id` FK CASCADE — tasks die with their customer
+- `assigned_to_team_member_id` FK SET NULL — team turnover doesn't delete tasks
+- Composite index `(customer_id, stage_order, task_order)` — drives the portal task-list render
+- Index `assigned_to_team_member_id` — designer/CSM queue lookups
+- Partial index `(customer_id) WHERE status IN ('Active', 'In Review')` — active-work dashboards
+
+`task_dependencies`:
+- Both FKs CASCADE
+- UNIQUE `(task_id, depends_on_task_id)` — no duplicate edges
+
+`calls`:
+- `calendly_event_uuid` UNIQUE — webhook idempotency
+
+`workflow_templates`:
+- Composite index `(workflow_key, stage_order, task_order)` — drives Auto 1's template scan
+
+`events`:
+- `customer_id` FK CASCADE
+- `event_number` UNIQUE bigserial — external reference stability
+
+## Workflow Templates Data
+
+Read live (most accurate):
+```bash
+npx tsx --env-file=.env.local scripts/dump-templates.ts
 ```
 
-- **Draft**: waiting for dependencies
-- **Active**: ready to work on / visible to customer
-- **In Review**: junior done, waiting for senior approval
-- **Completed**: done
-- **Rejected**: senior sent back for revisions → resets to Active
-
----
-
-## Table 3: Workflow Templates
-
-Blueprint rows. NOT runtime data. One set of rows per workflow key.
-
-| Field Name | Type | Notes |
-|---|---|---|
-| Template Row ID | Autonumber | Primary field |
-| Workflow Key | Single line text | `D2C-Standard`, `B2B-Keyes`, `B2B-BW`, etc. |
-| Stage | Single line text | Stage name |
-| Stage Order | Number (integer) | Stage sequence: 1, 2, 3... |
-| Task Title | Single line text | Title of task to create |
-| Task Type | Single select | `Client`, `Team` |
-| Task Order | Number (integer) | Order within stage: 1, 2, 3... |
-| Visible To Client | Checkbox | |
-| Assigned Role | Single select | `Designer`, `Senior Designer`, `CSM`, `Onboarding Ops` — used to look up Team Member at task creation |
-| Initial Status | Single select | `Active`, `Draft` |
-| Depends On | Single line text | Comma-separated task titles. Blank = no dependency |
-| Has Team Review | Checkbox | |
-| Attachment Type | Single select | `None`, `Form`, `File Upload`, `Embed`, `Proof` |
-| Embed URL | URL | Default URL for embeds (Calendly, Loom). Copied to task on creation |
-| Instructions | Long text | Default instructions |
-| Due Days After Activation | Number (integer) | Days from activation to due date |
-| Product | Single select | `Core`, `Voice`, `Avatar` — for add-on workflow templates |
-| **Payment-mode config** (added Phase 0, 2026-05-06; denormalized per Workflow Key) | | |
-| Payment Mode | Single select | `pre-paid`, `setup-intent-at-intake`, `invoice`, `none`. Drives whether Capture Payment Method task is generated and when sub creation fires |
-| Stripe Price ID | Single line text | Stripe price ID for the subscription. Required when `Payment Mode = setup-intent-at-intake` |
-| Trial Days | Number (integer) | Days of trial. Required when `Payment Mode = setup-intent-at-intake` |
-
----
-
-## Table 4: Roster
-
-Broker agent data synced from external roster APIs. Enterprise only.
-
-**Key rule: Roster → Customer is a ONE-TIME COPY, not a live sync.**
-When an agent raises their hand, data is copied from Roster to a new Customer record.
-After that, the Customer record is independent. Roster syncs do NOT overwrite customer data.
-
-| Field Name | Type | Notes |
-|---|---|---|
-| Email | Email | Primary field. Unique per agent |
-| Brokerage | Link to Brokerages | Which brokerage this agent belongs to |
-| Agent Name | Single line text | |
-| Phone | Phone number | |
-| License Number | Single line text | |
-| Website | URL | |
-| Photo URL | URL | Hosted URL from roster API |
-| Logo URL | URL | Hosted URL from roster API |
-| Bio | Long text | |
-| Service Areas | Long text | |
-| MLS IDs | Long text | |
-| Topics | Long text | |
-| Hashtags | Single line text | |
-| GMB Name | Single line text | |
-| Other Emails | Long text | Additional emails (CC on design sends) |
-| Onboarding Status | Single select | `Not Started`, `In Progress`, `Completed` |
-| Customer Record | Link to Customers | Set when customer record is created from this roster entry |
-| Synced At | Date (w/ time) | Last roster API sync |
-
----
-
-## Table 5: Events
-
-Audit log. Every state change gets logged.
-
-| Field Name | Type | Notes |
-|---|---|---|
-| Event ID | Autonumber | Primary field |
-| Customer | Link to Customers | |
-| Event Type | Single select | See list below |
-| Actor | Link to Team Members | Who performed the action (null for customer/system actions) |
-| Actor Type | Single select | `Customer`, `Team Member`, `System` |
-| Details | Long text | Free-text description |
-| Related Task | Link to Tasks | Optional |
-| Created At | Created time | Auto |
-
-**Event Types:**
-`Customer Created`, `Stage Changed`, `Task Created`, `Task Activated`, `Task Completed`, `Task Rejected`, `Task Sent to Review`, `Design Uploaded`, `Design Approved`, `Design Changes Requested`, `Call Booked`, `Call Completed`, `Reminder Sent`, `Note Added`, `Credentials Sent`, `Account Created`
-
----
-
-## Table 6: Team Members
-
-Internal team members who work on onboarding tasks.
-
-| Field Name | Type | Notes |
-|---|---|---|
-| Name | Single line text | Primary field |
-| Email | Email | For notifications, automations |
-| Slack Handle | Single line text | For Slack notifications (e.g., `@mario`) |
-| Role | Single select | `Designer`, `Senior Designer`, `CSM`, `Onboarding Ops`, `Admin` |
-| Active | Checkbox | Whether this team member is currently active |
-| Assigned Customers | Link to Customers | Reverse link from Customer.CSM Assigned |
-| Assigned Tasks | Link to Tasks | Reverse link from Task.Assigned To |
-| Created At | Created time | Auto |
-
----
-
-## Table 7: Brokerages
-
-Brokerage-level configuration for B2B/enterprise customers.
-
-| Field Name | Type | Notes |
-|---|---|---|
-| Name | Single line text | Primary field. `Keyes`, `Baird & Warner`, etc. |
-| Landing Page Slug | Single line text | URL slug for brokerage landing page (e.g., `keyes` → `onboarding.rejig.ai/keyes`) |
-| Default Workflow Key | Single line text | Which workflow template to use (e.g., `B2B-Keyes`) |
-| Roster API URL | URL | Endpoint to sync agent roster data |
-| Roster API Key | Single line text | API key/token for roster sync (sensitive — restrict access) |
-| Roster Refresh Interval | Single line text | How often to sync roster (e.g., `daily`, `weekly`, `6h`) |
-| Last Roster Sync | Date (w/ time) | Timestamp of last successful roster sync |
-| Billing Contact | Email | Brokerage billing contact |
-| Notes | Long text | Deal-specific notes, special arrangements |
-| Roster Records | Link to Roster | Reverse link — all agents in this brokerage's roster |
-| Customers | Link to Customers | Reverse link — all customers from this brokerage |
-| Active | Checkbox | Whether this brokerage is currently active |
-| Created At | Created time | Auto |
-
----
-
-## Table 8: Calls
-
-One row per scheduled (or ad-hoc) CSM ↔ customer call. Replaces the legacy
-single-field `Customer.Call Date`, which got clobbered by every Schedule
-task. Calls table is upserted by the Calendly webhook (idempotent on
-Calendly Event UUID) and surfaced in the CSM workspace.
-
-The legacy `Customer.Call Date` / `Call Booked` / `Call Completed` /
-`No Show Count` fields remain on Customers for backwards compat with the
-customer portal — the webhook still writes Call Date + Call Booked for
-Onboarding-type calls only.
-
-| Field Name | Type | Notes |
-|---|---|---|
-| Title | Single line text | Primary field. Free-form; webhook stamps `"<Type> — <Customer Name>"` |
-| Customer | Link to Customers | Required |
-| Type | Single select | `Onboarding`, `Check-In 1`, `Check-In 2`, `Ad-hoc` |
-| Scheduled Date | Date (w/ time) | Event start time |
-| Status | Single select | `Scheduled`, `Completed`, `No Show`, `Rescheduled`, `Canceled` |
-| CSM | Link to Team Members | The CSM owning this call |
-| Notes | Long text | Free-form CSM notes |
-| Recording URL | URL | Zoom/Loom link (optional) |
-| Calendly Event UUID | Single line text | Idempotency key — last segment of Calendly event URI |
-
-Setup: `npx tsx scripts/setup-calls-table.ts` (idempotent).
-
----
-
-## Enterprise Agent Onboarding Flow
-
-```
-Roster API syncs periodically → Roster table updated (per Brokerage.Roster Refresh Interval)
-  ↓ (roster data stays in Roster table, does NOT touch existing Customer records)
-
-Agent visits onboarding.rejig.ai/{brokerage-slug}
-  → Enters their email
-  → System checks email against Roster table (filtered by Brokerage)
-  → If NOT found: "Contact your broker admin" error
-  → If found + already has Customer Record: redirect to existing portal
-  → If found + no Customer Record yet:
-      1. Create Customer record
-      2. Copy fields from Roster → Customer (one-time copy):
-         Name, Email, Phone, License, Website, Bio, Service Areas,
-         MLS IDs, Topics, Hashtags, GMB Name, Photo URL → Agent Photo,
-         Logo URL → Business Logo
-      3. Set Customer.Type = B2B
-      4. Set Customer.Channel = Brokerage name
-      5. Set Customer.Brokerage = link to Brokerage record
-      6. Set Customer.Roster Record = link to Roster record
-      7. Set Roster.Onboarding Status = In Progress
-      8. Set Roster.Customer Record = link to new Customer
-      9. Workflow Key formula computes → tasks auto-generate
-      10. Agent sees portal with pre-populated "Confirm Your Information" form
+Or query:
+```sql
+SELECT workflow_key, stage_order, task_order, task_title, initial_status, depends_on
+FROM workflow_templates
+ORDER BY workflow_key, stage_order, task_order;
 ```
 
----
+Per-workflow flow docs live in `docs/flows/{d2c-standard,b2b-keyes,b2b-bw}.md`. Those describe the canonical onboarding journey; templates implement it.
 
-## Workflow Template Data
+## Migrations
 
-### D2C-Standard (17 tasks, 6 stages)
+| File | Purpose |
+|---|---|
+| `src/db/migrations/0000_*` | Initial schema (channels + customers) |
+| `src/db/migrations/0001_*` | 9 more tables + their internal FKs |
+| `src/db/migrations/0002_*` | Cross-table FKs added (brokerage_id, roster_record_id, csm_team_member_id) |
+| `src/db/migrations/0003_*` | Audit fixes — indexes, uniqueness |
+| `src/db/migrations/0004_*` | Customer feedback fields (`feedback_rating`, `feedback_comments`) |
 
-| Stage | SO | Task Title | Type | TO | Vis | Assigned | Status | Depends On | Review | Attach | Instructions |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Getting Started | 1 | Complete Your Onboarding Form | Client | 1 | ✓ | | Active | | | Form | Please complete this form so our team can get started on your brand kit. |
-| Getting Started | 1 | Upload Logos and Headshots | Client | 2 | ✓ | | Active | | | File Upload | Upload your logo files (PNG/SVG preferred), professional headshots, and any brand assets. |
-| Getting Started | 1 | Create Designs | Team | 3 | Designer | Draft | Complete Your Onboarding Form, Upload Logos and Headshots | ✓ | None | Pull assets from client submissions. Create brand kit using uploaded logos, headshots, and bio. |
-| Review Your Designs | 2 | Upload Proof to Customer | Team | 1 | | Designer | Draft | Create Designs | | None | Upload the approved design files to the client review task. |
-| Review Your Designs | 2 | Review & Approve Your Brand Kit | Client | 2 | ✓ | | Draft | Upload Proof to Customer | | Proof | Review your brand kit. Approve if correct, or request changes. |
-| Book Your Call | 3 | Move Designs to Production | Team | 1 | | Designer | Draft | | | None | Move approved design assets to the production environment. |
-| Book Your Call | 3 | Create Customer Account | Team | 2 | | Onboarding Ops | Draft | Move Designs to Production | | None | Create the customer's app.rejig.ai account using their Platform Email. |
-| Book Your Call | 3 | Send Credentials | Team | 3 | | Onboarding Ops | Draft | Create Customer Account | | None | Send login credentials to the customer. |
-| Book Your Call | 3 | Schedule Your Onboarding Call | Client | 4 | ✓ | | Draft | Send Credentials | | Embed | Book your onboarding call at a time that works for you. |
-| Prepare for Onboarding | 4 | Watch Setup Video | Client | 1 | ✓ | | Draft | Send Credentials | | Embed | Watch this short video to learn how to connect and configure your service areas. |
-| Prepare for Onboarding | 4 | Sign In & Reset Password | Client | 2 | ✓ | | Draft | Send Credentials | | None | Log in to app.rejig.ai using the credentials we sent and reset your password. |
-| Prepare for Onboarding | 4 | Mark Onboarding Call Complete | Team | 3 | | CSM | Draft | | | None | Mark complete after the onboarding call. If no-show or rescheduled, add a comment. |
-| Post Onboarding Follow Ups | 5 | Send Zoom Recording | Team | 1 | | CSM | Draft | | | None | Upload or send the onboarding call Zoom recording to the customer. |
-| Post Onboarding Follow Ups | 5 | Send Follow-Up Email | Team | 2 | | CSM | Draft | | | None | Send summary of what was covered, outstanding items, and next steps. |
-| Review & Grow | 6 | Provide Onboarding Feedback | Client | 1 | ✓ | | Draft | | | Form | We'd love your feedback on the onboarding experience. |
-| Review & Grow | 6 | Schedule Check-In 1 | Client | 2 | ✓ | | Draft | Provide Onboarding Feedback | | Embed | Schedule your first check-in call. |
-| Review & Grow | 6 | Schedule Check-In 2 | Client | 3 | ✓ | | Draft | Schedule Check-In 1 | | Embed | Schedule your second check-in call. |
+Generate a new migration after schema changes:
+```bash
+npm run db:generate    # produces a new src/db/migrations/000N_*.sql file
+npm run db:migrate     # applies pending migrations to the current POSTGRES_URL
+```
 
-### B2B-Keyes (11 tasks, 3 stages)
-
-| Stage | SO | Task Title | Type | TO | Vis | Assigned | Status | Depends On | Review | Attach | Instructions |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Getting Started | 1 | Confirm Your Information | Client | 1 | ✓ | | Active | | | Form | Review the information we have on file. Update if needed. |
-| Getting Started | 1 | Start Your Trial | Client | 2 | ✓ | | Active | | | None | Follow the instructions to activate your trial account. |
-| Getting Started | 1 | Schedule Your Onboarding Call | Client | 3 | ✓ | | Active | | | Embed | Book your onboarding call. |
-| Prepare for Onboarding | 2 | Create Customer Account | Team | 1 | | Onboarding Ops | Draft | | | None | Create the agent's app.rejig.ai account using their roster email. |
-| Prepare for Onboarding | 2 | Send Credentials | Team | 2 | | Onboarding Ops | Draft | Create Customer Account | | None | Send login credentials to the agent. |
-| Prepare for Onboarding | 2 | Watch Setup Video | Client | 3 | ✓ | | Draft | Send Credentials | | Embed | Watch this short video to configure your service areas. |
-| Prepare for Onboarding | 2 | Sign In & Reset Password | Client | 4 | ✓ | | Draft | Send Credentials | | None | Log in and reset your password. |
-| Prepare for Onboarding | 2 | Mark Onboarding Call Complete | Team | 5 | | CSM | Draft | | | None | Mark complete after the onboarding call. |
-| Review & Grow | 3 | Provide Onboarding Feedback | Client | 1 | ✓ | | Draft | | | Form | We'd love your feedback. |
-| Review & Grow | 3 | Schedule Check-In 1 | Client | 2 | ✓ | | Draft | Provide Onboarding Feedback | | Embed | Schedule your first check-in call. |
-| Review & Grow | 3 | Schedule Check-In 2 | Client | 3 | ✓ | | Draft | Schedule Check-In 1 | | Embed | Schedule your second check-in call. |
-
-### B2B-BW (10 tasks, 3 stages)
-
-Same as Keyes minus "Start Your Trial".
-
-| Stage | SO | Task Title | Type | TO | Vis | Assigned | Status | Depends On | Review | Attach | Instructions |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Getting Started | 1 | Confirm Your Information | Client | 1 | ✓ | | Active | | | Form | Review the information we have on file. Update if needed. |
-| Getting Started | 1 | Schedule Your Onboarding Call | Client | 2 | ✓ | | Active | | | Embed | Book your onboarding call. |
-| Prepare for Onboarding | 2 | Create Customer Account | Team | 1 | | Onboarding Ops | Draft | | | None | Create the agent's app.rejig.ai account using their roster email. |
-| Prepare for Onboarding | 2 | Send Credentials | Team | 2 | | Onboarding Ops | Draft | Create Customer Account | | None | Send login credentials to the agent. |
-| Prepare for Onboarding | 2 | Watch Setup Video | Client | 3 | ✓ | | Draft | Send Credentials | | Embed | Watch this short video to configure your service areas. |
-| Prepare for Onboarding | 2 | Sign In & Reset Password | Client | 4 | ✓ | | Draft | Send Credentials | | None | Log in and reset your password. |
-| Prepare for Onboarding | 2 | Mark Onboarding Call Complete | Team | 5 | | CSM | Draft | | | None | Mark complete after the onboarding call. |
-| Review & Grow | 3 | Provide Onboarding Feedback | Client | 1 | ✓ | | Draft | | | Form | We'd love your feedback. |
-| Review & Grow | 3 | Schedule Check-In 1 | Client | 2 | ✓ | | Draft | Provide Onboarding Feedback | | Embed | Schedule your first check-in call. |
-| Review & Grow | 3 | Schedule Check-In 2 | Client | 3 | ✓ | | Draft | Schedule Check-In 1 | | Embed | Schedule your second check-in call. |
-
----
-
-## Automation Logic
-
-### Auto 1: New Customer → Generate Tasks
-- **Trigger:** New record in Customers
-- **Logic:**
-  1. Read Workflow Key (formula: `{Type}-{Channel}`)
-  2. Query Workflow Templates matching that key
-  3. Create Task records linked to customer
-  4. For team tasks: look up Team Member by Assigned Role and link to Task.Assigned To
-  5. Set Current Stage to first stage (lowest Stage Order)
-  6. Set Stage Entered At to now
-  7. Create "Customer Created" event
-
-### Auto 2: Task Completed → Activate Dependents + Advance Stage
-- **Trigger:** Task.Status changes to `Completed`
-- **Logic:**
-  1. Get completed task name + customer
-  2. Find all customer tasks where Depends On contains this task name AND Status = Draft
-  3. For each: check if ALL dependencies are met (split Depends On by comma, verify each is Completed)
-  4. If all met → set Status to Active
-  5. Check if ALL tasks in current stage are Completed
-  6. If yes → find next stage (Stage Order + 1) → update Customer.Current Stage + Stage Entered At
-  7. Activate eligible tasks in new stage (Initial Status = Active from template, all dependencies met)
-  8. Create "Task Completed" and optionally "Stage Changed" events
-
-### Auto 3: Team Review Flow
-- **Trigger:** Task.Status changes to `In Review`
-- **Logic:** Notify the Senior Designer (via Team Members lookup → Slack handle) that a design is ready for review
-- **On Approve:** Senior sets Status to `Completed` → Auto 2 fires
-- **On Reject:** Senior sets Status to `Rejected` with notes → Status resets to `Active` → Designer revises
-
-### Auto 4: Design Approval (Customer)
-- **Trigger:** Customer.Design Approval changes to `Approved`
-- **Logic:**
-  1. Find "Review & Approve Your Brand Kit" task → set to Completed
-  2. Auto 2 handles the rest (stage advancement, dependent activation)
-  3. Create "Design Approved" event
-
-### Auto 5: Design Changes Requested
-- **Trigger:** Customer.Design Approval changes to `Changes Requested`
-- **Logic:**
-  1. Create new Task: "Revise Design", Type: Team, Assigned To: original Designer, Status: Active
-  2. Pull feedback from Customer.Design Feedback into task Notes
-  3. Reset Customer.Design Approval to Pending
-  4. Create "Design Changes Requested" event
-  5. When revision is done: goes through team review (Auto 3) → new proof uploaded → customer reviews again
-
-### Auto 6: Specific Task Completions → Update Customer Flags
-- **Trigger:** Task completed where name matches specific tasks
-- **Logic:**
-  - "Create Customer Account" → set Customer.Account Created = true
-  - "Send Credentials" → set Customer.Credentials Sent = true
-  - Create corresponding event
-
-### Auto 7: Call Completed → Advance
-- **Trigger:** Customer.Call Completed changes to checked
-- **Logic:** If current stage depends on call completion, advance stage and activate next tasks
-
-### Auto 8: Reminder — Stuck Customers (SUPERSEDED)
-**Status: NOT IMPLEMENTED. Replaced by the Vercel cron in `docs/plans/payment-mode-dropoff.md` §5.**
-
-The original v1 design (Airtable scheduled automation, every 6 hours, using `Customers.Reminder Count` + `Workflow Templates.Reminder After Days` + `Max Reminders`) was never built. After architect review (2026-05-06), drop-off reminders moved to:
-- **Where:** Vercel Cron daily (`/api/cron/dropoff-reminders`) — Resend send is JS-side, Vercel cron logs are first-class.
-- **Schedule:** Single global `+3d / +7d / +12d` for all stalled-task types. No per-task variation.
-- **Storage:** `Tasks.Last Reminder At` only. Reminder number is computed (`floor((now − Activated At) / 4d)`).
-- **Escalation:** After 3rd reminder, set `Customers.At Risk = true` + `At Risk Reason`, surfaced in CSM workspace kanban.
-
-The legacy fields (`Customers.Reminder Count`, `Workflow Templates.Reminder After Days`, `Workflow Templates.Max Reminders`) were dead weight (never read by any consumer). Removed in Phase 0 of the payment-mode rollout (Airtable Meta API doesn't support field deletion via REST, so removed manually in the UI; verify in current schema).
-
-### Auto 9: Task Completed → Log Event
-- **Trigger:** Task.Status changes to Completed
-- **Action:** Create Event record with type, actor (from Task.Assigned To or "Customer"), details, linked task and customer
-
----
-
-## Key Schema Decisions
-
-1. **Workflow Key as formula**: `{Type}-{Channel}` is computed, not manually entered. Prevents typos.
-
-2. **Multi-dependency via comma-separated Depends On**: Activation logic splits by comma, checks ALL are completed. Simple, readable, no schema bloat.
-
-3. **In Review status for team review**: Junior → In Review → Senior approves (Completed) or rejects (back to Active). No extra table needed.
-
-4. **Design approval on Customer record, not task**: The approve/reject loop can repeat. The task ("Review & Approve Your Brand Kit") is just the portal UI surface. The Customer.Design Approval field is what triggers automations.
-
-5. **Customer fields populated in stages**: Creation (Zapier/Roster copy) → Intake form (portal) → Uploads (portal) → Automations (system). Fields are all on one record, written at different times.
-
-6. **Channel is freeform text, not single select**: Allows adding new channels without schema changes. Workflow Key formula handles the template lookup.
-
-7. **Events table logs everything**: Enables timeline views, onboarding time analytics, bottleneck identification, CSM accountability.
-
-8. **Team Members as a lookup table**: CSM Assigned and Task.Assigned To are linked records, not text. Enables looking up email, Slack handle for notifications.
-
-9. **Brokerages as a lookup table**: Holds roster API config, default workflow key, landing page slug. Brokerage-level settings live here, not hardcoded in automations.
-
-10. **Roster → Customer is a one-time copy**: Roster syncs update the Roster table only. Customer records are independent after creation. Prevents roster refreshes from overwriting customer edits.
-
-11. **Calendly/embed URLs live on Workflow Templates, not Team Members**: Different customer types may use different booking links. The template's Embed URL is copied to the task at creation time.
+Migrations are checked in; production runs them on deploy via the migrate script.
