@@ -36,8 +36,8 @@ export default async function WorkspaceLanding() {
         {ctx.label} workspace coming soon
       </h1>
       <p className="text-[#1B2E35]/70 mb-6">
-        Your role-specific dashboard is under construction. For now, please
-        continue using Airtable for {ctx.role} workflows.
+        Your role-specific dashboard is under construction. Ping the team
+        if you need access to {ctx.role} workflows in the meantime.
       </p>
       <div className="inline-flex items-center gap-2 rounded-full bg-[#6C4AB6]/10 px-3 py-1.5 text-sm text-[#6C4AB6]">
         Role: {ctx.role}

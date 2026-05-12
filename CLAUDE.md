@@ -112,7 +112,6 @@ src/
       webhooks/stripe/        -- Stripe webhook (subscription events)
       webhooks/calendly/      -- Calendly invitee.created → upsert call + complete schedule task
       upload/                 -- Vercel Blob signed-upload for attachment fields
-      email/send/             -- Generic email-trigger route (used by Airtable historically; preserved during cutover)
   components/
     TaskList.tsx              -- Portal task list grouped by stage; optimistic activation
     tasks/                    -- TaskRenderer + per-type renderers (Form, Proof, Embed, FileUpload, PlainTask, PaymentSetup)
