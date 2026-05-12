@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { requireSession, getEffectiveContext } from '@/lib/auth/dal';
 import {
   getCustomers,
@@ -143,9 +144,16 @@ function Column({
   );
 }
 
+// Role gate — Account Creator queue. Admin allowed (overview).
+const ALLOWED_ROLES = new Set(['Account Creator', 'Admin']);
+
 export default async function AccountQueuePage() {
   const session = await requireSession();
   const [ctx, view] = await Promise.all([getEffectiveContext(session), readViewAs()]);
+
+  if (!ALLOWED_ROLES.has(ctx.role)) {
+    redirect('/workspace');
+  }
 
   const isAdminBroadView = session.role === 'Admin' && view.kind !== 'member';
 

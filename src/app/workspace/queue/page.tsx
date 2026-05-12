@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { requireSession, getEffectiveContext } from '@/lib/auth/dal';
 import {
   getCustomers,
@@ -107,9 +108,20 @@ function TaskCard({
   );
 }
 
+// Role gate: this page renders the Designer/Senior-Designer kanban. If the
+// effective role is something else (e.g. admin switched view-as to an
+// Account Creator), bounce back to /workspace which will redirect to the
+// right role-appropriate page. Without this, the URL stays at /queue while
+// the title shows the new role — misleading layout.
+const ALLOWED_ROLES = new Set(['Designer', 'Senior Designer', 'Admin']);
+
 export default async function QueuePage() {
   const session = await requireSession();
   const [ctx, view] = await Promise.all([getEffectiveContext(session), readViewAs()]);
+
+  if (!ALLOWED_ROLES.has(ctx.role)) {
+    redirect('/workspace');
+  }
 
   // Admin overview: show ALL active core tasks (no member filter).
   // When admin impersonates a specific member, filter to that member.

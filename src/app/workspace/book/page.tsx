@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { connection } from 'next/server';
 import { requireSession, getEffectiveContext } from '@/lib/auth/dal';
 import {
@@ -165,10 +166,18 @@ function EmptyColumn({ label }: { label: string }) {
   );
 }
 
+// Role gate — this is the CSM book view. Admin allowed (overview).
+const ALLOWED_ROLES = new Set(['CSM', 'Senior CSM', 'Admin']);
+
 export default async function CSMQueuePage() {
   await connection();
   const session = await requireSession();
   const ctx = await getEffectiveContext(session);
+
+  if (!ALLOWED_ROLES.has(ctx.role)) {
+    redirect('/workspace');
+  }
+
   const filter: BookFilterType = await readBookFilter();
 
   // Resolve which member's book we're showing
