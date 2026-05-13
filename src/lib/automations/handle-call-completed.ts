@@ -81,7 +81,7 @@ export async function handleCallCompleted(
 
   const trialDays = templates[0]?.trialDays ?? 0;
   const subscription = await createSubscription({
-    airtableCustomerId: customer.id,
+    customerId: customer.id,
     stripeCustomerId: customer.stripeCustomerId,
     stripePriceId: customer.selectedStripePriceId,
     trialDays,

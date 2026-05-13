@@ -1,9 +1,8 @@
 /**
- * src/lib/db.ts — data layer for LaunchPad post-migration.
+ * src/lib/db.ts — data-access layer for LaunchPad.
  *
- * Mirrors the public API of src/lib/airtable.ts (same function names,
- * same TypeScript return types from @/types) but reads/writes Postgres
- * via Drizzle instead of Airtable's REST API.
+ * Reads/writes Postgres via Drizzle. Public API returns @/types interfaces
+ * (camelCase fields, matching Drizzle schema).
  *
  * Mapping notes:
  * - Linked-record arrays (e.g. Customer.brokerage: string[]) become
@@ -458,10 +457,8 @@ export async function createCustomer(args: {
 }
 
 /**
- * Update Customer fields. Accepts camelCase keys matching the Drizzle schema
- * (NOT the Airtable Title Case keys the old airtable.ts version used).
- * Routes that previously did { 'Stripe Customer ID': 'cus_x' } now do
- * { stripeCustomerId: 'cus_x' } — fieldMap translation in routes goes away.
+ * Update Customer fields. Accepts camelCase keys matching the Drizzle schema.
+ * Example: `{ stripeCustomerId: 'cus_x' }`.
  *
  * Routes still passing Title Case keys will silently get the wrong shape;
  * Phase 2.3 (consumer swap) updates all callers in lockstep.
@@ -594,7 +591,7 @@ export async function getTasksAssignedTo(
 
 /**
  * All Core-product tasks across the org. Used by aggregate workspace views.
- * Defaults to Active-only, matching the existing airtable.ts public API.
+ * Defaults to Active-only.
  */
 export async function getAllCoreTasks(
   statuses: TaskStatus[] = ['Active'],
@@ -637,10 +634,8 @@ export async function getAvailableWorkflows(): Promise<
 // ─── Public API: Events ─────────────────────────────────────────────────
 
 /**
- * Create an event. Positional signature mirrors the legacy airtable.ts
- * version (customerId, eventType, actorType, details, taskId?, actorId?)
- * so callers can swap import paths without arg refactoring. taskId and
- * actorId are optional. callId support added as a 7th optional arg.
+ * Create an event. Positional signature: (customerId, eventType, actorType,
+ * details, taskId?, actorId?, callId?). All but the first four are optional.
  */
 export async function createEvent(
   customerId: string | null,

@@ -1,11 +1,10 @@
 /**
- * Auto 1 port — generate tasks from Workflow Templates on Customer create.
+ * Auto 1 — generate tasks from Workflow Templates on Customer create.
  *
- * Mirrors scripts/airtable-automations/auto1-generate-tasks.js. Runs inline
- * inside the customer-create transaction so a Customer + its Tasks land
- * atomically (architect's Phase 3 atomicity win).
+ * Runs inline inside the customer-create transaction so a Customer + its
+ * Tasks land atomically.
  *
- * Phase 3.1 scope simplifications vs. the legacy script:
+ * Notes:
  *  - HubSpot Deal URL is NOT synthesized (no column on customers).
  *  - Customer.Environment "Production" link skipped (Settings is now
  *    key-value, not row-per-env).

@@ -1,0 +1,36 @@
+{
+  "uid": "launchpad_integration_app",
+  "type": "app",
+  "config": {
+    "description": "LaunchPad onboarding system integration — pushes customer state, tickets, and activity events from LaunchPad to HubSpot for the CSM workspace.",
+    "name": "LaunchPad Integration",
+    "distribution": "private",
+    "auth": {
+      "type": "static",
+      "requiredScopes": [
+        "oauth",
+        "crm.objects.contacts.read",
+        "crm.objects.contacts.write",
+        "crm.objects.companies.read",
+        "crm.objects.deals.read",
+        "tickets",
+        "crm.schemas.contacts.read"
+      ],
+      "optionalScopes": [],
+      "conditionallyRequiredScopes": []
+    },
+    "permittedUrls": {
+      "fetch": [
+        "https://api.hubapi.com"
+      ],
+      "iframe": [],
+      "img": []
+    },
+    "support": {
+      "supportEmail": "poorab@rejig.ai",
+      "documentationUrl": "https://github.com/Poorab-Personal/launchpad",
+      "supportUrl": "https://rejig.ai",
+      "supportPhone": "+18005555555"
+    }
+  }
+}

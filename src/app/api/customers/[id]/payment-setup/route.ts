@@ -64,7 +64,7 @@ export async function POST(
 
   const setupIntent = await createSetupIntent({
     stripeCustomerId: customer.stripeCustomerId,
-    airtableCustomerId: customer.id,
+    customerId: customer.id,
   });
 
   return Response.json({

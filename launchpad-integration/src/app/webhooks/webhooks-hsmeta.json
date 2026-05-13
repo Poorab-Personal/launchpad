@@ -1,0 +1,55 @@
+{
+  "uid": "launchpad_integration_webhooks",
+  "type": "webhooks",
+  "config": {
+    "settings": {
+      "targetUrl": "https://webhook.site/dac62026-4ff8-4ec3-8522-e570b742a8f0",
+      "maxConcurrentRequests": 10
+    },
+    "subscriptions": {
+      "crmObjects": [
+        {
+          "subscriptionType": "object.propertyChange",
+          "objectType": "ticket",
+          "propertyName": "hs_pipeline_stage",
+          "active": true
+        },
+        {
+          "subscriptionType": "object.propertyChange",
+          "objectType": "ticket",
+          "propertyName": "health_status",
+          "active": false
+        },
+        {
+          "subscriptionType": "object.creation",
+          "objectType": "ticket",
+          "active": false
+        },
+        {
+          "subscriptionType": "object.creation",
+          "objectType": "task",
+          "active": false
+        },
+        {
+          "subscriptionType": "object.propertyChange",
+          "objectType": "task",
+          "propertyName": "hs_task_status",
+          "active": false
+        },
+        {
+          "subscriptionType": "object.creation",
+          "objectType": "note",
+          "active": false
+        },
+        {
+          "subscriptionType": "object.propertyChange",
+          "objectType": "deal",
+          "propertyName": "dealstage",
+          "active": true
+        }
+      ],
+      "legacyCrmObjects": [],
+      "hubEvents": []
+    }
+  }
+}

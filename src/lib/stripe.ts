@@ -20,12 +20,12 @@ function client(): Stripe {
 }
 
 /**
- * Create a Stripe Customer. Idempotent on the Airtable customer record id —
- * re-calling with the same airtableCustomerId returns the same Stripe Customer
+ * Create a Stripe Customer. Idempotent on the LaunchPad customer id —
+ * re-calling with the same customerId returns the same Stripe Customer
  * (Stripe handles this via idempotency-key headers).
  */
 export async function createStripeCustomer(params: {
-  airtableCustomerId: string;
+  customerId: string;
   email: string;
   name: string;
   metadata?: Record<string, string>;
@@ -35,11 +35,11 @@ export async function createStripeCustomer(params: {
       email: params.email,
       name: params.name,
       metadata: {
-        airtable_customer_id: params.airtableCustomerId,
+        launchpad_customer_id: params.customerId,
         ...(params.metadata ?? {}),
       },
     },
-    { idempotencyKey: `cust_create_${params.airtableCustomerId}` },
+    { idempotencyKey: `cust_create_${params.customerId}` },
   );
 }
 
@@ -51,7 +51,7 @@ export async function createStripeCustomer(params: {
  */
 export async function createSetupIntent(params: {
   stripeCustomerId: string;
-  airtableCustomerId: string;
+  customerId: string;
 }): Promise<Stripe.SetupIntent> {
   return client().setupIntents.create(
     {
@@ -59,20 +59,20 @@ export async function createSetupIntent(params: {
       payment_method_types: ['card'],
       usage: 'off_session',
       metadata: {
-        airtable_customer_id: params.airtableCustomerId,
+        launchpad_customer_id: params.customerId,
       },
     },
-    { idempotencyKey: `setup_intent_${params.airtableCustomerId}` },
+    { idempotencyKey: `setup_intent_${params.customerId}` },
   );
 }
 
 /**
  * Create a subscription using a previously-saved payment method.
- * Idempotent on the Airtable customer id — call this safely from
+ * Idempotent on the LaunchPad customer id — call this safely from
  * webhook retries.
  */
 export async function createSubscription(params: {
-  airtableCustomerId: string;
+  customerId: string;
   stripeCustomerId: string;
   stripePriceId: string;
   trialDays: number;
@@ -82,7 +82,7 @@ export async function createSubscription(params: {
     customer: params.stripeCustomerId,
     items: [{ price: params.stripePriceId }],
     metadata: {
-      airtable_customer_id: params.airtableCustomerId,
+      launchpad_customer_id: params.customerId,
     },
   };
   if (params.trialDays > 0) {
@@ -92,15 +92,13 @@ export async function createSubscription(params: {
     subParams.default_payment_method = params.paymentMethodId;
   }
   return client().subscriptions.create(subParams, {
-    idempotencyKey: `sub_create_${params.airtableCustomerId}`,
+    idempotencyKey: `sub_create_${params.customerId}`,
   });
 }
 
 /**
  * Verify a Stripe webhook signature and return the parsed event.
  * Throws if the signature is invalid (so the route returns 400).
- *
- * Phase 1.7 will use this; exporting now so the lib is one place.
  */
 export function verifyWebhookSignature(
   rawBody: string,

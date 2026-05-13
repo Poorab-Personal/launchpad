@@ -1,11 +1,8 @@
 /**
- * Auto 2 port — Task Completed → Activate Dependents + Advance Stage.
+ * Auto 2 — Task Completed → Activate Dependents + Advance Stage.
  *
- * Mirrors scripts/airtable-automations/auto2-activate-dependents.js. The
- * big architectural change vs. the legacy script: dependencies are read
- * from the task_dependencies junction table (real FKs) instead of a
- * comma-separated text field. CLAUDE.md's "Do NOT use multi-record
- * Depends On links" warning is no longer relevant.
+ * Dependencies are read from the `task_dependencies` junction table
+ * (real FKs), not comma-separated text.
  *
  * Invoked from db.updateTaskStatus / db.updateTaskFields whenever a task
  * transitions to Completed. No route-level changes needed.

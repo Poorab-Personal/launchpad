@@ -122,6 +122,12 @@ scripts/
   list-tables.ts              -- npm run db:list
   smoke-{db,auto1,auto2}.ts   -- Manual smoke checks against real Neon (auto2 self-cleans)
   pitr-drill-{prep,verify}.ts -- Periodic PITR restore drill — proves backups work
+  hubspot-poc/                -- HubSpot integration PoC validation script (npm run hubspot:poc)
+
+launchpad-integration/         -- HubSpot Developer Platform Project App (file-based, deployed via `hs project upload`)
+  src/app/app-hsmeta.json     -- Scopes, distribution, static auth config
+  src/app/webhooks/           -- Webhook subscriptions
+  See docs/integrations/hubspot-integration.md for the full architecture.
 
 docs/
   schema/production-schema.md -- Postgres schema reference (Drizzle is source-of-truth code-wise)

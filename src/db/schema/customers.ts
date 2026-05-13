@@ -83,6 +83,10 @@ export const customers = pgTable(
     productTier: productTierEnum('product_tier'),
     paymentStatus: paymentStatusEnum('payment_status'),
 
+    // HubSpot integration cross-system anchors — populated by /api/webhooks/hubspot on closedwon
+    hubspotContactId: text('hubspot_contact_id'),                                  // 1:1 — UNIQUE indexed (see below)
+    hubspotTicketId: text('hubspot_ticket_id'),                                    // the current Customer Journey ticket
+
     // Stripe — written by payment-mode Phase 1 flow + Stripe webhook
     stripeCustomerId: text('stripe_customer_id'),
     stripeSubscriptionId: text('stripe_subscription_id'),
@@ -159,6 +163,13 @@ export const customers = pgTable(
     // — dedup + UNIQUE migration is a separate ticket. Auditor 2026-05-11.
     platformEmailIdx: index('customers_platform_email_idx').on(table.platformEmail),
     contactEmailIdx: index('customers_contact_email_idx').on(table.contactEmail),
+    // HubSpot cross-system anchors. hubspot_contact_id is UNIQUE to prevent
+    // duplicate customer creation on webhook retries. hubspot_ticket_id is
+    // indexed for ticket-driven webhook routing.
+    hubspotContactIdUnique: uniqueIndex('customers_hubspot_contact_id_unique')
+      .on(table.hubspotContactId)
+      .where(sql`${table.hubspotContactId} IS NOT NULL`),
+    hubspotTicketIdIdx: index('customers_hubspot_ticket_id_idx').on(table.hubspotTicketId),
     // Drives "all customers on workflow X" queries and per-stage filters.
     workflowKeyIdx: index('customers_workflow_key_idx').on(table.workflowKey),
     // Belt-and-suspenders: even if app-layer resolution glitches, workflow_key

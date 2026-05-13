@@ -3,8 +3,7 @@ import { updateCustomerFields } from '@/lib/db';
 
 // Whitelist of customer fields the PATCH endpoint accepts. Anything outside
 // this list is silently dropped (prevents accidental writes to system fields
-// like access_token, id, created_at). The fieldMap Title-Case translation
-// from the airtable.ts era is gone — Drizzle accepts camelCase directly.
+// like access_token, id, created_at). Drizzle accepts camelCase keys directly.
 const ALLOWED: ReadonlySet<string> = new Set([
   'name',
   'contactEmail',

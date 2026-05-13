@@ -13,8 +13,9 @@ export * from './workflowTemplates';
 export * from './stripePlans';
 export * from './settings';
 export * from './events';
+export * from './customerSubscriptions';
+export * from './hubspotInboundEvents';
 
 // Cross-table FK constraints on customers.brokerage_id, customers.roster_record_id,
-// customers.csm_team_member_id, and roster.customer_id land in migration 0001
-// (after this batch's 0001 creates the referenced tables; the FKs become 0002).
-// See docs/plans/airtable-to-postgres-migration.md §5.
+// customers.csm_team_member_id, and roster.customer_id were added in migration 0002
+// (after migration 0001 created the referenced tables).

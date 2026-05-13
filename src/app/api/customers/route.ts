@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
   if (paymentMode === 'setup-intent-at-intake') {
     try {
       const stripeCustomer = await createStripeCustomer({
-        airtableCustomerId: customer.id,                             // arg name preserved in lib/stripe.ts — metadata key on Stripe side
+        customerId: customer.id,
         email,
         name,
       });

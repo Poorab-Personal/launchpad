@@ -9,8 +9,6 @@ import {
  * body: { approval: 'Approved' | 'Changes Requested', feedback?: string }
  *
  * Thin dispatcher. Business logic lives in src/lib/automations/design-approval.ts.
- * Post-Phase-3 refactor — this route was the last @/lib/airtable-client
- * consumer (12 calls); now uses db.ts + new automation modules exclusively.
  */
 export async function POST(
   request: NextRequest,
