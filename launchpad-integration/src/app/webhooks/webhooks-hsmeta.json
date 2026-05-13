@@ -3,7 +3,7 @@
   "type": "webhooks",
   "config": {
     "settings": {
-      "targetUrl": "https://webhook.site/dac62026-4ff8-4ec3-8522-e570b742a8f0",
+      "targetUrl": "https://launchpad-indol-ten.vercel.app/api/webhooks/hubspot",
       "maxConcurrentRequests": 10
     },
     "subscriptions": {
