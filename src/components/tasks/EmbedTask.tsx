@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Script from 'next/script';
 import type { Task } from '@/types';
 
 /**
@@ -21,6 +22,20 @@ function withCalendlyEmbedParams(url: string): string {
     if (!u.searchParams.has('embed_type')) {
       u.searchParams.set('embed_type', 'Inline');
     }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * HubSpot Meetings: ensure `?embed=true` is set so the embedded experience
+ * fires postMessage events (`event.data.meetingBookSucceeded`).
+ */
+function withHubSpotMeetingsParams(url: string): string {
+  try {
+    const u = new URL(url);
+    if (!u.searchParams.has('embed')) u.searchParams.set('embed', 'true');
     return u.toString();
   } catch {
     return url;
@@ -78,15 +93,20 @@ export default function EmbedTask({
     task.taskName.toLowerCase().includes('watch');
 
   const isCalendly = task.embedUrl?.includes('calendly.com') ?? false;
+  const isHubSpotMeetings = task.embedUrl?.includes('meetings.hubspot.com') ?? false;
+  const isBookingEmbed = isCalendly || isHubSpotMeetings;
 
-  // For Calendly, augment the URL with embed params on the client.
-  // For other embeds (videos), pass through unchanged.
+  // For Calendly: append embed_domain + embed_type so postMessage events fire.
+  // For HubSpot Meetings: append embed=true so the embedded UX fires events.
+  // Other embeds (videos) pass through unchanged.
   const embedUrl = useMemo(() => {
     if (!mounted || !task.embedUrl) return '';
-    return isCalendly ? withCalendlyEmbedParams(task.embedUrl) : task.embedUrl;
-  }, [mounted, task.embedUrl, isCalendly]);
+    if (isCalendly) return withCalendlyEmbedParams(task.embedUrl);
+    if (isHubSpotMeetings) return withHubSpotMeetingsParams(task.embedUrl);
+    return task.embedUrl;
+  }, [mounted, task.embedUrl, isCalendly, isHubSpotMeetings]);
 
-  const handleCalendlyBooked = useCallback(async () => {
+  const handleBookingConfirmed = useCallback(async () => {
     setBooked(true);
     setLoading(true);
     setError(null);
@@ -108,24 +128,37 @@ export default function EmbedTask({
     }
   }, [task.id, onComplete]);
 
-  // Listen for Calendly's postMessage events:
-  //  - "calendly.profile_page_viewed" → widget is fully loaded; dismiss spinner
-  //  - "calendly.event_scheduled"     → booking confirmed; mark task complete
+  // Listen for booking confirmations from either scheduler.
+  //
+  // Calendly events: event.data.event === 'calendly.event_scheduled' (plus
+  // 'calendly.profile_page_viewed' / 'calendly.event_type_viewed' as the
+  // load-done signal).
+  //
+  // HubSpot Meetings events: event.data.meetingBookSucceeded === true.
+  // HubSpot doesn't have a distinct "widget loaded" event we can reliably
+  // catch — we dismiss the spinner on iframe onLoad instead.
   useEffect(() => {
-    if (!isCalendly) return;
+    if (!isBookingEmbed) return;
     function handleMessage(event: MessageEvent) {
-      const ev = event.data?.event;
-      if (typeof ev !== 'string' || !ev.startsWith('calendly.')) return;
-      if (ev === 'calendly.profile_page_viewed' || ev === 'calendly.event_type_viewed') {
-        setIframeLoading(false);
+      // Calendly
+      const calEv = event.data?.event;
+      if (typeof calEv === 'string' && calEv.startsWith('calendly.')) {
+        if (calEv === 'calendly.profile_page_viewed' || calEv === 'calendly.event_type_viewed') {
+          setIframeLoading(false);
+        }
+        if (calEv === 'calendly.event_scheduled') {
+          handleBookingConfirmed();
+        }
+        return;
       }
-      if (ev === 'calendly.event_scheduled') {
-        handleCalendlyBooked();
+      // HubSpot Meetings
+      if (event.data?.meetingBookSucceeded) {
+        handleBookingConfirmed();
       }
     }
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isCalendly, handleCalendlyBooked]);
+  }, [isBookingEmbed, handleBookingConfirmed]);
 
   async function handleComplete() {
     setLoading(true);
@@ -179,10 +212,10 @@ export default function EmbedTask({
         <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
       )}
       {testFillEnabled &&
-        (isCalendly || task.taskName.toLowerCase().includes('schedule your onboarding')) && (
+        (isBookingEmbed || task.taskName.toLowerCase().includes('schedule your onboarding')) && (
         <div className="flex items-center justify-between rounded-lg border border-dashed border-[#6C4AB6]/40 bg-[#6C4AB6]/5 px-4 py-2 text-xs">
           <span className="text-[#6C4AB6]">
-            Test mode — skip Calendly and simulate a completed booking?
+            Test mode — skip the scheduler and simulate a completed booking?
           </span>
           <button
             type="button"
@@ -195,14 +228,14 @@ export default function EmbedTask({
         </div>
       )}
       {task.embedUrl ? (
-        <div className={`relative overflow-hidden rounded-lg border border-[#E0DEE4] ${isCalendly ? 'h-[800px]' : 'h-[700px]'}`}>
+        <div className={`relative overflow-hidden rounded-lg border border-[#E0DEE4] ${isBookingEmbed ? 'h-[800px]' : 'h-[700px]'}`}>
           {iframeLoading && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#F7F4EB] gap-3">
               <span className="h-8 w-8 animate-spin rounded-full border-2 border-[#6C4AB6]/30 border-t-[#6C4AB6]" />
               <p className="text-sm text-[#1B2E35]/60">
-                {isCalendly ? 'Loading your booking calendar…' : 'Loading…'}
+                {isBookingEmbed ? 'Loading your booking calendar…' : 'Loading…'}
               </p>
-              {isCalendly && (
+              {isBookingEmbed && (
                 <p className="text-xs text-[#1B2E35]/40">
                   This can take a few seconds
                 </p>
@@ -213,6 +246,20 @@ export default function EmbedTask({
             <div className="flex items-center justify-center p-10 text-sm text-[#1B2E35]/60">
               Failed to load content. Please try refreshing the page.
             </div>
+          ) : mounted && isHubSpotMeetings ? (
+            // HubSpot Meetings: their script renders the iframe inside this div.
+            <>
+              <Script
+                src="https://static.hsappstatic.net/MeetingsEmbed/ex/MeetingsEmbedCode.js"
+                strategy="afterInteractive"
+                onLoad={() => setIframeLoading(false)}
+                onError={() => { setIframeLoading(false); setIframeError(true); }}
+              />
+              <div
+                className="meetings-iframe-container w-full h-full"
+                data-src={embedUrl}
+              />
+            </>
           ) : mounted ? (
             <iframe
               src={embedUrl}
@@ -246,8 +293,8 @@ export default function EmbedTask({
         </div>
       )}
 
-      {/* Only show Mark Complete for non-Calendly tasks (videos, etc.) */}
-      {!isCalendly && (
+      {/* Hide Mark Complete for booking embeds — they auto-complete via postMessage. */}
+      {!isBookingEmbed && (
         <button
           onClick={handleComplete}
           disabled={loading}
