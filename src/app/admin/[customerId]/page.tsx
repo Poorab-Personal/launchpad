@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getCustomerById, getTasksForCustomer, getTeamMembers, getBrokerageById } from '@/lib/db';
 import type { TaskStatus } from '@/types';
+import { deleteCustomerAction } from './actions';
+import DeleteCustomerButton from './delete-customer-button';
 
 const statusColor: Record<TaskStatus, string> = {
   Draft: 'bg-[#E0DEE4]/50 text-[#1B2E35]/60',
@@ -72,11 +74,17 @@ export default async function CustomerDetailPage({
       </Link>
 
       {/* Customer header */}
-      <div className="mb-6 rounded-lg border border-[#E0DEE4] bg-white p-6 shadow-[0px_4px_12px_#1B2E3514]">
-        <h1 className="mb-1 font-[var(--font-outfit)] text-2xl font-bold text-[#1B2E35]">{customer.name}</h1>
-        {customer.businessName && (
-          <p className="text-sm text-[#1B2E35]/60">{customer.businessName}</p>
-        )}
+      <div className="mb-6 rounded-lg border border-[#E0DEE4] bg-white p-6 shadow-[0px_4px_12px_#1B2E3514] flex items-start justify-between gap-4">
+        <div>
+          <h1 className="mb-1 font-[var(--font-outfit)] text-2xl font-bold text-[#1B2E35]">{customer.name}</h1>
+          {customer.businessName && (
+            <p className="text-sm text-[#1B2E35]/60">{customer.businessName}</p>
+          )}
+        </div>
+        <form action={deleteCustomerAction}>
+          <input type="hidden" name="id" value={customer.id} />
+          <DeleteCustomerButton customerName={customer.name} />
+        </form>
       </div>
 
       {/* Identity */}
