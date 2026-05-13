@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import Stripe from 'stripe';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
@@ -115,83 +116,100 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
 
   if (!stripeCustomerId) throw new Error('Stripe customer not resolved');
 
-  // ─── 4. Insert Customer + Subscriptions + generate tasks ────────────────
-  // D2C-Standard is the only D2C workflow today.
-  const channelRow = await db.query.channels.findFirst({
-    where: (channels, { eq }) => eq(channels.code, 'Standard'),
+  // ─── 4. Resume-or-create LaunchPad customer ─────────────────────────────
+  // If a customer with this hubspot_contact_id already exists, we're resuming
+  // a previous run that partially failed (e.g. between DB commit and HubSpot
+  // push). Skip the insert + Welcome email + Stripe metadata steps; pick up
+  // at the HubSpot push.
+  const existingCustomer = await db.query.customers.findFirst({
+    where: (customers, { eq: eqOp }) => eqOp(customers.hubspotContactId, deal.contactId),
   });
-  if (!channelRow) {
-    throw new Error('No "Standard" channel found in DB — required for D2C closedwon');
-  }
 
-  const customerName = [deal.contactFirstName, deal.contactLastName]
-    .filter(Boolean)
-    .join(' ')
-    .trim() || deal.dealName || deal.contactEmail || 'Unknown';
+  let customer = existingCustomer ?? null;
+  let isNewCustomer = false;
 
-  // Read trial-vs-active status from the first sub for the customer.subscriptionStatus mirror.
-  const firstSub = subLookups[0].sub;
-  const subStatusMirror: 'Active' | 'Trial' = firstSub.status === 'trialing' ? 'Trial' : 'Active';
+  if (!customer) {
+    isNewCustomer = true;
 
-  const customer = await db.transaction(async (tx) => {
-    const [inserted] = await tx
-      .insert(schema.customers)
-      .values({
-        name: customerName,
-        type: 'D2C',
-        channelId: channelRow.id,
-        workflowKey: 'D2C-Standard',
-        contactEmail: deal.magicLinkEmail!,                                       // where the magic link goes
-        platformEmail: deal.contactEmail!,                                        // canonical contact email
-        phone: deal.contactPhone ?? null,
-        businessName: deal.contactCompany ?? null,
-        currentStage: 'Getting Started',
-        hubspotContactId: deal.contactId,
-        hubspotDealId: deal.dealId,
-        stripeCustomerId,
-        // Legacy single-value mirror columns kept in sync for backwards-compat
-        // during transition. customer_subscriptions is the new source of truth.
-        stripeSubscriptionId: firstSub.id,
-        subscriptionStatus: subStatusMirror,
-        hasVoice: subLookups.some((s) => s.product === 'Voice'),
-        hasAvatar: subLookups.some((s) => s.product === 'Avatar'),
-      })
-      .returning();
-
-    // Insert one customer_subscriptions row per Stripe sub we found.
-    await tx.insert(schema.customerSubscriptions).values(
-      subLookups.map(({ product, sub }) => ({
-        customerId: inserted.id,
-        product,
-        stripeSubscriptionId: sub.id,
-        hubspotDealId: deal.dealId,
-        status: mapStripeSubStatus(sub.status),
-        startedAt: sub.start_date ? new Date(sub.start_date * 1000) : null,
-        endedAt: sub.ended_at ? new Date(sub.ended_at * 1000) : null,
-      })),
-    );
-
-    await generateTasksFromTemplate(tx, {
-      customerId: inserted.id,
-      type: inserted.type,
-      channel: 'Standard',
-      brokerageId: null,
-      hasVoice: inserted.hasVoice,
-      hasAvatar: inserted.hasAvatar,
+    // D2C-Standard is the only D2C workflow today.
+    const channelRow = await db.query.channels.findFirst({
+      where: (channels, { eq: eqOp }) => eqOp(channels.code, 'Standard'),
     });
+    if (!channelRow) {
+      throw new Error('No "Standard" channel found in DB — required for D2C closedwon');
+    }
 
-    return inserted;
-  });
+    const customerName = [deal.contactFirstName, deal.contactLastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim() || deal.dealName || deal.contactEmail || 'Unknown';
 
-  // ─── 5. Send Welcome email (magic-link in template) ─────────────────────
-  // Best-effort; doesn't block downstream pushes.
-  try {
-    await triggerCustomerEmail('welcome', customer.id);
-  } catch (err) {
-    console.warn('[hubspot closedwon] Welcome email failed (non-blocking)', err);
+    const firstSub = subLookups[0].sub;
+    const subStatusMirror: 'Active' | 'Trial' = firstSub.status === 'trialing' ? 'Trial' : 'Active';
+
+    customer = await db.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(schema.customers)
+        .values({
+          name: customerName,
+          type: 'D2C',
+          channelId: channelRow.id,
+          workflowKey: 'D2C-Standard',
+          contactEmail: deal.magicLinkEmail!,
+          platformEmail: deal.contactEmail!,
+          phone: deal.contactPhone ?? null,
+          businessName: deal.contactCompany ?? null,
+          currentStage: 'Getting Started',
+          hubspotContactId: deal.contactId,
+          hubspotDealId: deal.dealId,
+          stripeCustomerId,
+          stripeSubscriptionId: firstSub.id,
+          subscriptionStatus: subStatusMirror,
+          hasVoice: subLookups.some((s) => s.product === 'Voice'),
+          hasAvatar: subLookups.some((s) => s.product === 'Avatar'),
+        })
+        .returning();
+
+      await tx.insert(schema.customerSubscriptions).values(
+        subLookups.map(({ product, sub }) => ({
+          customerId: inserted.id,
+          product,
+          stripeSubscriptionId: sub.id,
+          hubspotDealId: deal.dealId,
+          status: mapStripeSubStatus(sub.status),
+          startedAt: sub.start_date ? new Date(sub.start_date * 1000) : null,
+          endedAt: sub.ended_at ? new Date(sub.ended_at * 1000) : null,
+        })),
+      );
+
+      await generateTasksFromTemplate(tx, {
+        customerId: inserted.id,
+        type: inserted.type,
+        channel: 'Standard',
+        brokerageId: null,
+        hasVoice: inserted.hasVoice,
+        hasAvatar: inserted.hasAvatar,
+      });
+
+      return inserted;
+    });
+  } else {
+    console.log('[hubspot closedwon] resuming previous partial run', {
+      customerId: customer.id,
+      hubspotContactId: deal.contactId,
+    });
   }
 
-  // ─── 6. Update Stripe metadata on customer + each subscription ──────────
+  // ─── 5. Send Welcome email (only on NEW customer) ───────────────────────
+  if (isNewCustomer) {
+    try {
+      await triggerCustomerEmail('welcome', customer.id);
+    } catch (err) {
+      console.warn('[hubspot closedwon] Welcome email failed (non-blocking)', err);
+    }
+  }
+
+  // ─── 6. Update Stripe metadata — idempotent on Stripe's side ────────────
   const metadata = {
     launchpad_customer_id: customer.id,
     hubspot_contact_id: deal.contactId,
@@ -206,31 +224,35 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
     console.warn('[hubspot closedwon] Stripe metadata update failed (non-blocking)', err);
   }
 
-  // ─── 7. Push to HubSpot: create Ticket + update Contact + Deal ──────────
-  const { ticketId } = await createCustomerJourneyTicket({
-    subject: `${customerName} - CJ`,
-    stageLabel: 'Pre-Onboarding',
-    contactId: deal.contactId,
-    dealId: deal.dealId,
-    customProperties: {
-      launchpad_customer_id: customer.id,
-    },
-  });
+  // ─── 7. Push to HubSpot: create Ticket (if not already) + update props ──
+  let ticketId = customer.hubspotTicketId ?? null;
+  if (!ticketId) {
+    const customerName = customer.name;
+    const created = await createCustomerJourneyTicket({
+      subject: `${customerName} - CJ`,
+      stageLabel: 'Pre-Onboarding',
+      contactId: deal.contactId,
+      dealId: deal.dealId,
+      // NOTE: no custom properties set on Ticket creation. Per the lean-property
+      // audit (2026-05-13), launchpad_customer_id is NOT a Ticket property —
+      // the Contact association already links the ticket back to the customer.
+    });
+    ticketId = created.ticketId;
 
-  // Store the ticket ID on the customer row
-  await db
-    .update(schema.customers)
-    .set({ hubspotTicketId: ticketId })
-    .where((await import('drizzle-orm')).eq(schema.customers.id, customer.id));
+    await db
+      .update(schema.customers)
+      .set({ hubspotTicketId: ticketId })
+      .where(eq(schema.customers.id, customer.id));
+  }
 
-  // Update Contact custom properties (LaunchPad anchors)
+  // Update Contact custom properties (LaunchPad anchors) — idempotent
   await updateContactProperties(deal.contactId, {
     launchpad_customer_id: customer.id,
     stripe_customer_id: stripeCustomerId,
     rejig_brokerage_channel: 'D2C',
   });
 
-  // Update Deal custom property
+  // Update Deal custom property — idempotent
   await updateDealProperties(deal.dealId, {
     launchpad_customer_id: customer.id,
   });
@@ -240,7 +262,7 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
     hubspotContactId: deal.contactId,
     hubspotDealId: deal.dealId,
     hubspotTicketId: ticketId,
-    subscriptionsCreated: subLookups.length,
+    subscriptionsCreated: isNewCustomer ? subLookups.length : 0,
   };
 }
 
