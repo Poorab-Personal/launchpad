@@ -109,13 +109,57 @@ export default async function CustomerDetailPage({
         </Section>
       )}
 
-      {/* Payment (D2C only) */}
-      {customer.type === 'D2C' && (
+      {/* Payment (D2C only) — actual payment-related fields only */}
+      {customer.type === 'D2C' && (customer.productTier || customer.paymentStatus) && (
         <Section title="Payment">
           <Field label="Product Tier" value={customer.productTier ?? ''} />
           <Field label="Payment Status" value={customer.paymentStatus ?? ''} />
-          <Field label="HubSpot Deal ID" value={customer.hubspotDealId} />
-          <Field label="Stripe Payment ID" value={customer.stripePaymentId} />
+        </Section>
+      )}
+
+      {/* Cross-System References — all IDs as clickable links */}
+      {(customer.hubspotContactId ||
+        customer.hubspotDealId ||
+        customer.hubspotTicketId ||
+        customer.stripeCustomerId ||
+        customer.stripeSubscriptionId) && (
+        <Section title="Cross-System References">
+          <LinkField
+            label="HubSpot Contact"
+            value={customer.hubspotContactId}
+            href={hubspotContactUrl(customer.hubspotContactId)}
+          />
+          <LinkField
+            label="HubSpot Deal"
+            value={customer.hubspotDealId}
+            href={hubspotDealUrl(customer.hubspotDealId)}
+          />
+          <LinkField
+            label="HubSpot Ticket"
+            value={customer.hubspotTicketId}
+            href={hubspotTicketUrl(customer.hubspotTicketId)}
+          />
+          <LinkField
+            label="Stripe Customer"
+            value={customer.stripeCustomerId}
+            href={stripeCustomerUrl(customer.stripeCustomerId)}
+          />
+          <LinkField
+            label="Stripe Subscription — Core"
+            value={customer.stripeSubscriptionId}
+            href={stripeSubscriptionUrl(customer.stripeSubscriptionId)}
+          />
+          <LinkField
+            label="Stripe Subscription — Voice"
+            value={customer.voiceStripeId}
+            href={stripeSubscriptionUrl(customer.voiceStripeId)}
+          />
+          <LinkField
+            label="Stripe Subscription — Avatar"
+            value={customer.avatarStripeId}
+            href={stripeSubscriptionUrl(customer.avatarStripeId)}
+          />
+          <Field label="LaunchPad Customer ID" value={customer.id} />
         </Section>
       )}
 
@@ -336,4 +380,71 @@ function Field({ label, value }: { label: string; value: string }) {
       <dd className="text-sm text-[#1B2E35]">{value}</dd>
     </div>
   );
+}
+
+function LinkField({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: string;
+  href: string | null;
+}) {
+  if (!value) return null;
+  return (
+    <div>
+      <dt className="text-xs font-medium uppercase text-[#1B2E35]/40">{label}</dt>
+      <dd className="text-sm text-[#1B2E35] truncate">
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#6C4AB6] hover:text-[#6C4AB6]/80 hover:underline"
+            title={value}
+          >
+            {value}
+          </a>
+        ) : (
+          value
+        )}
+      </dd>
+    </div>
+  );
+}
+
+// HubSpot portal ID for Rejig (audit 2026-05-12, confirmed).
+const HUBSPOT_PORTAL_ID = '44956899';
+
+function hubspotContactUrl(id: string): string | null {
+  if (!id) return null;
+  return `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-1/${id}`;
+}
+
+function hubspotDealUrl(id: string): string | null {
+  if (!id) return null;
+  return `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-3/${id}`;
+}
+
+function hubspotTicketUrl(id: string): string | null {
+  if (!id) return null;
+  return `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-5/${id}`;
+}
+
+function isStripeTestMode(): boolean {
+  // Stripe test keys start with sk_test_ — used in non-prod environments.
+  return process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ?? false;
+}
+
+function stripeCustomerUrl(id: string): string | null {
+  if (!id) return null;
+  const prefix = isStripeTestMode() ? 'test/' : '';
+  return `https://dashboard.stripe.com/${prefix}customers/${id}`;
+}
+
+function stripeSubscriptionUrl(id: string): string | null {
+  if (!id) return null;
+  const prefix = isStripeTestMode() ? 'test/' : '';
+  return `https://dashboard.stripe.com/${prefix}subscriptions/${id}`;
 }

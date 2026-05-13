@@ -245,11 +245,14 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
       .where(eq(schema.customers.id, customer.id));
   }
 
-  // Update Contact custom properties (LaunchPad anchors) — idempotent
+  // Update Contact custom properties (LaunchPad anchors) — idempotent.
+  // NOTE: HubSpot enum properties take the INTERNAL value (lowercase snake_case),
+  // NOT the display label. rejig_brokerage_channel options are configured as
+  // d2c / b2b_keyes / b2b_bw / b2b_ipre.
   await updateContactProperties(deal.contactId, {
     launchpad_customer_id: customer.id,
     stripe_customer_id: stripeCustomerId,
-    rejig_brokerage_channel: 'D2C',
+    rejig_brokerage_channel: 'd2c',
   });
 
   // Update Deal custom property — idempotent

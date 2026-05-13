@@ -120,6 +120,10 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
     productTier: row.productTier,
     paymentStatus: row.paymentStatus,
 
+    // HubSpot integration cross-system anchors
+    hubspotContactId: row.hubspotContactId ?? '',
+    hubspotTicketId: row.hubspotTicketId ?? '',
+
     // Enterprise (B2B)
     brokerage: arrFromId(row.brokerageId),
     rosterRecord: arrFromId(row.rosterRecordId),

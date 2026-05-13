@@ -78,6 +78,10 @@ export interface Customer {
   productTier: ProductTier | null;
   paymentStatus: PaymentStatus | null;
 
+  // HubSpot integration cross-system anchors (added 2026-05-13 with /api/webhooks/hubspot)
+  hubspotContactId: string;
+  hubspotTicketId: string;
+
   // Stripe — populated per Workflow Templates.Payment Mode (see plans/payment-mode-dropoff.md)
   stripeCustomerId: string;
   stripeSubscriptionId: string;
