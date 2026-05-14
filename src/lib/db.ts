@@ -899,6 +899,146 @@ export async function getSetting(key: string): Promise<string | null> {
   return row?.value ?? null;
 }
 
+// ─── Public API: Stuck-customers admin view ─────────────────────────────
+//
+// Read-only tactical view over the existing `customers` table — surfaces
+// customers in pre-launch stages whose `stage_entered_at` is older than
+// a threshold (3d / 7d). Used by the `/admin` stuck-customers tile and
+// the `/admin/stuck` drill-down. Phase 4 BI cron will eventually
+// supersede this with the `attention_reason`-driven view, but until
+// those columns land this gives admin a quick "who's blocked?" lens.
+//
+// "Stuck" definition (matches the spec in docs/plans/post-launch-migration.md
+// discussion): `current_stage NOT IN ('Launched', 'Done')` AND
+// `stage_entered_at < NOW() - INTERVAL '<n> days'`.
+
+/** Days-stuck thresholds the tile surfaces. Order matters (drill-down assumes 3 ≤ 7). */
+export const STUCK_THRESHOLD_DAYS = [3, 7] as const;
+export type StuckThreshold = (typeof STUCK_THRESHOLD_DAYS)[number];
+
+/** Workflow keys we break stuck-customer counts down by. Matches the seeded set in workflow_templates. */
+export const STUCK_WORKFLOW_KEYS = ['D2C-Standard', 'B2B-Keyes', 'B2B-BW'] as const;
+export type StuckWorkflowKey = (typeof STUCK_WORKFLOW_KEYS)[number];
+
+export interface StuckCustomerSummary {
+  /** {threshold-days → {workflowKey → count}}. */
+  counts: Record<StuckThreshold, Record<StuckWorkflowKey, number>>;
+  /** B2B-Keyes 7-day cohort with no stripe_subscription_id — the most-concerning subset. */
+  keyesStuckWithoutCardCount: number;
+}
+
+export interface StuckCustomerRow {
+  id: string;
+  name: string;
+  workflowKey: string;
+  currentStage: string;
+  stageEnteredAt: string;
+  daysStuck: number;
+  accessToken: string;
+  hubspotTicketId: string;
+  stripeSubscriptionId: string;
+  createdAt: string;
+}
+
+/**
+ * Aggregate counts for the `/admin` tile. One query — all stuck customers
+ * older than the smallest threshold — bucketed in TS. Cheaper than
+ * 6 round-trips and the table is small enough that filtering in-process
+ * is fine.
+ */
+export async function getStuckCustomerSummary(): Promise<StuckCustomerSummary> {
+  const minThreshold = Math.min(...STUCK_THRESHOLD_DAYS);
+  const rows = await db
+    .select({
+      workflowKey: schema.customers.workflowKey,
+      currentStage: schema.customers.currentStage,
+      stageEnteredAt: schema.customers.stageEnteredAt,
+      stripeSubscriptionId: schema.customers.stripeSubscriptionId,
+    })
+    .from(schema.customers)
+    .where(
+      and(
+        sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done')`,
+        sql`${schema.customers.stageEnteredAt} < NOW() - (${minThreshold} || ' days')::interval`,
+      ),
+    );
+
+  const counts = {
+    3: { 'D2C-Standard': 0, 'B2B-Keyes': 0, 'B2B-BW': 0 },
+    7: { 'D2C-Standard': 0, 'B2B-Keyes': 0, 'B2B-BW': 0 },
+  } as Record<StuckThreshold, Record<StuckWorkflowKey, number>>;
+  let keyesStuckWithoutCardCount = 0;
+
+  const now = Date.now();
+  for (const r of rows) {
+    if (!r.stageEnteredAt) continue;
+    const days = Math.floor((now - new Date(r.stageEnteredAt).getTime()) / 86_400_000);
+    const wk = r.workflowKey as StuckWorkflowKey;
+    if (!STUCK_WORKFLOW_KEYS.includes(wk)) continue;
+    for (const threshold of STUCK_THRESHOLD_DAYS) {
+      if (days >= threshold) counts[threshold][wk] += 1;
+    }
+    if (days >= 7 && wk === 'B2B-Keyes' && !r.stripeSubscriptionId) {
+      keyesStuckWithoutCardCount += 1;
+    }
+  }
+
+  return { counts, keyesStuckWithoutCardCount };
+}
+
+/**
+ * Drill-down list for `/admin/stuck`. Returns the actual customer rows
+ * matching a (workflowKey, threshold) filter — optionally restricted to
+ * the "no Stripe subscription" subset for the B2B-Keyes 7d cohort.
+ */
+export async function getStuckCustomers(options: {
+  workflowKey: StuckWorkflowKey;
+  thresholdDays: StuckThreshold;
+  noCardOnly?: boolean;
+}): Promise<StuckCustomerRow[]> {
+  const { workflowKey, thresholdDays, noCardOnly } = options;
+  const whereClauses = [
+    eq(schema.customers.workflowKey, workflowKey),
+    sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done')`,
+    sql`${schema.customers.stageEnteredAt} < NOW() - (${thresholdDays} || ' days')::interval`,
+  ];
+  if (noCardOnly) {
+    whereClauses.push(sql`${schema.customers.stripeSubscriptionId} IS NULL`);
+  }
+
+  const rows = await db
+    .select({
+      id: schema.customers.id,
+      name: schema.customers.name,
+      workflowKey: schema.customers.workflowKey,
+      currentStage: schema.customers.currentStage,
+      stageEnteredAt: schema.customers.stageEnteredAt,
+      accessToken: schema.customers.accessToken,
+      hubspotTicketId: schema.customers.hubspotTicketId,
+      stripeSubscriptionId: schema.customers.stripeSubscriptionId,
+      createdAt: schema.customers.createdAt,
+    })
+    .from(schema.customers)
+    .where(and(...whereClauses))
+    .orderBy(asc(schema.customers.stageEnteredAt));
+
+  const now = Date.now();
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    workflowKey: r.workflowKey,
+    currentStage: r.currentStage,
+    stageEnteredAt: iso(r.stageEnteredAt),
+    daysStuck: r.stageEnteredAt
+      ? Math.floor((now - new Date(r.stageEnteredAt).getTime()) / 86_400_000)
+      : 0,
+    accessToken: r.accessToken,
+    hubspotTicketId: r.hubspotTicketId ?? '',
+    stripeSubscriptionId: r.stripeSubscriptionId ?? '',
+    createdAt: iso(r.createdAt),
+  }));
+}
+
 // ─── Cache invalidation hook ────────────────────────────────────────────
 
 export { clearChannelCache, channelIdForCode };
