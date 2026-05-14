@@ -6,6 +6,8 @@
 > **Implementation note (post-cutover 2026-05-12):** the customer journey here is unchanged. The implementation moved from Airtable to Postgres. "Auto N" references in this doc map to `src/lib/automations/`:
 > - Auto 1 → `generate-tasks.ts` · Auto 2 → `activate-dependents.ts` · Auto 4 → in `activate-dependents.ts` (Mark Onboarding Call Complete branch) · Auto 5/6 emails → `trigger-email.ts` · Auto 8 Stripe sub → `handle-call-completed.ts` · Design approval → `design-approval.ts`.
 
+> **Cross-flow comparison:** See [README.md](./README.md) before reading this doc end-to-end. It captures the forks between this flow and D2C-Standard / B2B-BW (design-approval gate, parallel vs sequential Prepare-for-Onboarding, payment model, customer record creation source).
+
 ## Overview
 
 - **Workflow Key:** `B2B-Keyes`
@@ -13,7 +15,8 @@
 - **Channel:** Keyes
 - **Total Tasks:** 13 (from templates) + dynamic reschedule tasks
 - **Stages:** 5 + Done
-- **Key differences from D2C:** No design phase, data pre-populated from roster, includes Stripe trial, CSM assigned at call booking
+- **Key differences from D2C:** No design phase (broker mandates the design), data pre-populated from roster, includes Stripe trial as a gate before booking, Prepare-for-Onboarding runs **sequentially after** the call is booked (D2C is parallel), CSM assigned at call booking.
+- **Key differences from B2B-BW:** Adds Stripe trial signup as a gate between form submission and booking the call.
 
 ## Entry Point
 

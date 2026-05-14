@@ -8,6 +8,8 @@
 >
 > B2B-BW has **no Stripe trial** in the customer-facing flow, but Auto 8 (`handle-call-completed.ts`) still runs on call completion if the workflow template specifies `setup-intent-at-intake`. Today B2B-BW does not.
 
+> **Cross-flow comparison:** See [README.md](./README.md) before reading this doc end-to-end. It captures the forks between this flow and D2C-Standard / B2B-Keyes (design-approval gate, parallel vs sequential Prepare-for-Onboarding, payment model, customer record creation source).
+
 ## Overview
 
 - **Workflow Key:** `B2B-BW`
@@ -15,6 +17,7 @@
 - **Channel:** BW
 - **Total Tasks:** 12 (from templates) + dynamic reschedule tasks
 - **Stages:** 5 + Done
+- **Key differences from D2C:** No design phase (broker mandates the design), data pre-populated from roster, no payment of any kind (brokerage master agreement), Prepare-for-Onboarding runs **sequentially after** the call is booked (D2C is parallel).
 - **Key difference from Keyes:** No Stripe trial. Agent goes straight from confirming info to booking call.
 
 ## Entry Point

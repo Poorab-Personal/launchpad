@@ -11,6 +11,8 @@
 > - Auto 8 (Stripe sub) → `handle-call-completed.ts`
 > - Design approval → `design-approval.ts`
 
+> **Cross-flow comparison:** See [README.md](./README.md) before reading this doc end-to-end. It captures the forks between this flow and B2B-Keyes / B2B-BW (design-approval gate, parallel vs sequential Prepare-for-Onboarding, payment model, customer record creation source).
+
 ## Overview
 
 - **Workflow Key:** `D2C-Standard`
@@ -18,6 +20,7 @@
 - **Channel:** Standard (all D2C channels use this flow unless a channel-specific fork is created)
 - **Total Tasks:** 17 (from templates) + dynamic revision tasks
 - **Stages:** 6 + Done
+- **Distinctive feature:** Rejig creates custom designs the agent must approve before they can book the onboarding call. After approval, Prepare-for-Onboarding (account creation, credentials, watch video, sign in) runs **in parallel** with the agent scheduling the call.
 
 ## Entry Point
 
@@ -83,6 +86,22 @@ HubSpot deal closes → Zapier creates Customer record in Airtable → Auto 1 ge
 - Team track: Move to prod → create account → send credentials
 - Both tracks must complete before the onboarding call
 
+### ⚠️ Parallel-track UX caveats (D2C-specific)
+
+Because the customer-side "Schedule Onboarding Call" task (Stage 2) and the team-side Prepare-for-Onboarding chain (Stage 3) both gate on design approval, the customer can end up with **active tasks across two stages at once**:
+
+```
+Stage 2 (Review Your Designs):   🟢 Schedule Your Onboarding Call (Client)
+Stage 3 (Prepare for Onboarding): 🟢 Watch Setup Video (Client)
+                                  🟢 Sign In & Reset Password (Client)
+```
+
+The portal's default stage selection currently shows `customer.currentStage`, which advances based on stage-order logic. If `currentStage` is still "Review Your Designs" when the customer gets the "Send Credentials" email, clicking the email link lands them on the Schedule task — not the Watch Video / Sign In tasks they expected.
+
+This is **by design** (parallel tracks are intentional, see above) but the portal UX needs to either (a) auto-advance `currentStage` when Stage 3 customer tasks activate, or (b) deep-link emails to specific tasks rather than the stage default. **Neither is built today.**
+
+B2B flows don't hit this issue because their Prepare-for-Onboarding is sequential — only one stage has active customer tasks at a time.
+
 **Customer experience:**
 - After booking call, sees locked tasks with message: "We're setting up your account. You'll receive your login credentials shortly."
 - Gets email when credentials are sent
@@ -101,7 +120,7 @@ HubSpot deal closes → Zapier creates Customer record in Airtable → Auto 1 ge
 
 | # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
 |---|---|---|---|---|---|---|---|
-| 12 | Mark Onboarding Call Complete | Team | CSM (specific, from Customer.CSM Assigned) | Draft | — | None | CSM marks complete after call. |
+| 12 | Mark Onboarding Call Complete | Team | CSM (specific, from Customer.CSM Assigned) | Draft | — | None | Has no dependencies in template — historically activated by Calendly webhook + Auto 4; in the HubSpot era this needs the ticket-stage → LaunchPad webhook (not yet built). See README.md rule of thumb #2. |
 
 **No-show handling:**
 - CSM sets status to "No Show" (not Completed)
