@@ -133,6 +133,36 @@ export const customers = pgTable(
     // Status tracking
     currentStage: text('current_stage').notNull(),
     stageEnteredAt: timestamp('stage_entered_at', { withTimezone: true }),
+
+    // Post-launch HubSpot ticket pipeline-stage mirror (Phase 2 schema —
+    // populated by Phase 3 bi-directional sync, read by Phase 4 BI cron).
+    // NULL while customer is pre-launch; takes values like 'Pre-Onboarding',
+    // 'Onboarding Scheduled', 'Active', 'Watch', 'At-Risk', 'Critical',
+    // 'On Hold', 'Churned' once they pass through Launched.
+    // currentStage and onboardingState never share a value — different state
+    // machines (pre-launch vs post-launch). See docs/plans/post-launch-migration.md
+    // scrutiny point 7.
+    onboardingState: text('onboarding_state'),
+    // The "why" behind a Watch/At-Risk/Critical state. Set by BI rules
+    // (Phase 4) or HubSpot Workflows. Examples: 'engagement_drop_30d',
+    // 'payment_failed', 'pre_onboarding_no_card_7d'.
+    attentionReason: text('attention_reason'),
+    // When the current attentionReason was set — drives staleness filtering
+    // ("attention reasons set >14d ago are likely stale, surface for CSM review").
+    attentionSetAt: timestamp('attention_set_at', { withTimezone: true }),
+
+    // Provenance: how this LP customer record got created. Drives behavior
+    // forks in trigger-email.ts (suppress Welcome on 'backfill') and
+    // generate-tasks.ts (skip task generation on 'backfill'). The default
+    // 'organic' covers any pre-Phase-2 customer (no migration backfill needed).
+    //   organic       — created via /admin Add Customer or future landing page
+    //   closedwon     — created via the HubSpot Deal closedwon webhook
+    //   b2b_landing   — (future) created via /keyes /bw brokerage landing
+    //   backfill      — created retroactively from HS / Rejig via a script;
+    //                   no welcome email, no LP task pipeline
+    //   admin         — created by admin tooling outside the normal flow
+    createdVia: text('created_via').notNull().default('organic'),
+
     accountCreated: boolean('account_created').notNull().default(false),
     credentialsSent: boolean('credentials_sent').notNull().default(false),
     callBooked: boolean('call_booked').notNull().default(false),

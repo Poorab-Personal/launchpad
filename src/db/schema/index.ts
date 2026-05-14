@@ -15,6 +15,8 @@ export * from './settings';
 export * from './events';
 export * from './customerSubscriptions';
 export * from './hubspotInboundEvents';
+export * from './customerStateTransitions';
+export * from './customerUsageSignals';
 
 // Cross-table FK constraints on customers.brokerage_id, customers.roster_record_id,
 // customers.csm_team_member_id, and roster.customer_id were added in migration 0002

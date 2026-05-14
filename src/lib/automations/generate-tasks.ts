@@ -42,6 +42,20 @@ export async function generateTasksFromTemplate(
 ): Promise<GenerateTasksResult> {
   const workflowKey = `${args.type}-${args.channel}`;
 
+  // Phase 2: skip task generation for backfilled customers. Backfill
+  // scripts create LP records for already-onboarded customers (from HS
+  // tickets or Rejig users) — they should not get a fresh task pipeline.
+  // Belt-and-suspenders: backfill scripts don't currently call this
+  // function, but if they do later (or admin tooling reuses it), the
+  // skip prevents accidental Welcome emails / task pollution.
+  const customerRow = await tx.query.customers.findFirst({
+    where: eq(schema.customers.id, args.customerId),
+    columns: { createdVia: true },
+  });
+  if (customerRow?.createdVia === 'backfill') {
+    return { totalCount: 0, coreCount: 0, voiceCount: 0, avatarCount: 0, firstStage: '' };
+  }
+
   // ── 1. Resolve Calendly URL (brokerage default → '') ────────────────
   let onboardingCalendlyUrl = '';
   if (args.brokerageId) {

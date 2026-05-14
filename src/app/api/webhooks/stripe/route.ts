@@ -1,7 +1,51 @@
 import { NextRequest } from 'next/server';
 import Stripe from 'stripe';
+import { db } from '@/db';
+import { customerUsageSignals } from '@/db/schema/customerUsageSignals';
 import { verifyWebhookSignature } from '@/lib/stripe';
 import { getCustomers, getTasksForCustomer, updateCustomerFields, updateTaskStatus } from '@/lib/db';
+
+/**
+ * Stripe signal taxonomy (Phase 2 schema — populated here for time-series
+ * BI rules in Phase 4). Each subscription / invoice / setup-intent event
+ * writes one customer_usage_signals row in addition to the existing side
+ * effects (subscriptionStatus update, task completion). 8 types initially
+ * per docs/plans/post-launch-migration.md scrutiny point 13.
+ */
+const SIGNAL_TYPE_BY_EVENT: Record<string, string> = {
+  'customer.subscription.created': 'stripe.subscription.created',
+  'customer.subscription.updated': 'stripe.subscription.updated',      // status transition tracked via signal_value_jsonb
+  'customer.subscription.deleted': 'stripe.subscription.cancelled',
+  'customer.subscription.trial_will_end': 'stripe.subscription.trial_will_end',
+  'invoice.payment_succeeded': 'stripe.invoice.payment_succeeded',
+  'invoice.payment_failed': 'stripe.invoice.payment_failed',
+  'setup_intent.succeeded': 'stripe.setup_intent.succeeded',
+};
+
+async function writeStripeSignal(args: {
+  customerId: string;
+  stripeCustomerId: string;
+  signalType: string;
+  occurredAtSeconds: number;
+  numeric?: number | null;
+  payload: Record<string, unknown>;
+}) {
+  try {
+    await db.insert(customerUsageSignals).values({
+      customerId: args.customerId,
+      signalType: args.signalType,
+      signalValueNumeric: args.numeric != null ? String(args.numeric) : null,
+      signalValueJsonb: { stripeCustomerId: args.stripeCustomerId, ...args.payload },
+      observedAt: new Date(args.occurredAtSeconds * 1000),
+      source: 'stripe_webhook',
+    });
+  } catch (err) {
+    // Signal capture is best-effort. The existing side effects (status
+    // update, task completion) are the canonical state; signal is for
+    // BI history. Don't block the webhook on a signal write failure.
+    console.warn(`[stripe webhook] signal write failed for ${args.signalType}:`, err);
+  }
+}
 
 /**
  * POST /api/webhooks/stripe
@@ -47,13 +91,19 @@ export async function POST(request: NextRequest) {
   try {
     switch (event.type) {
       case 'setup_intent.succeeded':
-        await handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent);
+        await handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent, event);
         break;
 
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted':
-        await handleSubscriptionEvent(event.data.object as Stripe.Subscription, event.type);
+      case 'customer.subscription.trial_will_end':
+        await handleSubscriptionEvent(event.data.object as Stripe.Subscription, event);
+        break;
+
+      case 'invoice.payment_succeeded':
+      case 'invoice.payment_failed':
+        await handleInvoiceEvent(event.data.object as Stripe.Invoice, event);
         break;
 
       default:
@@ -79,7 +129,7 @@ async function findAirtableCustomerByStripeId(stripeCustomerId: string) {
   return customers.find((c) => c.stripeCustomerId === stripeCustomerId) ?? null;
 }
 
-async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
+async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent, event: Stripe.Event) {
   const stripeCustomerId =
     typeof setupIntent.customer === 'string' ? setupIntent.customer : setupIntent.customer?.id;
   if (!stripeCustomerId) {
@@ -93,12 +143,20 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
     return;
   }
 
+  // Phase 2: capture as a usage signal regardless of task state.
+  await writeStripeSignal({
+    customerId: customer.id,
+    stripeCustomerId,
+    signalType: SIGNAL_TYPE_BY_EVENT['setup_intent.succeeded'],
+    occurredAtSeconds: event.created,
+    payload: {
+      setupIntentId: setupIntent.id,
+      paymentMethodId: typeof setupIntent.payment_method === 'string' ? setupIntent.payment_method : setupIntent.payment_method?.id ?? null,
+    },
+  });
+
   // Find this customer's Capture Payment Method task. If it's already
   // Completed, no-op (the client-side /confirm flow already handled it).
-  // (Earlier short-circuit on customer.tasks.length removed: post-Phase-2
-  // the mapper hardcodes that array to [] per architect Q2 signoff —
-  // checking it here would silently kill the server-side fallback for
-  // every customer. The getTasksForCustomer() call below handles empty.)
   const allTasks = await getTasksForCustomer(customer.id);
   const captureTask = allTasks.find((t) => t.taskName === 'Capture Payment Method');
   if (!captureTask) {
@@ -110,12 +168,13 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
     return;
   }
 
-  // Mark it Completed (Auto 2 will then unblock dependents — Phase 3)
+  // Mark it Completed (Auto 2 will then unblock dependents)
   await updateTaskStatus(captureTask.id, 'Completed');
   console.log(`[stripe webhook] marked Capture Payment Method Completed for ${customer.id} (server-side fallback)`);
 }
 
-async function handleSubscriptionEvent(subscription: Stripe.Subscription, eventType: string) {
+async function handleSubscriptionEvent(subscription: Stripe.Subscription, event: Stripe.Event) {
+  const eventType = event.type;
   const stripeCustomerId =
     typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
   if (!stripeCustomerId) {
@@ -142,16 +201,26 @@ async function handleSubscriptionEvent(subscription: Stripe.Subscription, eventT
     paused: 'Past Due',
   };
   const newStatus = statusMap[subscription.status] ?? null;
-  if (!newStatus) {
-    console.log(`[stripe webhook] unmapped subscription status: ${subscription.status}; no-op`);
-    return;
-  }
 
-  // Update only if changed (avoid noisy Airtable writes)
-  if (customer.stripeSubscriptionId === subscription.id) {
-    // Same sub — just update status. Skip if no change is detectable.
-    // (We don't track the previous status in TypeScript Customer type,
-    // but Airtable's update is idempotent per value, so this is fine.)
+  // Phase 2: also write a usage signal for time-series BI. Includes the
+  // mapped LP status so consumers don't have to re-derive it.
+  await writeStripeSignal({
+    customerId: customer.id,
+    stripeCustomerId,
+    signalType: SIGNAL_TYPE_BY_EVENT[eventType] ?? 'stripe.subscription.updated',
+    occurredAtSeconds: event.created,
+    payload: {
+      subscriptionId: subscription.id,
+      stripeStatus: subscription.status,
+      mappedLPStatus: newStatus,
+      trialEnd: subscription.trial_end,
+      cancelAt: subscription.cancel_at,
+    },
+  });
+
+  if (!newStatus) {
+    console.log(`[stripe webhook] unmapped subscription status: ${subscription.status}; signal logged, status not updated`);
+    return;
   }
 
   await updateCustomerFields(customer.id, {
@@ -161,4 +230,42 @@ async function handleSubscriptionEvent(subscription: Stripe.Subscription, eventT
   console.log(
     `[stripe webhook] ${eventType}: customer ${customer.id} → status=${newStatus} (sub=${subscription.id})`,
   );
+}
+
+/**
+ * Invoice events — no canonical state side effects today (subscription
+ * events handle the customer's subscription_status). Just record the
+ * signal for BI's payment-history view. Phase 4 rules will use these.
+ */
+async function handleInvoiceEvent(invoice: Stripe.Invoice, event: Stripe.Event) {
+  const eventType = event.type;
+  const stripeCustomerId =
+    typeof invoice.customer === 'string' ? invoice.customer : invoice.customer?.id;
+  if (!stripeCustomerId) {
+    console.warn(`[stripe webhook] ${eventType} with no customer; skipping`);
+    return;
+  }
+
+  const customer = await findAirtableCustomerByStripeId(stripeCustomerId);
+  if (!customer) {
+    console.warn(`[stripe webhook] no LP customer for Stripe customer ${stripeCustomerId} on ${eventType}`);
+    return;
+  }
+
+  await writeStripeSignal({
+    customerId: customer.id,
+    stripeCustomerId,
+    signalType: SIGNAL_TYPE_BY_EVENT[eventType] ?? 'stripe.invoice.unknown',
+    occurredAtSeconds: event.created,
+    numeric: invoice.amount_due ? invoice.amount_due / 100 : null,
+    payload: {
+      invoiceId: invoice.id,
+      amountDue: invoice.amount_due,
+      amountPaid: invoice.amount_paid,
+      currency: invoice.currency,
+      attemptCount: invoice.attempt_count,
+    },
+  });
+
+  console.log(`[stripe webhook] ${eventType}: signal logged for customer ${customer.id}`);
 }

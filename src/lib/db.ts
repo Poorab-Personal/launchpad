@@ -142,6 +142,10 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
     // Status tracking
     currentStage: row.currentStage,
     stageEnteredAt: iso(row.stageEnteredAt),
+    onboardingState: row.onboardingState,
+    attentionReason: row.attentionReason,
+    attentionSetAt: iso(row.attentionSetAt),
+    createdVia: row.createdVia,
     accountCreated: row.accountCreated,
     credentialsSent: row.credentialsSent,
     callBooked: row.callBooked,

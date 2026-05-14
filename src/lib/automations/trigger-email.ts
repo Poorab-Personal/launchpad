@@ -37,6 +37,19 @@ export async function triggerCustomerEmail(
     console.warn(`[triggerCustomerEmail] customer ${customerId} not found; skipping ${template}`);
     return;
   }
+
+  // Phase 2: suppress customer-facing emails for backfilled customers.
+  // Backfill scripts create LP records for HS tickets / Rejig users that
+  // already onboarded — they should not receive Welcome / Design Ready /
+  // other triggered emails. The flag is set by the backfill scripts
+  // themselves; organic customers default to 'organic'.
+  if (customer.createdVia === 'backfill') {
+    console.log(
+      `[triggerCustomerEmail] skipping ${template} for backfill customer ${customerId} (${customer.name})`,
+    );
+    return;
+  }
+
   if (!customer.contactEmail) {
     console.warn(`[triggerCustomerEmail] customer ${customerId} has no contact email; skipping ${template}`);
     return;

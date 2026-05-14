@@ -120,6 +120,10 @@ export interface Customer {
   // Status Tracking
   currentStage: string;
   stageEnteredAt: string;
+  onboardingState: string | null;                            // post-launch HS pipeline-stage mirror (Phase 2+)
+  attentionReason: string | null;                            // BI-set reason for Watch/At-Risk/Critical
+  attentionSetAt: string | null;                             // when attentionReason was set
+  createdVia: string;                                        // 'organic' | 'closedwon' | 'b2b_landing' | 'backfill' | 'admin'
   accountCreated: boolean;
   credentialsSent: boolean;
   callBooked: boolean;

@@ -57,6 +57,13 @@
       "when": 1778787404901,
       "tag": "0007_b2b_hubspot_company_id",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1778794476829,
+      "tag": "0008_phase_2_schema_foundation",
+      "breakpoints": true
     }
   ]
 }
