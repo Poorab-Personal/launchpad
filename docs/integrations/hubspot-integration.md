@@ -189,10 +189,33 @@ CSMs:
 
 ## Enterprise Deals (brokerage associations)
 
-- Keyes Brokerage — deal ID `43014118454`, $22k, closedwon — 48 tickets associated
-- Baird & Warner Enterprise Deal — deal ID `45663908436`, $85k — 193 tickets associated
+- Keyes Brokerage — deal ID `43014118454`, $22k, closedwon — 48 tickets associated (legacy)
+- Baird & Warner Enterprise Deal — deal ID `45663908436`, $85k — 193 tickets associated (legacy)
 
-B2B agents are pushed as Contacts and the resulting Ticket is associated with the enterprise Deal. This gives CSMs brokerage-level rollups out of the box.
+The enterprise Deals are kept clean **going forward (post-Phase-1.5.5, 2026-05-14)**: LaunchPad does NOT associate per-agent Contacts or Tickets to the enterprise Deal. Per-brokerage rollup happens via the Company association instead (see below).
+
+> The legacy associations on the two Deals above (48 / 193 tickets) were from the pre-cutover model. Future agents created by LaunchPad will associate to the brokerage Company only.
+
+## B2B object graph (post-2026-05-14)
+
+LaunchPad's B2B intake handler creates this graph at customer-creation time:
+
+```
+Brokerage Company (HubSpot, pre-existing)
+   ├── Enterprise Deal (NOT touched per-agent — stays clean)
+   ├── Contact (this agent — created at intake unless found by email)
+   │     properties: launchpad_customer_id, rejig_brokerage_channel, rejig_payment_mode
+   └── Ticket (created at intake, stage = Pre-Onboarding)
+         also associated to: Contact + Brokerage Company
+```
+
+**Required config:** `brokerages.hubspot_company_id` for each brokerage. Populated via `scripts/seed-brokerage-hubspot-company-ids.ts`. Current values:
+- Keyes Realty Company: `53893652348`
+- Baird & Warner Company: `51123896468`
+
+**D2C flow is different.** D2C customers come through HubSpot's sales pipeline (Deal → closedwon). The closedwon-handler reads the existing Deal + associated Contact and creates a Ticket associated to both Contact + Deal. D2C doesn't associate to a Company (D2C agents aren't tied to a brokerage). See `src/lib/integrations/hubspot/closedwon-handler.ts`.
+
+**Why no Deal association for B2B agents:** Each brokerage's master enterprise Deal is ONE row. If we associated 100 agents and 100 Tickets to it, the Deal's associations sections would become unusable. The Company association at the Contact + Ticket level provides the same brokerage rollup without polluting the Deal. Phase 4 BI cron will compute `rejig_active_customer_count` on the enterprise Deal as a custom property for AE visibility (no per-agent Deal association needed).
 
 ## Repository artifacts
 

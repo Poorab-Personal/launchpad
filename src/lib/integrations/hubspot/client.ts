@@ -138,16 +138,53 @@ export async function getStageLabelById(stageId: string): Promise<string | null>
   return entry ? entry[0] : null;
 }
 
+/**
+ * Create a Ticket in the Customer Journey pipeline.
+ *
+ * Always associates to the Contact. Optionally associates to a Deal (D2C
+ * closedwon flow) and/or a Company (B2B agent-intake flow).
+ *
+ *   D2C closedwon path:  contactId + dealId (associated to the closedwon Deal)
+ *   B2B intake path:     contactId + companyId (associated to the brokerage)
+ *
+ * The two paths intentionally don't cross — B2B doesn't get a Deal
+ * association (the brokerage's master enterprise Deal stays clean), and
+ * D2C doesn't get a Company association (D2C agents aren't tied to a
+ * brokerage Company).
+ */
 export async function createCustomerJourneyTicket(args: {
   subject: string;
   stageLabel: string;        // e.g. "Pre-Onboarding"
   contactId: string;
-  dealId: string;
-  ownerId?: string;          // HubSpot User ID (optional; from the Deal owner if known)
+  dealId?: string;
+  companyId?: string;
+  ownerId?: string;          // HubSpot User ID (optional)
   customProperties?: Record<string, string | number | boolean | null>;
 }): Promise<{ ticketId: string }> {
   const hs = client();
   const stageId = await getStageIdByLabel(args.stageLabel);
+
+  const associations = [
+    // Ticket → Contact (association type 16)
+    {
+      to: { id: args.contactId },
+      types: [{ associationCategory: HS_DEFINED, associationTypeId: 16 }],
+    },
+  ];
+  if (args.dealId) {
+    // Ticket → Deal (association type 28)
+    associations.push({
+      to: { id: args.dealId },
+      types: [{ associationCategory: HS_DEFINED, associationTypeId: 28 }],
+    });
+  }
+  if (args.companyId) {
+    // Ticket → Company (association type 339, "primary" company)
+    associations.push({
+      to: { id: args.companyId },
+      types: [{ associationCategory: HS_DEFINED, associationTypeId: 339 }],
+    });
+  }
 
   const ticket = await hs.crm.tickets.basicApi.create({
     properties: {
@@ -159,21 +196,107 @@ export async function createCustomerJourneyTicket(args: {
         Object.entries(args.customProperties ?? {}).map(([k, v]) => [k, v == null ? '' : String(v)]),
       ),
     },
-    associations: [
-      // Ticket → Contact (association type 16)
-      {
-        to: { id: args.contactId },
-        types: [{ associationCategory: HS_DEFINED, associationTypeId: 16 }],
-      },
-      // Ticket → Deal (association type 28)
-      {
-        to: { id: args.dealId },
-        types: [{ associationCategory: HS_DEFINED, associationTypeId: 28 }],
-      },
-    ],
+    associations,
   });
 
   return { ticketId: ticket.id };
+}
+
+/**
+ * Search HubSpot for a Contact by email (case-insensitive). Returns the
+ * Contact ID if found, or null. Used by the B2B intake flow to avoid
+ * duplicating Contacts when an agent already exists (e.g. a prior D2C
+ * lead, an imported roster row).
+ */
+export async function findContactByEmail(email: string): Promise<string | null> {
+  const hs = client();
+  const result = await hs.crm.contacts.searchApi.doSearch({
+    filterGroups: [
+      {
+        filters: [
+          { propertyName: 'email', operator: 'EQ' as never, value: email.trim().toLowerCase() },
+        ],
+      },
+    ],
+    properties: ['email'],
+    limit: 1,
+    sorts: [],
+    after: undefined as unknown as string,
+  });
+  return result.results.length > 0 ? result.results[0].id : null;
+}
+
+/**
+ * Create a HubSpot Contact, optionally associating to a Company at create
+ * time. Used by the B2B intake flow.
+ *
+ * If a Contact with this email already exists, the create call will fail
+ * with a 409. Callers should use findContactByEmail first.
+ */
+export async function createContact(args: {
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  phone?: string | null;
+  companyId?: string;          // associate Contact → Company at create
+  customProperties?: Record<string, string | number | boolean | null>;
+}): Promise<{ contactId: string }> {
+  const hs = client();
+
+  const properties: Record<string, string> = {
+    email: args.email.trim(),
+  };
+  if (args.firstName) properties.firstname = args.firstName;
+  if (args.lastName) properties.lastname = args.lastName;
+  if (args.phone) properties.phone = args.phone;
+  for (const [k, v] of Object.entries(args.customProperties ?? {})) {
+    properties[k] = v == null ? '' : String(v);
+  }
+
+  const associations = args.companyId
+    ? [
+        // Contact → Company (association type 1 — primary)
+        {
+          to: { id: args.companyId },
+          types: [{ associationCategory: HS_DEFINED, associationTypeId: 1 }],
+        },
+      ]
+    : undefined;
+
+  const created = await hs.crm.contacts.basicApi.create({
+    properties,
+    associations,
+  });
+
+  return { contactId: created.id };
+}
+
+/**
+ * Ensure a Contact is associated to a Company. Used by the B2B intake
+ * flow when an existing Contact is found (via findContactByEmail) — they
+ * might already have the association, or might not. HubSpot's association
+ * create is idempotent on the same pair, so we just fire-and-forget.
+ */
+export async function ensureContactCompanyAssociation(
+  contactId: string,
+  companyId: string,
+): Promise<void> {
+  const hs = client();
+  try {
+    await hs.crm.associations.v4.basicApi.create(
+      'contacts',
+      contactId,
+      'companies',
+      companyId,
+      [{ associationCategory: HS_DEFINED, associationTypeId: 1 }],
+    );
+  } catch (err) {
+    // Idempotent: 409 = already associated. Don't blow up.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('already exists') && !msg.includes('409')) {
+      throw err;
+    }
+  }
 }
 
 /**

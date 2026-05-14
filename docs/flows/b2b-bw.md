@@ -21,6 +21,12 @@
 - **Key difference from Keyes:** No Stripe trial. Agent goes straight from confirming info to booking call. No Stripe subscription creation at Ticket → Active (the LP ticket-stage webhook is a no-op for B2B-BW since `paymentMode='none'`).
 - **Post-launch lifecycle (2026-05-14):** Once the customer hits `Launched`, all subsequent state lives in HubSpot — see `docs/plans/post-launch-migration.md`.
 
+## HubSpot object graph (post-Phase-1.5.5)
+
+Same shape as B2B-Keyes — see `b2b-keyes.md` "HubSpot object graph" — except `rejig_payment_mode` is `none` (no Stripe trial). B&W's `brokerages.hubspot_company_id` must be set.
+
+---
+
 ## Entry Point
 
 Identical to Keyes — see `docs/flows/b2b-keyes.md` for full entry point documentation.

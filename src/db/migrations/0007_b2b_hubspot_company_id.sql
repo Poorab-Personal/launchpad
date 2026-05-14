@@ -1,0 +1,1 @@
+ALTER TABLE "brokerages" ADD COLUMN "hubspot_company_id" text;

@@ -81,10 +81,12 @@ The `payment_mode` column on `workflow_templates` is the source of truth and fee
 | Workflow | Created by | Trigger |
 |---|---|---|
 | `D2C-Standard` | LaunchPad closedwon webhook handler | HubSpot Deal moves to `closedwon` |
-| `B2B-Keyes` | B2B intake handler (LaunchPad) | Agent verifies email on `/keyes` landing page, found in roster |
-| `B2B-BW` | B2B intake handler (LaunchPad) | Agent verifies email on `/bw` landing page, found in roster |
+| `B2B-Keyes` | B2B intake handler (LaunchPad) | Today: admin Add Customer in `/admin`. Future: agent verifies email on `/keyes` landing page (DMG roster lookup) |
+| `B2B-BW` | B2B intake handler (LaunchPad) | Today: admin Add Customer in `/admin`. Future: `/bw` landing page (DMG roster lookup) |
 
-D2C customers come THROUGH HubSpot (sales flow). B2B customers come from the brokerage roster — they're pre-known, and LaunchPad creates the customer + pushes a Ticket to HubSpot in one shot.
+D2C customers come THROUGH HubSpot (sales flow — LP reads the closedwon Deal). B2B customers DON'T have a Deal — they go straight from form intake to LP customer creation. LaunchPad pushes the agent Contact + Pre-Onboarding Ticket to HubSpot at customer-creation time. Both are associated to the brokerage Company (Keyes Realty or Baird & Warner), NOT to the enterprise Deal.
+
+**B2B Company association requirement:** the brokerages table must have `hubspot_company_id` populated for each brokerage. Without it, the LP→HS push errors out (LP customer still lands, but no HubSpot side-effect). Populate via `scripts/seed-brokerage-hubspot-company-ids.ts`.
 
 ---
 

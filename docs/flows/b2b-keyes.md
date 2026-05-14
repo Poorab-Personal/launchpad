@@ -19,6 +19,27 @@
 - **Key differences from B2B-BW:** Adds Stripe trial signup as a gate between form submission and booking the call.
 - **Post-launch lifecycle (2026-05-14):** Once the customer hits `Launched`, all subsequent state lives in HubSpot. The HubSpot Ticket → `Active` transition triggers Stripe trial subscription creation via the LP ticket-stage webhook handler (the primary belt of the belts-and-suspenders Stripe activation; see `docs/plans/post-launch-migration.md` Q6).
 
+## HubSpot object graph (post-Phase-1.5.5)
+
+LaunchPad creates the HubSpot side at customer-creation time (admin Add Customer today; future `/keyes` brokerage landing page tomorrow):
+
+```
+Keyes Realty Company (HubSpot, pre-existing, owner = Keyes CSM)
+   ├── Enterprise Deal (pre-existing, NOT touched per-agent)
+   ├── Contact (this agent — created at intake if not found by email)
+   │     properties: launchpad_customer_id, rejig_brokerage_channel=b2b_keyes,
+   │                 rejig_payment_mode=setup-intent-at-intake
+   └── Ticket (created at intake)
+         subject: "{Name} - LP", stage: Pre-Onboarding
+         also associated to: Contact + Keyes Realty Company
+```
+
+The Contact-Company association lets CSMs filter HubSpot by Company ("show me all Keyes customers"). The Ticket-Company association rolls up to the brokerage for reporting. The enterprise Deal stays clean — per-agent traceability lives at the Company level, not via Deal associations.
+
+**Required config:** `brokerages.hubspot_company_id` for the Keyes row must be set to the HubSpot Company ID. Populate via `scripts/seed-brokerage-hubspot-company-ids.ts` or Drizzle Studio.
+
+---
+
 ## Entry Point
 
 ```

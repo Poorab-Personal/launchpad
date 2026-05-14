@@ -10,6 +10,7 @@ import {
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { createStripeCustomer } from '@/lib/stripe';
+import { pushB2BCustomerToHubSpot } from '@/lib/integrations/hubspot/b2b-intake-handler';
 import type { Customer } from '@/types';
 
 export async function POST(request: NextRequest) {
@@ -111,6 +112,24 @@ export async function POST(request: NextRequest) {
       console.error('[customers POST] Stripe customer creation failed:', err);
       stripeSyncPending = true;
     }
+  }
+
+  // B2B HubSpot push — fire-and-forget. Creates the agent Contact (or finds
+  // existing) + Pre-Onboarding Ticket associated to brokerage Company. Soft-
+  // fails on any HS error: LP customer already landed, customer can use the
+  // portal; CSM-side experience just won't have a ticket until we fix.
+  // See src/lib/integrations/hubspot/b2b-intake-handler.ts for the full
+  // object graph + association rules.
+  if (type === 'B2B') {
+    void pushB2BCustomerToHubSpot(customer.id).then((result) => {
+      if (result.kind === 'error') {
+        console.error('[customers POST] B2B HS push failed:', result.error);
+      } else if (result.kind === 'skipped') {
+        console.log('[customers POST] B2B HS push skipped:', result.reason);
+      }
+    }).catch((err) => {
+      console.error('[customers POST] B2B HS push threw:', err);
+    });
   }
 
   return Response.json({
