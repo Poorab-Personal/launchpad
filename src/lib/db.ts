@@ -579,6 +579,93 @@ export async function getActiveTasksByCustomer(): Promise<Map<string, Task[]>> {
   return result;
 }
 
+/**
+ * Phase 3+ admin observability: structured stage transition history.
+ * Source for the /admin/[customerId] "Stage History" section.
+ */
+export type CustomerStateTransitionRow = {
+  id: string;
+  fromState: string | null;
+  toState: string;
+  attentionReason: string | null;
+  changeSource: string;
+  sourceDetail: string | null;
+  changedAt: string;
+  rawHubspotEventId: string | null;
+};
+
+export async function getStateTransitionsForCustomer(
+  customerId: string,
+  limit = 50,
+): Promise<CustomerStateTransitionRow[]> {
+  const rows = await db
+    .select({
+      id: schema.customerStateTransitions.id,
+      fromState: schema.customerStateTransitions.fromState,
+      toState: schema.customerStateTransitions.toState,
+      attentionReason: schema.customerStateTransitions.attentionReason,
+      changeSource: schema.customerStateTransitions.changeSource,
+      sourceDetail: schema.customerStateTransitions.sourceDetail,
+      changedAt: schema.customerStateTransitions.changedAt,
+      rawHubspotEventId: schema.customerStateTransitions.rawHubspotEventId,
+    })
+    .from(schema.customerStateTransitions)
+    .where(eq(schema.customerStateTransitions.customerId, customerId))
+    .orderBy(desc(schema.customerStateTransitions.changedAt))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    fromState: r.fromState,
+    toState: r.toState,
+    attentionReason: r.attentionReason,
+    changeSource: r.changeSource,
+    sourceDetail: r.sourceDetail,
+    changedAt: r.changedAt.toISOString(),
+    rawHubspotEventId: r.rawHubspotEventId,
+  }));
+}
+
+/**
+ * Customer's events audit log (LP-internal narrative). Distinct from
+ * stage transitions (post-launch state machine). Used together on the
+ * admin detail page to give a full activity picture.
+ */
+export type CustomerEventRow = {
+  id: string;
+  eventType: string;
+  actorType: string;
+  details: unknown;
+  relatedTaskId: string | null;
+  createdAt: string;
+};
+
+export async function getEventsForCustomer(
+  customerId: string,
+  limit = 50,
+): Promise<CustomerEventRow[]> {
+  const rows = await db
+    .select({
+      id: schema.events.id,
+      eventType: schema.events.eventType,
+      actorType: schema.events.actorType,
+      details: schema.events.details,
+      relatedTaskId: schema.events.relatedTaskId,
+      createdAt: schema.events.createdAt,
+    })
+    .from(schema.events)
+    .where(eq(schema.events.customerId, customerId))
+    .orderBy(desc(schema.events.createdAt))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    eventType: r.eventType,
+    actorType: r.actorType,
+    details: r.details,
+    relatedTaskId: r.relatedTaskId,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
 export async function getTasksAssignedTo(
   teamMemberId: string,
   statuses: TaskStatus[] = ['Active'],

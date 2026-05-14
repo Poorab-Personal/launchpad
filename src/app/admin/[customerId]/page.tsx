@@ -1,9 +1,39 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getCustomerById, getTasksForCustomer, getTeamMembers, getBrokerageById } from '@/lib/db';
+import {
+  getCustomerById,
+  getEventsForCustomer,
+  getStateTransitionsForCustomer,
+  getTasksForCustomer,
+  getTeamMembers,
+  getBrokerageById,
+} from '@/lib/db';
 import type { TaskStatus } from '@/types';
 import { deleteCustomerAction } from './actions';
 import DeleteCustomerButton from './delete-customer-button';
+
+const CHANGE_SOURCE_BADGE: Record<string, string> = {
+  hubspot_workflow: 'bg-[#6C4AB6]/10 text-[#6C4AB6]',
+  hubspot_csm_ui:   'bg-[#05C68E]/10 text-[#05C68E]',
+  hubspot_api_other:'bg-[#1B2E35]/8 text-[#1B2E35]/60',
+  lp_auto2:         'bg-[#DABA21]/10 text-[#DABA21]',
+  lp_bi:            'bg-[#DABA21]/10 text-[#DABA21]',
+  lp_admin:         'bg-[#EC531A]/10 text-[#EC531A]',
+  stripe_webhook:   'bg-[#1B2E35]/8 text-[#1B2E35]/70',
+};
+
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 const statusColor: Record<TaskStatus, string> = {
   Draft: 'bg-[#E0DEE4]/50 text-[#1B2E35]/60',
@@ -25,8 +55,12 @@ export default async function CustomerDetailPage({
     notFound();
   }
 
-  const tasks = await getTasksForCustomer(customer.id);
-  const teamMembers = await getTeamMembers();
+  const [tasks, teamMembers, stateTransitions, eventsLog] = await Promise.all([
+    getTasksForCustomer(customer.id),
+    getTeamMembers(),
+    getStateTransitionsForCustomer(customer.id, 25),
+    getEventsForCustomer(customer.id, 25),
+  ]);
   const memberNameMap = new Map(teamMembers.map((m) => [m.id, m.name]));
   const brokerageName = customer.type === 'B2B' && customer.brokerage.length > 0
     ? (await getBrokerageById(customer.brokerage[0]))?.name ?? ''
@@ -196,6 +230,81 @@ export default async function CustomerDetailPage({
         <Field label="Call Completed" value={customer.callCompleted ? 'Yes' : 'No'} />
         <Field label="CSM Assigned" value={customer.csmAssigned.length > 0 ? memberNameMap.get(customer.csmAssigned[0]) ?? customer.csmAssigned[0] : ''} />
       </Section>
+
+      {/* Stage history + Events activity log */}
+      <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+          <h2 className="mb-1 font-[var(--font-outfit)] text-sm font-semibold uppercase tracking-wider text-[#1B2E35]/60">
+            Stage history
+          </h2>
+          <p className="mb-3 text-xs text-[#1B2E35]/50">
+            HubSpot ticket pipeline transitions. Mirrored via Phase 3 sync.
+          </p>
+          {stateTransitions.length === 0 ? (
+            <p className="text-sm text-[#1B2E35]/50 italic">No transitions yet.</p>
+          ) : (
+            <ol className="space-y-2 text-sm">
+              {stateTransitions.map((t) => (
+                <li key={t.id} className="flex flex-col gap-1 rounded-md border border-[#E0DEE4]/60 bg-[#F7F4EB]/40 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-[#1B2E35]">
+                      {t.fromState ?? '(none)'} <span className="text-[#1B2E35]/40">→</span> {t.toState}
+                    </span>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                        CHANGE_SOURCE_BADGE[t.changeSource] ?? 'bg-[#1B2E35]/8 text-[#1B2E35]/60'
+                      }`}
+                    >
+                      {t.changeSource.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-[#1B2E35]/50">
+                    <span>{relativeTime(t.changedAt)}</span>
+                    {t.sourceDetail && (
+                      <span className="truncate font-mono text-[#1B2E35]/40" title={t.sourceDetail}>
+                        · {t.sourceDetail}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+          <h2 className="mb-1 font-[var(--font-outfit)] text-sm font-semibold uppercase tracking-wider text-[#1B2E35]/60">
+            Activity log
+          </h2>
+          <p className="mb-3 text-xs text-[#1B2E35]/50">
+            LaunchPad-side events: tasks completed, stage advances, design approvals, etc.
+          </p>
+          {eventsLog.length === 0 ? (
+            <p className="text-sm text-[#1B2E35]/50 italic">No events yet.</p>
+          ) : (
+            <ol className="space-y-2 text-sm">
+              {eventsLog.map((e) => (
+                <li key={e.id} className="flex flex-col gap-1 rounded-md border border-[#E0DEE4]/60 bg-[#F7F4EB]/40 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-[#1B2E35]">{e.eventType}</span>
+                    <span className="shrink-0 rounded-full bg-[#1B2E35]/8 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#1B2E35]/60">
+                      {e.actorType}
+                    </span>
+                  </div>
+                  <div className="text-xs text-[#1B2E35]/50">{relativeTime(e.createdAt)}</div>
+                  {e.details != null && (typeof e.details === 'string' ? e.details.length > 0 : true) && (
+                    <div className="mt-1 font-mono text-[10px] text-[#1B2E35]/50 break-all">
+                      {typeof e.details === 'string'
+                        ? e.details
+                        : JSON.stringify(e.details)}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </div>
 
       {/* Tasks grouped by stage */}
       <h2 className="mt-8 mb-4 font-[var(--font-outfit)] text-lg font-semibold text-[#1B2E35]">
