@@ -3,10 +3,38 @@ import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { customers } from '@/db/schema/customers';
+import { customerStateTransitions } from '@/db/schema/customerStateTransitions';
 import { hubspotInboundEvents } from '@/db/schema/hubspotInboundEvents';
 import { processDealClosedWon } from '@/lib/integrations/hubspot/closedwon-handler';
 import { getStageLabelById } from '@/lib/integrations/hubspot/client';
 import { createTrialSubscriptionForCustomer } from '@/lib/automations/handle-call-completed';
+
+/**
+ * Map a HubSpot webhook `sourceType` value onto our locked `change_source`
+ * vocabulary for customer_state_transitions. Phase 3 of the post-launch
+ * migration — see docs/plans/post-launch-migration.md scrutiny point 5.
+ *
+ * API_CHANGE is intentionally NOT mapped here — that case is filtered
+ * out before this fn is called (loop prevention on LP's own writes back
+ * to HubSpot).
+ */
+function mapHubspotChangeSource(hubspotSource: string | undefined): string {
+  switch (hubspotSource) {
+    case 'WORKFLOWS':
+      return 'hubspot_workflow';
+    case 'CRM_UI':
+      return 'hubspot_csm_ui';
+    case 'INTEGRATION':
+    case 'IMPORT':
+    case 'CALCULATED':
+    case 'AUTOMATION_PLATFORM':
+    default:
+      // Catch-all for anything not WORKFLOWS/CRM_UI/API_CHANGE. Other LP-
+      // owned integrations (none today) or unfamiliar HubSpot sources land
+      // here. Stored so we can audit later via the change_source index.
+      return 'hubspot_api_other';
+  }
+}
 
 /**
  * POST /api/webhooks/hubspot
@@ -188,25 +216,26 @@ async function processDealStageChange(eventIdStr: string, event: HubSpotWebhookE
 }
 
 /**
- * B2B-Keyes Stripe trial activation — "belt A" of the belts-and-suspenders
- * design in docs/plans/post-launch-migration.md Q6.
+ * Ticket pipeline-stage change handler. Two responsibilities:
  *
- * When a Customer Journey ticket moves to "Active" (the post-onboarding-call
- * stage), check whether the associated LaunchPad customer is on a
- * setup-intent-at-intake workflow (B2B-Keyes today) without a Stripe
- * subscription created yet. If so, fire the trial-sub-creation flow.
+ *   1. Phase 3 bi-directional sync — log the transition into
+ *      customer_state_transitions + update customers.onboardingState mirror.
+ *      Runs for EVERY non-API_CHANGE stage move regardless of target stage.
+ *      Source of truth for LP's view of post-launch state.
  *
- * Narrow scope — this handler does NOT transition LP tasks, set callBooked,
- * or do any other side effects. Those used to be Auto 4's job (via the now-
- * deleted Mark Onboarding Call Complete task). Post-Phase-1, the trial
- * subscription is the only LP-side post-meeting action.
+ *   2. B2B trial activation (belt A) — for the specific case of stage → Active
+ *      on a setup-intent-at-intake workflow (B2B-Keyes today), fire the trial
+ *      subscription creation. This runs AFTER the transition is logged.
  *
- * Idempotent: createTrialSubscriptionForCustomer() guards on existing sub.
+ * Loop prevention: API_CHANGE events are LP's own writes coming back to us
+ * (e.g. Auto 2 pushes ticket to Onboarding Scheduled via createCustomerJourneyTicket
+ * or pushTicketStage). Those don't get logged via this path — LP-side writers
+ * are responsible for their own transition logging via applyStateTransition()
+ * (Phase 4 helper) so the change_source reflects the real LP origin (lp_auto2 /
+ * lp_bi / lp_admin) instead of a generic API_CHANGE.
  */
 async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhookEvent) {
-  // Loop prevention: skip API-driven stage changes (LP's own pushes from Auto 2
-  // — though Auto 2 only pushes to "Onboarding Scheduled" not "Active", we
-  // still defend in case future code paths push to "Active" from LP).
+  // ─── Loop prevention ───────────────────────────────────────────────────
   if (event.changeSource === 'API_CHANGE') {
     await markProcessed(eventIdStr, 'ignored', `changeSource=API_CHANGE — loop prevention`);
     return;
@@ -227,19 +256,67 @@ async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhoo
     return;
   }
 
-  if (stageLabel !== 'Active') {
-    await markProcessed(eventIdStr, 'ignored', `stage=${stageLabel ?? '(unknown)'}, only Active triggers trial activation`);
+  if (!stageLabel) {
+    await markProcessed(eventIdStr, 'error', `unknown HubSpot stage ID ${event.propertyValue}`);
     return;
   }
 
+  // ─── Find the LP customer ──────────────────────────────────────────────
   const ticketId = String(event.objectId);
   const customer = await db.query.customers.findFirst({
     where: eq(customers.hubspotTicketId, ticketId),
-    columns: { id: true, workflowKey: true, stripeSubscriptionId: true },
+    columns: {
+      id: true,
+      workflowKey: true,
+      stripeSubscriptionId: true,
+      onboardingState: true,
+    },
   });
 
   if (!customer) {
+    // Ticket exists in HS but not in LP. Common case: pre-Phase-1.5.5 tickets
+    // backfilled into HS only, or third-party tickets not from LP. Log + skip.
     await markProcessed(eventIdStr, 'ignored', `no LP customer for ticket ${ticketId}`);
+    return;
+  }
+
+  // ─── Log the transition + update mirror (atomic) ───────────────────────
+  const changeSource = mapHubspotChangeSource(event.changeSource);
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(customerStateTransitions).values({
+        customerId: customer.id,
+        fromState: customer.onboardingState,           // null on initial entry — OK
+        toState: stageLabel,
+        changeSource,
+        sourceDetail: event.sourceId ?? null,          // HubSpot user/app id that drove the change
+        changedAt: new Date(event.occurredAt),
+        rawHubspotEventId: eventIdStr,
+        payload: { hubspotTicketId: ticketId, hubspotChangeSourceRaw: event.changeSource },
+      });
+      await tx
+        .update(customers)
+        .set({ onboardingState: stageLabel })
+        .where(eq(customers.id, customer.id));
+    });
+    console.log('[hubspot webhook] stage transition logged', {
+      customerId: customer.id,
+      from: customer.onboardingState,
+      to: stageLabel,
+      changeSource,
+    });
+  } catch (err) {
+    // If the local log/update fails, halt — don't run trial activation
+    // against an unrecorded transition. HubSpot retry will re-deliver.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[hubspot webhook] transition log failed', msg);
+    await markProcessed(eventIdStr, 'error', `transition log failed: ${msg}`);
+    return;
+  }
+
+  // ─── B2B trial activation (belt A) — only on stage → Active ────────────
+  if (stageLabel !== 'Active') {
+    await markProcessed(eventIdStr, 'processed', null);
     return;
   }
 

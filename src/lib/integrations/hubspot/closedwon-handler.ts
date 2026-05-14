@@ -243,9 +243,12 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
     });
     ticketId = created.ticketId;
 
+    // Seed the post-launch state mirror (Phase 3). The next stage move
+    // arrives via HubSpot webhook with a correct from_state in the
+    // transition log instead of NULL.
     await db
       .update(schema.customers)
-      .set({ hubspotTicketId: ticketId })
+      .set({ hubspotTicketId: ticketId, onboardingState: 'Pre-Onboarding' })
       .where(eq(schema.customers.id, customer.id));
   }
 

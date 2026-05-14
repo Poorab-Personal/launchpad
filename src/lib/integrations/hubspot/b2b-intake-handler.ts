@@ -162,12 +162,15 @@ export async function pushB2BCustomerToHubSpot(customerId: string): Promise<B2BI
     return { kind: 'error', error: `Ticket create failed: ${msg}` };
   }
 
-  // ─── 5. Persist HS ids on LP customer for idempotency + cross-link ────
+  // ─── 5. Persist HS ids + seed onboardingState on LP customer ──────────
+  // The next stage move arrives via HubSpot webhook with a correct
+  // from_state in customer_state_transitions instead of NULL (Phase 3).
   await db
     .update(schema.customers)
     .set({
       hubspotContactId: contactId,
       hubspotTicketId: ticketId,
+      onboardingState: 'Pre-Onboarding',
     })
     .where(eq(schema.customers.id, customer.id));
 
