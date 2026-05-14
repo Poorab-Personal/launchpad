@@ -210,8 +210,9 @@ Create the following workflows, but **leave them OFF until cutover**:
 - **Trigger:** Contact has associated meeting where `Meeting outcome` = `Completed`
 - **Actions:**
   - Set associated Ticket's `Ticket status` (= `hs_pipeline_stage`) to **Active** (the renamed Healthy stage)
-  - Set associated Ticket's `onboarding_completion_state` to `Complete`
   - Set associated Ticket's `onboarding_no_show_count` to `0`
+
+> **Note:** Don't try to set `onboarding_completion_state` — that property was dropped in the 2026-05-13 lean-property audit (see Step 1 line 60). The Meeting record's native `hs_meeting_outcome` already holds this state; duplicating it on the Ticket creates two writers and drift risk.
 
 ### Workflow B: "Meeting outcome → No-show"
 
@@ -227,10 +228,9 @@ Create the following workflows, but **leave them OFF until cutover**:
 
 - **Trigger:** Contact has associated meeting where `Meeting outcome` = `Partial`
 - **Actions:**
-  - Set associated Ticket's `Ticket status` to **Pre-Onboarding**
-  - Set `onboarding_completion_state` to `Partial`
-  - Delay 48h → If still partial → Send email "Let's finish setting up"
-  - Delay 5 days (T+7d total) → If still partial → Send email + set Ticket status to **Watch** with `rejig_attention_reason` = `partial_no_completion`
+  - Set associated Ticket's `Ticket status` to **Pre-Onboarding** (re-enters pre-onboarding so CSM sees it needs follow-up; the Meeting record's `hs_meeting_outcome = Partial` is the source-of-truth for "why")
+  - Delay 48h → If still in Pre-Onboarding → Send email "Let's finish setting up"
+  - Delay 5 days (T+7d total) → If still in Pre-Onboarding → Send email + set Ticket status to **Watch** with `rejig_attention_reason` = `partial_no_completion`
 
 ### Workflow D: "Meeting outcome → Cancelled"
 
@@ -279,7 +279,7 @@ Before declaring Phase 0b done, confirm:
 These are intentionally deferred to Phase 3-4 (cutover with LaunchPad code):
 - ❌ Archiving the 9 old check-in/pre-renewal stages (they stay during transition; archive only after migration)
 - ❌ Archiving the granular pre-onboarding stages (Intake Pending, Design In Progress, Approval Pending) — collapse to Pre-Onboarding at migration
-- ❌ Archiving Onboarded - Partially, Onboarding Completed (become transitional states managed by `onboarding_completion_state` property)
+- ❌ Archiving Onboarded - Partially, Onboarding Completed (transitional states; "Partial" is now expressed via Meeting record's `hs_meeting_outcome` + ticket sitting in Pre-Onboarding, not a ticket-level property)
 - ❌ Archiving Lost - Non-Churn (decide at migration whether to keep, rename, or convert to reason code)
 - ❌ Bulk-migrating the 547 existing tickets to new stages
 - ❌ Activating the HubSpot Workflows

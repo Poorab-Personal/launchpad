@@ -241,7 +241,7 @@ There are two categories of properties with different naming rules:
 
 **Conceptual properties** — named for the *source domain* of the concept:
 - `rejig_*` for properties about the customer's engagement with the **Rejig platform** (the product). Examples: `rejig_engagement_score`, `rejig_health_score`, `rejig_last_login`, `rejig_attention_reason`, `rejig_brokerage_channel`.
-- `onboarding_*` for properties specific to the **onboarding workflow**. Examples: `onboarding_stage`, `onboarding_no_show_count`, `onboarding_completion_state`, `onboarding_portal_url`.
+- `onboarding_*` for properties specific to the **onboarding workflow**. Example (the only one we kept): `onboarding_no_show_count`. (`onboarding_stage`, `onboarding_completion_state`, `onboarding_portal_url` were proposed under this naming but dropped by the audit — see the drops table below.)
 
 **The rule that does NOT change:** never put `launchpad_*` on conceptual properties. Engagement, health, attention, etc. are NOT LaunchPad concepts — LaunchPad just happens to compute them. Use `rejig_*` or `onboarding_*` based on the source domain.
 
