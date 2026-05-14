@@ -72,12 +72,12 @@ async function main() {
 
   console.log('APPLYING...\n');
 
-  const { pushB2BCustomerToHubSpot } = await import('../src/lib/integrations/hubspot/b2b-intake-handler');
+  const { pushCustomerIntakeToHubSpot } = await import('../src/lib/integrations/hubspot/intake-handler');
 
   for (const c of candidates) {
     process.stdout.write(`  ${c.name.padEnd(30)} `);
     try {
-      const result = await pushB2BCustomerToHubSpot(c.id);
+      const result = await pushCustomerIntakeToHubSpot(c.id);
       if (result.kind === 'pushed') {
         console.log(`✅ contact=${result.contactId} (new=${result.contactWasNew}) ticket=${result.ticketId}`);
       } else if (result.kind === 'skipped') {

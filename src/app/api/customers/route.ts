@@ -5,7 +5,7 @@ import * as schema from '@/db/schema';
 import { getBrokerageByDefaultWorkflowKey } from '@/lib/db';
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
-import { pushB2BCustomerToHubSpot } from '@/lib/integrations/hubspot/b2b-intake-handler';
+import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
 import type { Customer } from '@/types';
 
 export async function POST(request: NextRequest) {
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
   // submitted the form but never reached the payment step. The SetupIntent
   // route now creates the Stripe Customer on first use + persists the ID.
 
-  // B2B HubSpot push — awaited (not fire-and-forget). Vercel serverless
+  // HubSpot intake push — awaited (not fire-and-forget). Vercel serverless
   // terminates the function instance when the response returns, so a void
   // promise would not complete reliably (verified 2026-05-14 — a Keyes
   // customer was created but the HS push never landed, only succeeded when
@@ -109,25 +109,27 @@ export async function POST(request: NextRequest) {
   // still return the LP customer — the customer record is canonical, HS is
   // the mirror. Admin can retry the push via backfill script if needed.
   //
-  // See src/lib/integrations/hubspot/b2b-intake-handler.ts for the full
-  // object graph + association rules.
+  // Runs for BOTH D2C and B2B admin-created customers. D2C closedwon
+  // customers come through src/lib/integrations/hubspot/closedwon-handler.ts
+  // and skip this path entirely.
+  //
+  // See src/lib/integrations/hubspot/intake-handler.ts for the full
+  // object graph + association rules per type.
   let hubspotTicketId: string | null = null;
   let hubspotPushError: string | null = null;
-  if (type === 'B2B') {
-    try {
-      const result = await pushB2BCustomerToHubSpot(customer.id);
-      if (result.kind === 'pushed') {
-        hubspotTicketId = result.ticketId;
-      } else if (result.kind === 'error') {
-        hubspotPushError = result.error;
-        console.error('[customers POST] B2B HS push error:', result.error);
-      } else {
-        console.log('[customers POST] B2B HS push skipped:', result.reason);
-      }
-    } catch (err) {
-      hubspotPushError = err instanceof Error ? err.message : String(err);
-      console.error('[customers POST] B2B HS push threw:', err);
+  try {
+    const result = await pushCustomerIntakeToHubSpot(customer.id);
+    if (result.kind === 'pushed') {
+      hubspotTicketId = result.ticketId;
+    } else if (result.kind === 'error') {
+      hubspotPushError = result.error;
+      console.error('[customers POST] HS intake push error:', result.error);
+    } else {
+      console.log('[customers POST] HS intake push skipped:', result.reason);
     }
+  } catch (err) {
+    hubspotPushError = err instanceof Error ? err.message : String(err);
+    console.error('[customers POST] HS intake push threw:', err);
   }
 
   return Response.json({

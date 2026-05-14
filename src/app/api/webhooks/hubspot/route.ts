@@ -10,30 +10,64 @@ import { getStageLabelById } from '@/lib/integrations/hubspot/client';
 import { createTrialSubscriptionForCustomer } from '@/lib/automations/handle-call-completed';
 
 /**
- * Map a HubSpot webhook `sourceType` value onto our locked `change_source`
+ * Our HubSpot App ID. Set when LaunchPad makes API calls — HubSpot stamps
+ * INTEGRATION events with sourceId=this value so we can distinguish OUR
+ * writes from other integrations' writes for loop prevention.
+ *
+ * Discovered from production webhook traffic (sourceId in raw_payload).
+ * If we ever rotate the HubSpot app, update here.
+ */
+const LP_HUBSPOT_APP_ID = '39386685';
+
+/**
+ * Map a HubSpot webhook `changeSource` value onto our locked `change_source`
  * vocabulary for customer_state_transitions. Phase 3 of the post-launch
  * migration — see docs/plans/post-launch-migration.md scrutiny point 5.
  *
- * API_CHANGE is intentionally NOT mapped here — that case is filtered
- * out before this fn is called (loop prevention on LP's own writes back
- * to HubSpot).
+ * HubSpot's actual changeSource values (verified from production webhooks
+ * 2026-05-14):
+ *   AUTOMATION_PLATFORM   — HubSpot Workflow fired the change (Workflow A/F/etc)
+ *   CRM_UI                — a HubSpot user changed it manually (CSM in kanban)
+ *   INTEGRATION           — an API call from a connected app set it. sourceId
+ *                           identifies which app. If our app ID, it's an LP
+ *                           write coming back (loop prevention case — caller
+ *                           filters before mapping). If another integration,
+ *                           land it as hubspot_api_other.
+ *   IMPORT / CALCULATED   — other rare cases; bucket as hubspot_api_other
  */
 function mapHubspotChangeSource(hubspotSource: string | undefined): string {
   switch (hubspotSource) {
-    case 'WORKFLOWS':
+    case 'AUTOMATION_PLATFORM':
       return 'hubspot_workflow';
     case 'CRM_UI':
       return 'hubspot_csm_ui';
     case 'INTEGRATION':
     case 'IMPORT':
     case 'CALCULATED':
-    case 'AUTOMATION_PLATFORM':
     default:
-      // Catch-all for anything not WORKFLOWS/CRM_UI/API_CHANGE. Other LP-
-      // owned integrations (none today) or unfamiliar HubSpot sources land
-      // here. Stored so we can audit later via the change_source index.
+      // Catch-all for anything not Workflows/CSM. Other integrations or
+      // HubSpot-internal sources land here. Stored so we can audit later
+      // via the change_source index.
       return 'hubspot_api_other';
   }
+}
+
+/**
+ * Should we filter this event as LP's own write coming back?
+ *
+ * LP makes API calls to HubSpot via the @hubspot/api-client SDK (e.g.
+ * createCustomerJourneyTicket, pushTicketStage, updateContactProperties).
+ * HubSpot emits webhook events for those property changes with
+ * changeSource=INTEGRATION + sourceId=our-app-id. Without filtering, we'd
+ * log them as if HubSpot did them, causing double-logging + wrong
+ * change_source attribution.
+ *
+ * Phase 4+ LP-side writers will own their own transition logging with
+ * proper change_source (lp_auto2 / lp_bi / lp_admin), so filtering the
+ * webhook echo is the right call.
+ */
+function isLPOwnWrite(event: HubSpotWebhookEvent): boolean {
+  return event.changeSource === 'INTEGRATION' && event.sourceId === LP_HUBSPOT_APP_ID;
 }
 
 /**
@@ -236,8 +270,11 @@ async function processDealStageChange(eventIdStr: string, event: HubSpotWebhookE
  */
 async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhookEvent) {
   // ─── Loop prevention ───────────────────────────────────────────────────
-  if (event.changeSource === 'API_CHANGE') {
-    await markProcessed(eventIdStr, 'ignored', `changeSource=API_CHANGE — loop prevention`);
+  // LP's own API writes come back as INTEGRATION events with sourceId set
+  // to our HubSpot app ID. Skip — the LP-side writer will log the transition
+  // explicitly with proper change_source (lp_auto2 / lp_bi / lp_admin).
+  if (isLPOwnWrite(event)) {
+    await markProcessed(eventIdStr, 'ignored', `LP own write (INTEGRATION + sourceId=${LP_HUBSPOT_APP_ID}) — loop prevention`);
     return;
   }
 
@@ -277,6 +314,15 @@ async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhoo
     // Ticket exists in HS but not in LP. Common case: pre-Phase-1.5.5 tickets
     // backfilled into HS only, or third-party tickets not from LP. Log + skip.
     await markProcessed(eventIdStr, 'ignored', `no LP customer for ticket ${ticketId}`);
+    return;
+  }
+
+  // Skip no-op transitions (e.g. LP just seeded onboardingState='Pre-Onboarding'
+  // and HubSpot's webhook echoes back the same value from the ticket-create
+  // API call — handled above by the LP-own-write filter, but defense-in-depth
+  // for other no-op cases).
+  if (customer.onboardingState === stageLabel) {
+    await markProcessed(eventIdStr, 'ignored', `no-op transition (${stageLabel} → ${stageLabel})`);
     return;
   }
 

@@ -29,6 +29,15 @@ function withCalendlyEmbedParams(url: string): string {
 }
 
 /**
+ * Loom: convert public share URLs (loom.com/share/{id}) into embed URLs
+ * (loom.com/embed/{id}) so the iframe loads the video player instead of
+ * the share landing page. Idempotent for already-embed URLs.
+ */
+function loomShareToEmbed(url: string): string {
+  return url.replace(/^https?:\/\/(www\.)?loom\.com\/share\//, 'https://www.loom.com/embed/');
+}
+
+/**
  * HubSpot Meetings: ensure `?embed=true` is set so the embedded experience
  * fires postMessage events (`event.data.meetingBookSucceeded`).
  */
@@ -94,6 +103,7 @@ export default function EmbedTask({
 
   const isCalendly = task.embedUrl?.includes('calendly.com') ?? false;
   const isHubSpotMeetings = task.embedUrl?.includes('meetings.hubspot.com') ?? false;
+  const isLoom = task.embedUrl?.includes('loom.com') ?? false;
   const isBookingEmbed = isCalendly || isHubSpotMeetings;
 
   // For Calendly: append embed_domain + embed_type so postMessage events fire.
@@ -103,8 +113,9 @@ export default function EmbedTask({
     if (!mounted || !task.embedUrl) return '';
     if (isCalendly) return withCalendlyEmbedParams(task.embedUrl);
     if (isHubSpotMeetings) return withHubSpotMeetingsParams(task.embedUrl);
+    if (isLoom) return loomShareToEmbed(task.embedUrl);
     return task.embedUrl;
-  }, [mounted, task.embedUrl, isCalendly, isHubSpotMeetings]);
+  }, [mounted, task.embedUrl, isCalendly, isHubSpotMeetings, isLoom]);
 
   const handleBookingConfirmed = useCallback(async () => {
     setBooked(true);
