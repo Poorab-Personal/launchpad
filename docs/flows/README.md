@@ -1,16 +1,18 @@
 # Onboarding flows — overview & key forks
 
-LaunchPad runs three distinct onboarding workflows. They look similar at a glance (form → onboarding call → ongoing) but **fork in important ways** that determine task dependencies, automations, and customer experience.
+LaunchPad runs three distinct onboarding workflows. They look similar at a glance (form → onboarding call → launched) but **fork in important ways** that determine task dependencies, automations, and customer experience.
 
 **Read this before reading any individual flow doc.** Bugs creep in when one flow's pattern is assumed to apply to another.
 
+> **2026-05-14 — post-launch architectural simplification (Phase 1).** LaunchPad's responsibility now ends at `Launched` (customer has credentials + signed in). Everything post-launch (CSM tasks, attention-state management, check-ins) lives in HubSpot. The 6 post-launch task templates were deleted from all three workflows; see `docs/plans/post-launch-migration.md` for the full migration plan.
+
 ## The three workflows
 
-| Workflow Key | For | Total Tasks | Doc |
+| Workflow Key | For | Total Tasks (post-Phase-1) | Doc |
 |---|---|---|---|
-| `D2C-Standard` | Direct-to-consumer real estate agents | 17 + revision tasks | [d2c-standard.md](./d2c-standard.md) |
-| `B2B-Keyes` | Keyes brokerage agents | 13 + reschedule tasks | [b2b-keyes.md](./b2b-keyes.md) |
-| `B2B-BW` | Baird & Warner brokerage agents | 12 + reschedule tasks | [b2b-bw.md](./b2b-bw.md) |
+| `D2C-Standard` | Direct-to-consumer real estate agents | 11 + revision tasks | [d2c-standard.md](./d2c-standard.md) |
+| `B2B-Keyes` | Keyes brokerage agents | 8 + reschedule tasks | [b2b-keyes.md](./b2b-keyes.md) |
+| `B2B-BW` | Baird & Warner brokerage agents | 7 + reschedule tasks | [b2b-bw.md](./b2b-bw.md) |
 
 ---
 
@@ -90,8 +92,12 @@ D2C customers come THROUGH HubSpot (sales flow). B2B customers come from the bro
 
 1. **`workflow_templates` is the source of truth for stages and dependencies.** When unsure how a task gets activated, query: `SELECT stage, task_title, depends_on FROM workflow_templates WHERE workflow_key = '<key>' ORDER BY stage_order, task_order;`
 
-2. **Mark Onboarding Call Complete has no dependencies in any template.** It's the hand-off marker between customer-side scheduling and CSM-side post-call work. Historically activated by Calendly webhook + Auto 4 logic; in the HubSpot era this needs a ticket-stage webhook handler (HubSpot Ticket → `Active` → mark this task Completed). Until that webhook is built, this task will sit as Draft after the call completes and the entire Post Onboarding / Review & Grow chain won't activate. **This is the same shape across all three workflows.**
+2. **There is no longer a `Mark Onboarding Call Complete` task** (deleted 2026-05-14 in Phase 1). The post-launch lifecycle lives entirely in HubSpot — Workflow A moves the Ticket → `Active` when the Meeting outcome flips to `Completed`. The LaunchPad → HubSpot bi-directional sync (Phase 3 of the migration) mirrors that into `customers.onboardingState`. The only LP-side action triggered by Ticket → `Active` is Stripe trial-sub creation for B2B-Keyes-style workflows (belt A in the plan).
 
 3. **A change to one flow shouldn't silently apply to the others.** All three workflows are independent rows in `workflow_templates`. When updating, always verify which `workflow_key` you're touching — and consider whether the change should propagate to the others or is fork-specific.
 
 4. **D2C portal default-stage UX:** Because Prepare-for-Onboarding runs parallel for D2C, a customer can have active tasks across two stages at once (Stage 2 "Schedule Call" AND Stage 3 "Watch Video / Sign In"). The portal's default-stage selection has to handle this — see `d2c-standard.md` for known caveats.
+
+5. **`Launched` is the terminal stage for Core workflows** (after Phase 1). Auto 2's "no next stage" branch writes `currentStage = 'Launched'` for `product='Core'`; Voice/Avatar add-on workflows retain `'Done'` as their terminal. When a Core customer reaches `Launched`, LaunchPad also pushes the HubSpot Ticket from `Pre-Onboarding` → `Onboarding Scheduled` (best-effort) — that's the hand-off point where HS Workflows F / A / B / etc. take over the lifecycle.
+
+6. **The customer portal switches surfaces at Launched.** `/r/[token]` renders `<PortalHandyPage>` when `customer.currentStage === 'Launched'`, with links to the product, support session booking, and an account summary. The `TaskList` view is hidden — the customer's onboarding journey is complete.

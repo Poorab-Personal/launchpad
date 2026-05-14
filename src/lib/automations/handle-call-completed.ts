@@ -1,19 +1,24 @@
 /**
- * Auto 8 port — create Stripe subscription when an Onboarding call completes.
+ * Auto 8 port — create Stripe subscription for setup-intent-at-intake
+ * workflows (B2B-Keyes today) when the onboarding flow signals "the call
+ * has happened, time to start billing."
  *
- * Trigger conditions (re-checked here as defense in depth):
- *   Calls.Status = Completed
- *   AND Calls.Type = Onboarding
- *   AND Customer.workflowTemplates[0].paymentMode = 'setup-intent-at-intake'
+ * Trigger conditions (defense in depth — re-checked here):
+ *   Customer.workflow_template[0].paymentMode = 'setup-intent-at-intake'
  *   AND Customer.stripeCustomerId is set
  *   AND Customer.selectedStripePriceId is set
  *   AND Customer.stripeSubscriptionId is empty (idempotency guard)
  *
  * Fired by:
- *   - updateCall() helper in src/lib/db.ts when call.status transitions
- *     to 'Completed' AND type='Onboarding'
- *   - the legacy /api/webhooks/calls/completed route (which Airtable Auto 8
- *     still POSTs to during the cutover window — same logic shared)
+ *   - The HubSpot Ticket pipeline-stage webhook when a ticket moves to
+ *     'Active' (the primary path post-Phase-1; see
+ *     docs/plans/post-launch-migration.md Q6 belts-and-suspenders A).
+ *   - handleCallCompleted() (legacy Call-based path — kept for the
+ *     legacy Calendly webhook + workspace "Mark Onboarding Call Complete"
+ *     code paths that still exist for in-flight customers).
+ *
+ * Idempotent on the Stripe side (Stripe rejects duplicate sub creation
+ * for the same customer+price gracefully).
  */
 import {
   getCallById,
@@ -28,21 +33,15 @@ export type HandleCallCompletedResult =
   | { kind: 'skipped'; reason: string }
   | { kind: 'error'; error: string; status?: number };
 
-export async function handleCallCompleted(
-  callId: string,
+/**
+ * Customer-first entry point. Validates eligibility then creates the
+ * trial Stripe subscription. Used by the ticket-stage webhook and the
+ * legacy Call wrapper.
+ */
+export async function createTrialSubscriptionForCustomer(
+  customerId: string,
+  source: 'ticket-stage-active' | 'mark-onboarding-call-complete' | 'legacy-call-webhook',
 ): Promise<HandleCallCompletedResult> {
-  const call = await getCallById(callId);
-  if (!call) return { kind: 'error', error: 'Call not found', status: 404 };
-  if (call.status !== 'Completed') {
-    return { kind: 'skipped', reason: `Call status is ${call.status}, not Completed` };
-  }
-  if (call.type !== 'Onboarding') {
-    return { kind: 'skipped', reason: `Call type is ${call.type}, not Onboarding` };
-  }
-
-  const customerId = call.customer[0];
-  if (!customerId) return { kind: 'error', error: 'Call has no Customer link', status: 400 };
-
   const customer = await getCustomerById(customerId);
   if (!customer) return { kind: 'error', error: 'Customer not found', status: 404 };
 
@@ -93,7 +92,7 @@ export async function handleCallCompleted(
   });
 
   console.log(
-    `[handleCallCompleted] Created sub ${subscription.id} (status=${subscription.status}, trial=${trialDays}d) for customer ${customer.id}`,
+    `[createTrialSubscriptionForCustomer:${source}] Created sub ${subscription.id} (status=${subscription.status}, trial=${trialDays}d) for customer ${customer.id}`,
   );
 
   return {
@@ -102,4 +101,28 @@ export async function handleCallCompleted(
     status: subscription.status,
     trialEnd: subscription.trial_end,
   };
+}
+
+/**
+ * Legacy wrapper — looks up the Call, validates Call shape, then delegates.
+ * Kept for the existing /api/webhooks/calls/completed route + updateCall()
+ * cascade path so in-flight customers + the legacy Calendly webhook don't
+ * break during the Phase 1 migration.
+ */
+export async function handleCallCompleted(
+  callId: string,
+): Promise<HandleCallCompletedResult> {
+  const call = await getCallById(callId);
+  if (!call) return { kind: 'error', error: 'Call not found', status: 404 };
+  if (call.status !== 'Completed') {
+    return { kind: 'skipped', reason: `Call status is ${call.status}, not Completed` };
+  }
+  if (call.type !== 'Onboarding') {
+    return { kind: 'skipped', reason: `Call type is ${call.type}, not Onboarding` };
+  }
+
+  const customerId = call.customer[0];
+  if (!customerId) return { kind: 'error', error: 'Call has no Customer link', status: 400 };
+
+  return createTrialSubscriptionForCustomer(customerId, 'legacy-call-webhook');
 }

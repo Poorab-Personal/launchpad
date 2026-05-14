@@ -15,10 +15,11 @@
 - **Workflow Key:** `B2B-BW`
 - **Customer Type:** B2B
 - **Channel:** BW
-- **Total Tasks:** 12 (from templates) + dynamic reschedule tasks
-- **Stages:** 5 + Done
+- **Total Tasks:** 7 (from templates, post-Phase-1) + dynamic reschedule tasks
+- **Stages:** 2 + Launched (post-Phase-1: Getting Started → Prepare for Onboarding → Launched)
 - **Key differences from D2C:** No design phase (broker mandates the design), data pre-populated from roster, no payment of any kind (brokerage master agreement), Prepare-for-Onboarding runs **sequentially after** the call is booked (D2C is parallel).
-- **Key difference from Keyes:** No Stripe trial. Agent goes straight from confirming info to booking call.
+- **Key difference from Keyes:** No Stripe trial. Agent goes straight from confirming info to booking call. No Stripe subscription creation at Ticket → Active (the LP ticket-stage webhook is a no-op for B2B-BW since `paymentMode='none'`).
+- **Post-launch lifecycle (2026-05-14):** Once the customer hits `Launched`, all subsequent state lives in HubSpot — see `docs/plans/post-launch-migration.md`.
 
 ## Entry Point
 
@@ -65,38 +66,21 @@ Identical to Keyes Stage 2.
 
 ---
 
-## Stage 3: Onboarding Call (Stage Order: 3)
+## Stage 3 (terminal): Launched
 
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 7 | Mark Onboarding Call Complete | Team → CSM (specific) | Draft | — | None | Same no-show handling as Keyes/D2C. |
+Identical to Keyes — see `b2b-keyes.md` "Stage 3: Launched" — except B&W doesn't trigger Stripe subscription creation at Ticket → Active (no trial, no subscription needed).
 
 ---
 
-## Stage 4: Post Onboarding (Stage Order: 4)
+## Deleted in Phase 1 (2026-05-14)
 
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 8 | Send Zoom Recording | Team → CSM | Draft | Mark Onboarding Call Complete | None | Due: 1 day after. |
-| 9 | Send Follow-Up Email | Team → CSM | Draft | Mark Onboarding Call Complete | None | Due: 1 day after. |
-| 10 | Provide Onboarding Feedback | Client, Form | — | Draft | Mark Onboarding Call Complete | Form | Standalone. |
+These tasks/stages USED to exist but were removed by migration `0006_post_launch_truncate.sql`:
 
----
+- Stage 3 (Onboarding Call) and its task `Mark Onboarding Call Complete`
+- Stage 4 (Post Onboarding): `Send Zoom Recording`, `Send Follow-Up Email`, `Provide Onboarding Feedback`
+- Stage 5 (Review & Grow): `Schedule Check-In 1`, `Schedule Check-In 2`
 
-## Stage 5: Review & Grow (Stage Order: 5)
-
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 11 | Schedule Check-In 1 | Client | — | Draft | Mark Onboarding Call Complete | Embed | Independent of feedback. |
-| 12 | Schedule Check-In 2 | Client | — | Draft | Schedule Check-In 1 | Embed | |
-
----
-
-## Done
-
-- Customer.Current Stage → "Done"
-- Roster.Onboarding Status → "Completed"
-- Portal shows completion message
+Their responsibilities moved to HubSpot. See `docs/plans/post-launch-migration.md` Phase 1.
 
 ---
 

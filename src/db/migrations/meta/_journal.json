@@ -43,6 +43,13 @@
       "when": 1778710513912,
       "tag": "0005_foamy_triton",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778777194219,
+      "tag": "0006_post_launch_truncate",
+      "breakpoints": true
     }
   ]
 }

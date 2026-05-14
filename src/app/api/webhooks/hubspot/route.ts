@@ -1,8 +1,12 @@
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
+import { eq } from 'drizzle-orm';
 import { db } from '@/db';
+import { customers } from '@/db/schema/customers';
 import { hubspotInboundEvents } from '@/db/schema/hubspotInboundEvents';
 import { processDealClosedWon } from '@/lib/integrations/hubspot/closedwon-handler';
+import { getStageLabelById } from '@/lib/integrations/hubspot/client';
+import { createTrialSubscriptionForCustomer } from '@/lib/automations/handle-call-completed';
 
 /**
  * POST /api/webhooks/hubspot
@@ -124,17 +128,37 @@ async function processInboundEvent(event: HubSpotWebhookEvent) {
     return;
   }
 
-  // 2. Filter — initial slice handles ONLY deal.dealstage → closedwon, human-driven.
+  // 2. Filter + dispatch by event shape.
+  const objectType = deriveObjectType(event.objectTypeId, event.subscriptionType);
+
   const isDealStageChange =
     event.subscriptionType === 'object.propertyChange' &&
-    deriveObjectType(event.objectTypeId, event.subscriptionType) === 'deal' &&
+    objectType === 'deal' &&
     event.propertyName === 'dealstage';
 
-  if (!isDealStageChange) {
-    await markProcessed(eventIdStr, 'ignored', 'not a deal.dealstage change');
+  const isTicketStageChange =
+    event.subscriptionType === 'object.propertyChange' &&
+    objectType === 'ticket' &&
+    event.propertyName === 'hs_pipeline_stage';
+
+  if (isDealStageChange) {
+    await processDealStageChange(eventIdStr, event);
     return;
   }
 
+  if (isTicketStageChange) {
+    await processTicketStageChange(eventIdStr, event);
+    return;
+  }
+
+  await markProcessed(eventIdStr, 'ignored', `unhandled event: ${event.subscriptionType} on ${objectType}.${event.propertyName ?? ''}`);
+}
+
+/**
+ * D2C closedwon: HubSpot Deal moves to closedwon → create LP customer.
+ * Existing slice.
+ */
+async function processDealStageChange(eventIdStr: string, event: HubSpotWebhookEvent) {
   if (event.propertyValue !== 'closedwon') {
     await markProcessed(eventIdStr, 'ignored', `propertyValue=${event.propertyValue}, not closedwon`);
     return;
@@ -146,7 +170,6 @@ async function processInboundEvent(event: HubSpotWebhookEvent) {
     return;
   }
 
-  // 3. Dispatch — D2C customer creation business logic.
   console.log('[hubspot webhook] closedwon event — processing', {
     eventId: eventIdStr,
     dealId: event.objectId,
@@ -161,8 +184,85 @@ async function processInboundEvent(event: HubSpotWebhookEvent) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[hubspot webhook] closedwon failed', msg);
     await markProcessed(eventIdStr, 'error', msg);
-    // Don't return 500 — we've persisted the error to the inbound event row.
-    // HubSpot retries won't help; sales rep fixes Deal + restarts via stage change.
+  }
+}
+
+/**
+ * B2B-Keyes Stripe trial activation — "belt A" of the belts-and-suspenders
+ * design in docs/plans/post-launch-migration.md Q6.
+ *
+ * When a Customer Journey ticket moves to "Active" (the post-onboarding-call
+ * stage), check whether the associated LaunchPad customer is on a
+ * setup-intent-at-intake workflow (B2B-Keyes today) without a Stripe
+ * subscription created yet. If so, fire the trial-sub-creation flow.
+ *
+ * Narrow scope — this handler does NOT transition LP tasks, set callBooked,
+ * or do any other side effects. Those used to be Auto 4's job (via the now-
+ * deleted Mark Onboarding Call Complete task). Post-Phase-1, the trial
+ * subscription is the only LP-side post-meeting action.
+ *
+ * Idempotent: createTrialSubscriptionForCustomer() guards on existing sub.
+ */
+async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhookEvent) {
+  // Loop prevention: skip API-driven stage changes (LP's own pushes from Auto 2
+  // — though Auto 2 only pushes to "Onboarding Scheduled" not "Active", we
+  // still defend in case future code paths push to "Active" from LP).
+  if (event.changeSource === 'API_CHANGE') {
+    await markProcessed(eventIdStr, 'ignored', `changeSource=API_CHANGE — loop prevention`);
+    return;
+  }
+
+  if (!event.propertyValue) {
+    await markProcessed(eventIdStr, 'ignored', 'no propertyValue on ticket stage change');
+    return;
+  }
+
+  // HubSpot delivers the stage ID, not the label. Resolve.
+  let stageLabel: string | null;
+  try {
+    stageLabel = await getStageLabelById(event.propertyValue);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await markProcessed(eventIdStr, 'error', `stage label lookup failed: ${msg}`);
+    return;
+  }
+
+  if (stageLabel !== 'Active') {
+    await markProcessed(eventIdStr, 'ignored', `stage=${stageLabel ?? '(unknown)'}, only Active triggers trial activation`);
+    return;
+  }
+
+  const ticketId = String(event.objectId);
+  const customer = await db.query.customers.findFirst({
+    where: eq(customers.hubspotTicketId, ticketId),
+    columns: { id: true, workflowKey: true, stripeSubscriptionId: true },
+  });
+
+  if (!customer) {
+    await markProcessed(eventIdStr, 'ignored', `no LP customer for ticket ${ticketId}`);
+    return;
+  }
+
+  console.log('[hubspot webhook] ticket → Active — checking trial activation', {
+    eventId: eventIdStr,
+    ticketId,
+    customerId: customer.id,
+    workflowKey: customer.workflowKey,
+    hasStripeSub: Boolean(customer.stripeSubscriptionId),
+  });
+
+  try {
+    const result = await createTrialSubscriptionForCustomer(customer.id, 'ticket-stage-active');
+    console.log('[hubspot webhook] trial activation result', result);
+    if (result.kind === 'error') {
+      await markProcessed(eventIdStr, 'error', result.error);
+    } else {
+      await markProcessed(eventIdStr, 'processed', result.kind === 'skipped' ? result.reason : null);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[hubspot webhook] trial activation threw', msg);
+    await markProcessed(eventIdStr, 'error', msg);
   }
 }
 

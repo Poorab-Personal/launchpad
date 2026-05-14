@@ -13,10 +13,11 @@
 - **Workflow Key:** `B2B-Keyes`
 - **Customer Type:** B2B
 - **Channel:** Keyes
-- **Total Tasks:** 13 (from templates) + dynamic reschedule tasks
-- **Stages:** 5 + Done
+- **Total Tasks:** 8 (from templates, post-Phase-1) + dynamic reschedule tasks
+- **Stages:** 2 + Launched (post-Phase-1: Getting Started → Prepare for Onboarding → Launched)
 - **Key differences from D2C:** No design phase (broker mandates the design), data pre-populated from roster, includes Stripe trial as a gate before booking, Prepare-for-Onboarding runs **sequentially after** the call is booked (D2C is parallel), CSM assigned at call booking.
 - **Key differences from B2B-BW:** Adds Stripe trial signup as a gate between form submission and booking the call.
+- **Post-launch lifecycle (2026-05-14):** Once the customer hits `Launched`, all subsequent state lives in HubSpot. The HubSpot Ticket → `Active` transition triggers Stripe trial subscription creation via the LP ticket-stage webhook handler (the primary belt of the belts-and-suspenders Stripe activation; see `docs/plans/post-launch-migration.md` Q6).
 
 ## Entry Point
 
@@ -115,58 +116,27 @@ Agent clicks "Start Trial" in portal
 
 ---
 
-## Stage 3: Onboarding Call (Stage Order: 3)
+## Stage 3 (terminal): Launched
 
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 8 | Mark Onboarding Call Complete | Team → CSM (specific) | Draft | — | None | CSM assigned via Calendly round-robin. |
+When both `Watch Setup Video` and `Sign In & Reset Password` (the last two tasks in Stage 2 "Prepare for Onboarding") are Completed, Auto 2 sets `Customer.currentStage = 'Launched'` and pushes the HubSpot Ticket from `Pre-Onboarding` → `Onboarding Scheduled` (best-effort).
 
-**No-show handling:**
-- CSM sets status to "No Show"
-- Automation creates "Reschedule Your Onboarding Call" task (Client, Embed)
-- Customer.No Show Count incremented
-- Customer stays in Stage 3
-- Agent sees reschedule task with Calendly embed
+**The customer's portal switches to the handy page.** Same UX as D2C — see `d2c-standard.md` "Stage 4: Launched" for the handy page layout.
 
-**Customer experience:**
-- Portal shows: "Your onboarding call is scheduled for [date]. Join link: [URL]"
-- No active tasks — informational display
-- If no-show: sees reschedule task
+**Stripe trial activation timing.** The trial Stripe subscription is NOT created at Launched. It's created when the HubSpot Ticket later moves to `Active` (i.e., the actual onboarding meeting completed per HS Workflow A). The LP ticket-stage webhook handler in `src/app/api/webhooks/hubspot/route.ts` triggers `createTrialSubscriptionForCustomer` for B2B-Keyes customers without a Stripe subscription yet. Idempotent on the Stripe side.
+
+**Post-launch lifecycle in HubSpot.** All meeting-outcome workflows (A no-show / B partial / C cancelled / etc.), CSM tasks, and attention-state management live in HubSpot per `docs/plans/post-launch-migration.md`.
 
 ---
 
-## Stage 4: Post Onboarding (Stage Order: 4)
+## Deleted in Phase 1 (2026-05-14)
 
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 9 | Send Zoom Recording | Team → CSM | Draft | Mark Onboarding Call Complete | None | Due: 1 day after activation. |
-| 10 | Send Follow-Up Email | Team → CSM | Draft | Mark Onboarding Call Complete | None | Due: 1 day after activation. |
-| 11 | Provide Onboarding Feedback | Client, Form | — | Draft | Mark Onboarding Call Complete | Form | Standalone — does not gate check-ins. |
+These tasks/stages USED to exist but were removed by migration `0006_post_launch_truncate.sql`:
 
-**Customer experience:**
-- Sees one task: feedback form
-- Reminders nudge if not completed
+- Stage 3 (Onboarding Call) and its task `Mark Onboarding Call Complete`
+- Stage 4 (Post Onboarding): `Send Zoom Recording`, `Send Follow-Up Email`, `Provide Onboarding Feedback`
+- Stage 5 (Review & Grow): `Schedule Check-In 1`, `Schedule Check-In 2`
 
----
-
-## Stage 5: Review & Grow (Stage Order: 5)
-
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 12 | Schedule Check-In 1 | Client | — | Draft | Mark Onboarding Call Complete | Embed | Independent of feedback. |
-| 13 | Schedule Check-In 2 | Client | — | Draft | Schedule Check-In 1 | Embed | — |
-
-**Customer experience:**
-- Books check-in calls via Calendly
-- After Check-In 2 → Done
-
----
-
-## Done
-
-- Customer.Current Stage → "Done"
-- Roster.Onboarding Status → "Completed"
-- Portal shows: "You're all set! Access your account at app.rejig.ai"
+Their responsibilities moved to HubSpot. See `docs/plans/post-launch-migration.md` Phase 1.
 
 ---
 

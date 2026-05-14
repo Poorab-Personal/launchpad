@@ -230,16 +230,38 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     : null;
 
   if (!nextStage) {
-    // Final stage — flip the product's stage field to 'Done'.
-    await db
+    // Final stage — flip the product's stage field to its terminal value.
+    //   Core:  'Launched' — post-launch lifecycle now lives in HubSpot
+    //          (per docs/plans/post-launch-migration.md, Phase 1).
+    //   Voice / Avatar: 'Done' — add-on workflows stay LP-scoped.
+    const terminalValue = product === 'Core' ? 'Launched' : 'Done';
+
+    const updated = await db
       .update(schema.customers)
-      .set({ [config.stageField]: 'Done' })
+      .set({ [config.stageField]: terminalValue })
       .where(
         and(
           eq(schema.customers.id, customerId),
           eq(schema.customers[config.stageField], completedTaskStage),               // conditional: only if no concurrent advance already happened
         ),
-      );
+      )
+      .returning({ id: schema.customers.id, hubspotTicketId: schema.customers.hubspotTicketId });
+
+    // Hand off the HubSpot ticket: Pre-Onboarding → Onboarding Scheduled.
+    // The customer has credentials + signed in but the actual onboarding
+    // meeting hasn't happened yet, so 'Active' would be wrong. HS Workflow F
+    // takes over from here based on Meeting outcomes (Completed, No-show, etc).
+    // Best-effort: log + swallow. LP-side 'Launched' is canonical; the HS push
+    // is for CSM kanban visibility only and we don't want a HubSpot outage to
+    // block customer onboarding completion.
+    if (product === 'Core' && updated.length > 0 && updated[0].hubspotTicketId) {
+      try {
+        const { pushTicketStage } = await import('@/lib/integrations/hubspot/client');
+        await pushTicketStage(updated[0].hubspotTicketId, 'Onboarding Scheduled');
+      } catch (err) {
+        console.warn(`[Auto 2] HS ticket stage push to "Onboarding Scheduled" failed for customer ${customerId} (non-blocking)`, err);
+      }
+    }
     return;
   }
 

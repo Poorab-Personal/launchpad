@@ -18,9 +18,10 @@
 - **Workflow Key:** `D2C-Standard`
 - **Customer Type:** D2C
 - **Channel:** Standard (all D2C channels use this flow unless a channel-specific fork is created)
-- **Total Tasks:** 17 (from templates) + dynamic revision tasks
-- **Stages:** 6 + Done
+- **Total Tasks:** 11 (from templates, post-Phase-1) + dynamic revision tasks
+- **Stages:** 3 + Launched (post-Phase-1: Getting Started → Review Your Designs → Prepare for Onboarding → Launched)
 - **Distinctive feature:** Rejig creates custom designs the agent must approve before they can book the onboarding call. After approval, Prepare-for-Onboarding (account creation, credentials, watch video, sign in) runs **in parallel** with the agent scheduling the call.
+- **Post-launch lifecycle (2026-05-14):** Once the customer hits `Launched`, all subsequent state (CSM tasks, attention reasons, check-ins) lives in HubSpot. The portal shows a permanent handy page. See `docs/plans/post-launch-migration.md`.
 
 ## Entry Point
 
@@ -116,58 +117,36 @@ B2B flows don't hit this issue because their Prepare-for-Onboarding is sequentia
 
 ---
 
-## Stage 4: Onboarding Call (Stage Order: 4)
+## Stage 4 (terminal): Launched
 
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 12 | Mark Onboarding Call Complete | Team | CSM (specific, from Customer.CSM Assigned) | Draft | — | None | Has no dependencies in template — historically activated by Calendly webhook + Auto 4; in the HubSpot era this needs the ticket-stage → LaunchPad webhook (not yet built). See README.md rule of thumb #2. |
+When both `Watch Setup Video` and `Sign In & Reset Password` (the last two tasks in Stage 3 "Prepare for Onboarding") are Completed, Auto 2's "no next stage" branch sets `Customer.currentStage = 'Launched'` and pushes the HubSpot Ticket from `Pre-Onboarding` → `Onboarding Scheduled` (best-effort).
 
-**No-show handling:**
-- CSM sets status to "No Show" (not Completed)
-- Automation creates "Reschedule Your Onboarding Call" task (Client, Embed)
-- Customer.No Show Count incremented
-- Customer stays in Stage 4
-- Reschedule task activates for customer with Calendly embed
+**The customer's portal switches surface:** `/r/[token]` now renders `<PortalHandyPage>` instead of the task list. The handy page is a permanent home base with:
+- Link to the product (app.rejig.ai)
+- "Book a support session" (HubSpot Meetings round-robin link — separate from the onboarding meeting page, has 15/30/45-min slot options)
+- Email support link
+- Account summary (sign-in email, business name, onboarding date)
 
-**Customer experience:**
-- Portal shows: "Your onboarding call is scheduled for [date]. Join link: [URL]"
-- No active tasks to complete — just information display
-- If no-show: sees reschedule task
+**No more LaunchPad tasks after Launched.** Post-launch lifecycle (CSM follow-ups, check-ins, attention-state management) lives entirely in HubSpot:
+- HubSpot Workflow A: Meeting outcome `Completed` → Ticket → `Active`
+- HubSpot Workflow B: Meeting outcome `No-show` → Ticket → `Pre-Onboarding` + email cadence
+- HubSpot Workflow C: Meeting outcome `Partial` → similar
+- HubSpot Workflows F + G: handle meeting-scheduled transitions + auto-create CSM tasks
+- (Future) BI cron in LaunchPad writes to HubSpot ticket stage + attention reason from usage signals
 
----
-
-## Stage 5: Post Onboarding (Stage Order: 5)
-
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 13 | Send Zoom Recording | Team | CSM | Draft | Mark Onboarding Call Complete | None | Due: 1 day after activation. |
-| 14 | Send Follow-Up Email | Team | CSM | Draft | Mark Onboarding Call Complete | None | Due: 1 day after activation. Summary of call, outstanding items, next steps. |
-| 15 | Provide Onboarding Feedback | Client | — | Draft | Mark Onboarding Call Complete | Form | Standalone — does NOT gate check-ins. Feedback measures CSM performance. |
-
-**Customer experience:**
-- Sees one task: feedback form
-- Reminder system nudges if not completed (configurable per task)
+**No-show handling now in HubSpot.** If the customer no-shows on their onboarding meeting, HS Workflow B handles email cadence + eventual escalation to `Watch` stage. LaunchPad doesn't track no-show count on its own anymore.
 
 ---
 
-## Stage 6: Review & Grow (Stage Order: 6)
+## Deleted in Phase 1 (2026-05-14)
 
-| # | Task | Type | Assigned | Status | Depends On | Attach | Notes |
-|---|---|---|---|---|---|---|---|
-| 16 | Schedule Check-In 1 | Client | — | Draft | Mark Onboarding Call Complete | Embed | Independent of feedback. May be scheduled during the onboarding call itself. |
-| 17 | Schedule Check-In 2 | Client | — | Draft | Schedule Check-In 1 | Embed | — |
+These tasks/stages USED to exist but were removed by migration `0006_post_launch_truncate.sql`:
 
-**Customer experience:**
-- Books check-in calls via Calendly
-- After Check-In 2 completes → all tasks done → stage advances to Done
+- Stage 4 (Onboarding Call) and its task `Mark Onboarding Call Complete`
+- Stage 5 (Post Onboarding): `Send Zoom Recording`, `Send Follow-Up Email`, `Provide Onboarding Feedback`
+- Stage 6 (Review & Grow): `Schedule Check-In 1`, `Schedule Check-In 2`
 
----
-
-## Done
-
-- Customer.Current Stage → "Done"
-- Portal shows completion message: "You're all set! Access your account at app.rejig.ai"
-- No more tasks, no more reminders
+Their responsibilities moved to HubSpot. See `docs/plans/post-launch-migration.md` Phase 1.
 
 ---
 

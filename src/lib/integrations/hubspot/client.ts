@@ -107,13 +107,8 @@ export async function getDealForClosedWon(dealId: string): Promise<HubSpotDealWi
  */
 let _stageIdCache: Record<string, string> | null = null;
 
-async function getStageIdByLabel(stageLabel: string): Promise<string> {
-  if (_stageIdCache) {
-    const id = _stageIdCache[stageLabel];
-    if (!id) throw new Error(`No pipeline stage labeled "${stageLabel}"`);
-    return id;
-  }
-
+async function ensureStageCache(): Promise<Record<string, string>> {
+  if (_stageIdCache) return _stageIdCache;
   const hs = client();
   // Customer Journey Stages pipeline has hs_pipeline=0 per the audit.
   const pipeline = await hs.crm.pipelines.pipelinesApi.getById('tickets', '0');
@@ -122,9 +117,25 @@ async function getStageIdByLabel(stageLabel: string): Promise<string> {
     cache[stage.label] = stage.id;
   }
   _stageIdCache = cache;
+  return cache;
+}
+
+async function getStageIdByLabel(stageLabel: string): Promise<string> {
+  const cache = await ensureStageCache();
   const id = cache[stageLabel];
   if (!id) throw new Error(`No pipeline stage labeled "${stageLabel}" (have: ${Object.keys(cache).join(', ')})`);
   return id;
+}
+
+/**
+ * Reverse lookup: stage ID → label. Used by the ticket-stage webhook
+ * handler since HubSpot delivers stage *IDs* in property change payloads,
+ * not labels.
+ */
+export async function getStageLabelById(stageId: string): Promise<string | null> {
+  const cache = await ensureStageCache();
+  const entry = Object.entries(cache).find(([, id]) => id === stageId);
+  return entry ? entry[0] : null;
 }
 
 export async function createCustomerJourneyTicket(args: {
@@ -163,6 +174,22 @@ export async function createCustomerJourneyTicket(args: {
   });
 
   return { ticketId: ticket.id };
+}
+
+/**
+ * Move an existing Customer Journey ticket to a new pipeline stage.
+ * Used by Auto 2's "Launched" terminal branch to hand off post-launch
+ * state management to HubSpot (LaunchPad pushes the ticket from
+ * "Pre-Onboarding" → "Onboarding Scheduled" when the customer has
+ * credentials + signed in; HubSpot Workflow F handles subsequent
+ * transitions based on Meeting outcomes).
+ */
+export async function pushTicketStage(ticketId: string, stageLabel: string): Promise<void> {
+  const hs = client();
+  const stageId = await getStageIdByLabel(stageLabel);
+  await hs.crm.tickets.basicApi.update(ticketId, {
+    properties: { hs_pipeline_stage: stageId },
+  });
 }
 
 export async function updateContactProperties(

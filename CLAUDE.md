@@ -4,11 +4,11 @@
 
 ## What This Is
 
-LaunchPad is Rejig.ai's unified customer onboarding system. Rejig is a B2B SaaS platform for real estate agents and brokerages. LaunchPad consolidates intake, design approval, payment capture, scheduling, account creation, and follow-ups into a single pipeline.
+LaunchPad is Rejig.ai's customer onboarding system. Rejig is a B2B SaaS platform for real estate agents and brokerages. LaunchPad's responsibility runs from sign-up through `Launched` — customer has credentials and signed in. After `Launched`, the customer lifecycle (CSM tasks, attention-state, check-ins) lives in HubSpot Sales Pro. See `docs/plans/post-launch-migration.md` for the architectural rationale (Phase 1 shipped 2026-05-14).
 
 Two customer types:
-- **D2C** (SMB agents): full flow with intake forms, design approval, account setup, onboarding call, check-ins
-- **B2B** (enterprise brokerages like Keyes, Baird & Warner): agents self-onboard via brokerage landing page, data pre-populated from roster API, B2B-Keyes uses Stripe trial / setup-intent
+- **D2C** (SMB agents): full flow with intake forms, design approval, account setup, onboarding call scheduling, sign-in → `Launched`
+- **B2B** (enterprise brokerages like Keyes, Baird & Warner): agents self-onboard via brokerage landing page, data pre-populated from roster API. B2B-Keyes uses Stripe trial / setup-intent — the trial subscription is created when the HubSpot Ticket moves to `Active` (post onboarding meeting), triggered by the LP ticket-stage webhook handler.
 
 ## Architecture (3 Layers)
 

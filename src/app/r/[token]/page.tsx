@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { getCustomerByToken, getTasksForCustomer } from '@/lib/db';
 import TaskList from '@/components/TaskList';
+import PortalHandyPage from '@/components/PortalHandyPage';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,7 +11,12 @@ export default async function PortalPage(props: PageProps<'/r/[token]'>) {
   const customer = await getCustomerByToken(token);
   if (!customer) notFound();
 
-  const tasks = await getTasksForCustomer(customer.id);
+  // Once the customer hits "Launched" (Core terminal stage; Phase 1 of the
+  // post-launch architectural migration — see docs/plans/post-launch-migration.md)
+  // the portal shifts from workflow-task view to the permanent handy page.
+  // Tasks are no longer relevant; post-launch state lives in HubSpot.
+  const isLaunched = customer.currentStage === 'Launched';
+  const tasks = isLaunched ? [] : await getTasksForCustomer(customer.id);
 
   return (
     <div className="min-h-full bg-[#F7F4EB]">
@@ -33,23 +39,27 @@ export default async function PortalPage(props: PageProps<'/r/[token]'>) {
 
       {/* Main content */}
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
-        {/* Welcome header */}
-        <header className="mb-8">
-          <h1 className="text-2xl font-bold text-[#1B2E35]">
-            Welcome, {customer.name.split(' ')[0]}
-          </h1>
-          {customer.businessName && (
-            <p className="mt-1 text-sm text-[#1B2E35]/60">{customer.businessName}</p>
-          )}
-        </header>
+        {isLaunched ? (
+          <PortalHandyPage customer={customer} />
+        ) : (
+          <>
+            <header className="mb-8">
+              <h1 className="text-2xl font-bold text-[#1B2E35]">
+                Welcome, {customer.name.split(' ')[0]}
+              </h1>
+              {customer.businessName && (
+                <p className="mt-1 text-sm text-[#1B2E35]/60">{customer.businessName}</p>
+              )}
+            </header>
 
-        {/* Task list */}
-        <TaskList
-          initialTasks={tasks}
-          customerId={customer.id}
-          currentStage={customer.currentStage}
-          customer={customer}
-        />
+            <TaskList
+              initialTasks={tasks}
+              customerId={customer.id}
+              currentStage={customer.currentStage}
+              customer={customer}
+            />
+          </>
+        )}
       </div>
     </div>
   );
