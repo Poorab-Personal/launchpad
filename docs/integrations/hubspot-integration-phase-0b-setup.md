@@ -44,18 +44,20 @@ Paste the **Label** when creating; HubSpot will auto-suggest the internal name. 
 | Stripe Customer ID | `stripe_customer_id` | Single-line text | — | Stripe customer (`cus_XXX`). One per customer (multiple subscriptions can live under one Stripe customer). |
 | Rejig User ID | `rejig_user_id` | Single-line text | — | Rejig app user account ID (populated after account creation task). |
 | Rejig Brokerage Channel | `rejig_brokerage_channel` | Dropdown select | `D2C`, `B2B - Keyes`, `B2B - B&W` (extensible — add brokerages as they sign) | Customer type + brokerage in one field, for kanban filtering + reports. |
+| Onboarding No-Show Count | `onboarding_no_show_count` | Number (default `0`) | — | Counter; HubSpot Workflow B increments on no-show, Workflow A resets to 0 on Completed. **Lives on Contact, not Ticket** — HubSpot's Increase/Decrease workflow action only supports Contact + Company properties, not associated-Ticket properties. Per-Contact also matches the property's semantics (tracks the contact's behavior pattern). |
 
 **Important — LaunchPad mapping for `rejig_brokerage_channel`:** LaunchPad's `channels` table uses internal codes (`Standard`, `Keyes`, `BW`). When pushing to HubSpot, LaunchPad must map: `Standard → D2C`, `Keyes → B2B - Keyes`, `BW → B2B - B&W`. This mapping will be added as a `hubspot_label` column on the `channels` table in Phase 0c so it's data-driven (adding a new brokerage = one row insert, no code change).
 
 **Deferred from this list:** `rejig_payment_status` was originally planned here but DROPPED — a single Contact-level property can't represent multi-subscription state (Core + Voice + Avatar = 3 separate Stripe subs). Payment status will be modeled on the Deal level (1 Deal = 1 Stripe subscription) once multi-product schema lands in Phase 0c. May add a rolled-up Contact flag (`any_subscription_past_due` boolean) later if filtering needs justify it.
 
-### Ticket properties (3)
+### Ticket properties (2)
 
 | Label (paste this) | Internal name (verify) | Type | Options | Description |
 |---|---|---|---|---|
-| Onboarding No-Show Count | `onboarding_no_show_count` | Number | — | Counter; HubSpot Workflow increments on no-show, resets on Completed. |
 | Rejig Attention Reason | `rejig_attention_reason` | Dropdown select | `no_show_no_rebook`, `no_show_pattern`, `customer_cancelled_onboarding`, `partial_no_completion`, `payment_failed`, `payment_past_due`, `stuck_in_onboarding`, `engagement_drop_30d`, `renewal_approaching_6w`, `renewal_approaching_2w` | The "why" behind Watch/At-Risk/Critical severity. |
 | Rejig Attention Set At | `rejig_attention_set_at` | Date picker (with time) | — | When the attention state started. |
+
+**Moved to Contact (2026-05-13):** `onboarding_no_show_count` was originally proposed as a Ticket property but moved to Contact when we hit HubSpot's limitation that the Increase/Decrease workflow action only supports Contact + Company. If you already created it on the Ticket, archive it.
 
 **Audit-dropped from Ticket (don't create):** `launchpad_customer_id` (use Contact association), `onboarding_stage` (duplicates ticket pipeline stage), `onboarding_completion_state` (duplicates Meeting outcome), `onboarding_portal_url` (derivable). If you already created any of these, delete them.
 
@@ -182,7 +184,7 @@ Now when a sales rep tries to move a Deal to Closed won without entering the Cor
 
 **Decision (2026-05-13): skip this step. Use HubSpot defaults.**
 
-**Why we're skipping:** Card view config is global — same fields show on every ticket card regardless of stage. The Rejig attention properties (`rejig_attention_reason`, `rejig_attention_set_at`) would be empty on 90% of cards (only set when in Watch/At-Risk/Critical) → either visual clutter or hidden anyway. The `onboarding_no_show_count` defaults to 0 → noise on every onboarding ticket. The kanban column placement IS the primary signal; CSMs click into the ticket for detail when needed. Revisit if CSM feedback says "I need X on the card."
+**Why we're skipping:** Card view config is global — same fields show on every ticket card regardless of stage. The Rejig attention properties (`rejig_attention_reason`, `rejig_attention_set_at`) would be empty on 90% of cards (only set when in Watch/At-Risk/Critical) → either visual clutter or hidden anyway. The kanban column placement IS the primary signal; CSMs click into the ticket for detail when needed. Revisit if CSM feedback says "I need X on the card."
 
 ---
 
@@ -224,7 +226,7 @@ Create the following workflows, but **leave them OFF until cutover**:
 - **Eligible Ticket stages:** `Onboarding Scheduled` (optional: + `Pre-Onboarding`)
 - **Actions:**
   - Set associated Ticket's `Ticket status` (= `hs_pipeline_stage`) to **Active** (the renamed Healthy stage)
-  - Set associated Ticket's `onboarding_no_show_count` to `0`
+  - Set enrolled Contact's `onboarding_no_show_count` to `0` (Replace) — Contact, not Ticket; see Step 1 note
 
 > **Note:** Don't try to set `onboarding_completion_state` — that property was dropped in the 2026-05-13 lean-property audit (see Step 1 line 60). The Meeting record's native `hs_meeting_outcome` already holds this state; duplicating it on the Ticket creates two writers and drift risk.
 
@@ -234,7 +236,7 @@ Create the following workflows, but **leave them OFF until cutover**:
 - **Eligible Ticket stages:** `Onboarding Scheduled`
 - **Actions:**
   - Set associated Ticket's `Ticket status` to **Pre-Onboarding**
-  - Increment `onboarding_no_show_count` by 1
+  - Increase enrolled Contact's `onboarding_no_show_count` by 1 (Contact-level, not Ticket — HubSpot's Increase/Decrease action doesn't support associated-Ticket properties)
   - Delay 24h → If still in Pre-Onboarding → Send email "We missed you" (template)
   - Delay 48h (T+72h total) → If still in Pre-Onboarding → Send email "Reminder to reschedule"
   - Delay 4 days (T+7d total) → If still in Pre-Onboarding → Send final email + set Ticket status to **Watch** with `rejig_attention_reason` = `no_show_no_rebook`
@@ -280,8 +282,9 @@ Create as HubSpot email templates (Marketing → Email → Templates) or write i
 
 Before declaring Phase 0b done, confirm:
 
-- [ ] All 4 Contact properties exist with correct names + types + enum options
-- [ ] All 3 Ticket properties exist (only `onboarding_no_show_count`, `rejig_attention_reason`, `rejig_attention_set_at`)
+- [ ] All 5 Contact properties exist with correct names + types + enum options (the 4 originals + `onboarding_no_show_count` moved from Ticket)
+- [ ] All 2 Ticket properties exist (`rejig_attention_reason`, `rejig_attention_set_at`)
+- [ ] If you previously created `onboarding_no_show_count` on the Ticket object, it's been archived
 - [ ] Deal properties: 1 new (`launchpad_customer_id`) + 3 existing-relabeled (`stripe_payment_id`, `voice_stripe_payment_id`, `avatar_stripe_payment_id`) — labels updated to "Stripe Subscription ID — Core / Voice / Avatar"
 - [ ] 1 Company property exists (`launchpad_brokerage_id`)
 - [ ] Pipeline stages: 4 new stages added (Pre-Onboarding, Watch, Critical, On Hold) + 3 renames (Onboarding Booked → Onboarding Scheduled, Healthy → Active, Lost - Churned → Churned)

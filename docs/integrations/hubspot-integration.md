@@ -269,14 +269,14 @@ All Phase 0b custom properties go in the **default group** for each object (no c
 
 | Object | Group | Custom properties |
 |---|---|---|
-| Contact | `Contact information` | `launchpad_customer_id`, `stripe_customer_id`, `rejig_user_id`, `rejig_brokerage_channel` |
-| Ticket | `Ticket information` | `onboarding_no_show_count`, `rejig_attention_reason`, `rejig_attention_set_at` |
+| Contact | `Contact information` | `launchpad_customer_id`, `stripe_customer_id`, `rejig_user_id`, `rejig_brokerage_channel`, `onboarding_no_show_count` |
+| Ticket | `Ticket information` | `rejig_attention_reason`, `rejig_attention_set_at` |
 | Deal | `Deal information` | `launchpad_customer_id` (new), `stripe_payment_id` (existing — relabel), `voice_stripe_payment_id` (existing — relabel), `avatar_stripe_payment_id` (existing — relabel) |
 | Company | `Company information` | `launchpad_brokerage_id` |
 
 **Reasoning:** properties have clear prefixes (`launchpad_`, `rejig_`, `onboarding_`) so they're identifiable without a custom group wrapper. Reduces config overhead. Can re-group into a custom "LaunchPad Integration" group later if the default group gets cluttered (>20+ custom properties per object).
 
-### CONTACT properties (durable, cross-ticket) — 4
+### CONTACT properties (durable, cross-ticket) — 5
 
 | Property | Type | Purpose | Writer |
 |---|---|---|---|
@@ -284,12 +284,12 @@ All Phase 0b custom properties go in the **default group** for each object (no c
 | `stripe_customer_id` | Text | Stripe customer ID — for CSM cross-linking to Stripe dashboard | LaunchPad after Stripe lookup |
 | `rejig_user_id` | Text | Rejig app user account ID (post-account-creation) | LaunchPad after account-create task |
 | `rejig_brokerage_channel` | Enum: `D2C` / `B2B - Keyes` / `B2B - B&W` (extensible) | Customer type + brokerage in one field for filtering/reports. **Mapping:** LaunchPad's `channels` table uses internal codes (`Standard`, `Keyes`, `BW`); a `channels.hubspot_label` column (added in Phase 0c) holds the HubSpot-display value. LaunchPad push reads `channels.hubspot_label` when setting this. | LaunchPad on upsert |
+| `onboarding_no_show_count` | Number (int, default 0) | No-show counter; input to BI rules. **On Contact, not Ticket** — HubSpot's Increase/Decrease workflow action doesn't support associated-Ticket properties. Contact-level also matches the property's semantics (tracks behavior pattern). | HubSpot Workflow (meeting outcome) |
 
-### TICKET properties (current ticket state) — 3
+### TICKET properties (current ticket state) — 2
 
 | Property | Type | Purpose | Writer |
 |---|---|---|---|
-| `onboarding_no_show_count` | Number (int, default 0) | No-show counter; input to BI rules | HubSpot Workflow (meeting outcome) |
 | `rejig_attention_reason` | Enum (10 values, see below) | The "why" behind Watch/At-Risk/Critical severity | HubSpot Workflow + LaunchPad BI |
 | `rejig_attention_set_at` | Datetime | When the attention state started; drives staleness filtering | Same |
 
