@@ -37,6 +37,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local-only data (real customer snapshots — never commit)
+/scripts/data/*
+!/scripts/data/.gitkeep
+
 # vercel
 .vercel
 

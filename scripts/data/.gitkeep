@@ -1,0 +1,8 @@
+# This directory holds local-only data snapshots that must not be committed.
+# Contents are gitignored except this .gitkeep file.
+#
+# Current contents (not in git):
+#   rejig-accounts-snapshot.csv  -- Rejig accounts snapshot from 2026-05-11.
+#                                   Source of truth for BI rule design + Phase 5
+#                                   snapshot import. Replace with API pull once
+#                                   the Rejig data pipe is built (Phase 9).
