@@ -2,14 +2,9 @@ import { NextRequest } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import {
-  getBrokerageByDefaultWorkflowKey,
-  getWorkflowTemplates,
-  updateCustomerFields,
-} from '@/lib/db';
+import { getBrokerageByDefaultWorkflowKey } from '@/lib/db';
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
-import { createStripeCustomer } from '@/lib/stripe';
 import { pushB2BCustomerToHubSpot } from '@/lib/integrations/hubspot/b2b-intake-handler';
 import type { Customer } from '@/types';
 
@@ -86,33 +81,22 @@ export async function POST(request: NextRequest) {
     return inserted;
   });
 
-  // Auto 5: Welcome email, fire-and-forget post-tx. Errors logged but
-  // don't fail the response — the Customer + Tasks already landed.
-  void triggerCustomerEmail('welcome', customer.id);
-
-  // For setup-intent-at-intake workflows (e.g., B2B-Keyes), create the
-  // Stripe Customer up-front so the SetupIntent route can assume it exists.
-  // Outside the tx — Stripe call is slow + must not abort the local insert
-  // on a transient Stripe outage. Soft-fail.
-  let stripeCustomerId: string | null = null;
-  let stripeSyncPending = false;
-  const templates = await getWorkflowTemplates(workflowKey);
-  const paymentMode = templates[0]?.paymentMode ?? null;
-
-  if (paymentMode === 'setup-intent-at-intake') {
-    try {
-      const stripeCustomer = await createStripeCustomer({
-        customerId: customer.id,
-        email,
-        name,
-      });
-      stripeCustomerId = stripeCustomer.id;
-      await updateCustomerFields(customer.id, { stripeCustomerId: stripeCustomer.id });
-    } catch (err) {
-      console.error('[customers POST] Stripe customer creation failed:', err);
-      stripeSyncPending = true;
-    }
+  // Auto 5: Welcome email — awaited (not fire-and-forget). Vercel serverless
+  // terminates the function instance when the response returns, so void
+  // would drop the Resend API call if Vercel kills the instance too quickly.
+  // Adds ~500ms to response. Errors logged but don't fail the response —
+  // the Customer + Tasks already landed.
+  try {
+    await triggerCustomerEmail('welcome', customer.id);
+  } catch (err) {
+    console.error('[customers POST] Welcome email failed (non-blocking):', err);
   }
+
+  // Stripe Customer creation moved to the SetupIntent route (lazy-create).
+  // Pre-Phase-1.5.6 this fired here at intake for setup-intent-at-intake
+  // workflows; that left orphan Stripe Customers for B2B-Keyes agents who
+  // submitted the form but never reached the payment step. The SetupIntent
+  // route now creates the Stripe Customer on first use + persists the ID.
 
   // B2B HubSpot push — awaited (not fire-and-forget). Vercel serverless
   // terminates the function instance when the response returns, so a void
@@ -152,8 +136,6 @@ export async function POST(request: NextRequest) {
     name,
     type,
     channel,
-    stripeCustomerId,
-    stripeSyncPending,
     hubspotTicketId,
     hubspotPushError,
   });

@@ -1,6 +1,11 @@
 import { NextRequest } from 'next/server';
-import { getCustomerById, getStripePlanByPriceId, getWorkflowTemplates } from '@/lib/db';
-import { createSetupIntent } from '@/lib/stripe';
+import {
+  getCustomerById,
+  getStripePlanByPriceId,
+  getWorkflowTemplates,
+  updateCustomerFields,
+} from '@/lib/db';
+import { createSetupIntent, createStripeCustomer } from '@/lib/stripe';
 
 /**
  * POST /api/customers/[id]/payment-setup
@@ -30,14 +35,26 @@ export async function POST(
     return Response.json({ error: 'Customer not found' }, { status: 404 });
   }
 
-  if (!customer.stripeCustomerId) {
-    return Response.json(
-      {
-        error:
-          'Customer has no Stripe Customer ID. This is set at customer creation for setup-intent-at-intake workflows. If missing, the customer creation step likely failed silently — see admin tools.',
-      },
-      { status: 400 },
-    );
+  // Lazy-create the Stripe Customer on first payment-setup attempt rather
+  // than at LP customer creation. Avoids orphan Stripe Customers for agents
+  // who never reach the payment step (dropped after form submit). The first
+  // SetupIntent call for a customer creates the Stripe Customer; subsequent
+  // calls reuse it (idempotent via customer.stripeCustomerId persist).
+  let stripeCustomerId = customer.stripeCustomerId;
+  if (!stripeCustomerId) {
+    if (!customer.contactEmail) {
+      return Response.json(
+        { error: 'Customer has no contact email — cannot create Stripe Customer' },
+        { status: 400 },
+      );
+    }
+    const stripeCustomer = await createStripeCustomer({
+      customerId: customer.id,
+      email: customer.contactEmail,
+      name: customer.name,
+    });
+    stripeCustomerId = stripeCustomer.id;
+    await updateCustomerFields(customer.id, { stripeCustomerId });
   }
 
   // Validate the chosen price ID matches this customer's workflow
@@ -63,7 +80,7 @@ export async function POST(
   }
 
   const setupIntent = await createSetupIntent({
-    stripeCustomerId: customer.stripeCustomerId,
+    stripeCustomerId,
     customerId: customer.id,
   });
 
