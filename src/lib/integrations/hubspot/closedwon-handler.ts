@@ -229,7 +229,11 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
   if (!ticketId) {
     const customerName = customer.name;
     const created = await createCustomerJourneyTicket({
-      subject: `${customerName} - CJ`,
+      // "LP" marks LaunchPad-created tickets. The pipeline (Customer Journey
+      // Stages) already conveys "this is a CJ ticket"; the suffix
+      // disambiguates LP-created tickets from any future manual or
+      // other-integration-created tickets that may land in the same pipeline.
+      subject: `${customerName} - LP`,
       stageLabel: 'Pre-Onboarding',
       contactId: deal.contactId,
       dealId: deal.dealId,
@@ -245,6 +249,17 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
       .where(eq(schema.customers.id, customer.id));
   }
 
+  // Read the workflow's paymentMode so we can push it to HubSpot as a
+  // Contact property. Lets HubSpot Workflows branch on payment behavior
+  // (e.g. "create Activate-trial task if rejig_payment_mode = setup-intent-at-intake")
+  // without enumerating brokerage names — future-proof when IPRE etc. land.
+  const customerTemplates = await db.query.workflowTemplates.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.workflowKey, customer.workflowKey),
+    columns: { paymentMode: true },
+    limit: 1,
+  });
+  const paymentMode = customerTemplates[0]?.paymentMode ?? 'pre-paid';
+
   // Update Contact custom properties (LaunchPad anchors) — idempotent.
   // NOTE: HubSpot enum properties take the INTERNAL value (lowercase snake_case),
   // NOT the display label. rejig_brokerage_channel options are configured as
@@ -253,6 +268,7 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
     launchpad_customer_id: customer.id,
     stripe_customer_id: stripeCustomerId,
     rejig_brokerage_channel: 'd2c',
+    rejig_payment_mode: paymentMode,                                            // for HS Workflow branching
   });
 
   // Update Deal custom property — idempotent

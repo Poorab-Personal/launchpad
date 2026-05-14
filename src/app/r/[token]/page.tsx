@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getCustomerByToken, getTasksForCustomer } from '@/lib/db';
+import { getCustomerByToken, getSetting, getTasksForCustomer } from '@/lib/db';
 import TaskList from '@/components/TaskList';
 import PortalHandyPage from '@/components/PortalHandyPage';
 
@@ -16,7 +16,9 @@ export default async function PortalPage(props: PageProps<'/r/[token]'>) {
   // the portal shifts from workflow-task view to the permanent handy page.
   // Tasks are no longer relevant; post-launch state lives in HubSpot.
   const isLaunched = customer.currentStage === 'Launched';
-  const tasks = isLaunched ? [] : await getTasksForCustomer(customer.id);
+  const [tasks, defaultSupportMeetingUrl] = isLaunched
+    ? [[] as Awaited<ReturnType<typeof getTasksForCustomer>>, await getSetting('default_support_meeting_url')]
+    : [await getTasksForCustomer(customer.id), null];
 
   return (
     <div className="min-h-full bg-[#F7F4EB]">
@@ -40,7 +42,7 @@ export default async function PortalPage(props: PageProps<'/r/[token]'>) {
       {/* Main content */}
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
         {isLaunched ? (
-          <PortalHandyPage customer={customer} />
+          <PortalHandyPage customer={customer} defaultSupportMeetingUrl={defaultSupportMeetingUrl} />
         ) : (
           <>
             <header className="mb-8">

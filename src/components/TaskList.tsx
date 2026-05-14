@@ -507,16 +507,31 @@ export default function TaskList({
       // Brief polling safety net for unusual delays (single tick usually settles).
       setPollingState('polling');
       setPollingDeadline(Date.now() + 3_000);
-    } else {
-      // Case B: no next CLIENT-VISIBLE task in this stage (e.g. only the
-      // hidden Team task Create Designs remains in Getting Started; or
-      // D2C Sign In & Reset Password completed in parallel with Watch
-      // Setup Video). Render WaitingPanel via a single refresh; no
-      // polling needed — nothing client-visible will activate in this
-      // stage on this page load.
-      setActiveTaskId(taskId);
-      router.refresh();
+      return;
     }
+
+    // Parallel-track case: another Active client-visible task already exists
+    // in this stage (e.g. D2C Watch Setup Video and Sign In & Reset Password
+    // both activate from Send Credentials and run side-by-side). Auto-advance
+    // to it rather than parking on the just-completed task — the user has
+    // more work to do here and shouldn't have to manually click the next tab.
+    const nextActive = currentStageTasks.find(
+      (t) => t.id !== taskId
+        && t.status === 'Active'
+        && (t.taskType === 'Client' || t.taskType === undefined),
+    );
+    if (nextActive) {
+      setActiveTaskId(nextActive.id);
+      router.refresh();
+      return;
+    }
+
+    // Case B: no next CLIENT-VISIBLE task in this stage (e.g. only the
+    // hidden Team task Create Designs remains in Getting Started). Render
+    // WaitingPanel via a single refresh; no polling needed — nothing
+    // client-visible will activate in this stage on this page load.
+    setActiveTaskId(taskId);
+    router.refresh();
   }
 
   function handleManualRefresh() {

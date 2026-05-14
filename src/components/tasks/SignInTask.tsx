@@ -10,9 +10,14 @@ const APP_URL = 'https://app.rejig.ai';
  * Customer-portal renderer for the "Sign In & Reset Password" task.
  *
  * Shows the platform email + temp password (derived from customer name —
- * same value the credentials email used) with copy buttons, plus a button
- * to launch app.rejig.ai. Marking complete doesn't clear anything — if the
- * customer comes back to the portal later they can still grab their creds.
+ * same value the credentials email used) with copy buttons, plus a single
+ * "Launch Rejig" button. Click flow:
+ *   1. PATCH task → Completed (await success)
+ *   2. window.open(app.rejig.ai/?email=…) — email prepopulated
+ *   3. onComplete() — TaskList advances stage; Auto 2 fires Launched terminal;
+ *      portal swaps to <PortalHandyPage> on the next render.
+ * If PATCH fails, the tab does NOT open and the error is shown — keeps the
+ * portal state consistent with what actually happened server-side.
  */
 export default function SignInTask({
   task,
@@ -23,12 +28,15 @@ export default function SignInTask({
   customer?: Customer;
   onComplete: () => void;
 }) {
-  const [completing, setCompleting] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<'email' | 'password' | null>(null);
 
   const email = customer?.platformEmail ?? '';
   const password = tempPasswordFromName(customer?.name ?? '');
+  const launchUrl = email
+    ? `${APP_URL}/?email=${encodeURIComponent(email)}`
+    : APP_URL;
 
   async function copy(text: string, kind: 'email' | 'password') {
     try {
@@ -40,8 +48,8 @@ export default function SignInTask({
     }
   }
 
-  async function markComplete() {
-    setCompleting(true);
+  async function handleLaunch() {
+    setLaunching(true);
     setError(null);
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
@@ -53,11 +61,14 @@ export default function SignInTask({
         const err = await res.json().catch(() => null);
         throw new Error(err?.error || 'Failed to mark task complete');
       }
+      // PATCH succeeded — now open the product. Use window.open in user
+      // gesture context so popup blockers don't intervene.
+      window.open(launchUrl, '_blank', 'noopener,noreferrer');
       onComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
-      setCompleting(false);
+      setLaunching(false);
     }
   }
 
@@ -114,29 +125,20 @@ export default function SignInTask({
         </div>
       </div>
 
-      <a
-        href={APP_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block w-full rounded-full bg-[#6C4AB6] px-6 py-3 text-center text-sm font-semibold text-white hover:bg-[#5A3DA5] transition-colors"
+      <button
+        type="button"
+        onClick={handleLaunch}
+        disabled={launching || !email}
+        className="block w-full rounded-full bg-[#6C4AB6] px-6 py-3 text-center text-sm font-semibold text-white hover:bg-[#5A3DA5] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        Launch app.rejig.ai →
-      </a>
+        {launching ? 'Launching…' : 'Launch Rejig →'}
+      </button>
 
       {error && (
         <div className="rounded-lg border border-[#EC531A]/30 bg-[#EC531A]/5 px-4 py-3 text-sm text-[#EC531A]">
           {error}
         </div>
       )}
-
-      <button
-        type="button"
-        onClick={markComplete}
-        disabled={completing}
-        className="w-full rounded-full border border-[#05C68E] bg-white px-6 py-2.5 text-sm font-medium text-[#05C68E] hover:bg-[#05C68E]/5 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {completing ? 'Marking…' : "I've signed in & reset my password"}
-      </button>
     </div>
   );
 }

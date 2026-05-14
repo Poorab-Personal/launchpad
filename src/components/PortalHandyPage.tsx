@@ -1,4 +1,8 @@
+'use client';
+
+import { useState } from 'react';
 import type { Customer } from '@/types';
+import { tempPasswordFromName } from '@/lib/temp-password';
 
 /**
  * The customer's permanent post-launch home base. Rendered by /r/[token]
@@ -15,15 +19,25 @@ import type { Customer } from '@/types';
  * The "Book a support call" link is a HubSpot Meetings round-robin page
  * with 15/30/45-minute slot options, separate from the onboarding meeting
  * page (which only takes 1-hour slots).
+ *
+ * Resolution order for the support meeting URL:
+ *   1. (future) brokerages.supportMeetingUrl — per-brokerage override
+ *   2. HANDY_PAGE_LINKS[workflowKey].supportMeetingUrl — per-workflow override
+ *   3. settings.default_support_meeting_url — Rejig-wide default
+ *   4. null → falls back to "email support" message
  */
 
-type Props = { customer: Customer };
+type Props = {
+  customer: Customer;
+  defaultSupportMeetingUrl: string | null;
+};
 
-// Per-workflow_key configuration. When new workflows are added, add a row.
-// The default fallback handles unknown workflow_keys gracefully.
+// Per-workflow_key overrides. Add a row per workflow_key if/when its support
+// URL needs to differ from the Rejig-wide default. Today all three use the
+// default (settings.default_support_meeting_url).
 const HANDY_PAGE_LINKS: Record<string, {
   productUrl: string;
-  supportMeetingUrl: string | null;          // null until user provides the HubSpot round-robin link
+  supportMeetingUrl: string | null;          // null = fall through to default
 }> = {
   'D2C-Standard': {
     productUrl: 'https://app.rejig.ai',
@@ -41,9 +55,27 @@ const HANDY_PAGE_LINKS: Record<string, {
 
 const FALLBACK = HANDY_PAGE_LINKS['D2C-Standard'];
 
-export default function PortalHandyPage({ customer }: Props) {
+export default function PortalHandyPage({ customer, defaultSupportMeetingUrl }: Props) {
   const config = HANDY_PAGE_LINKS[customer.workflowKey] ?? FALLBACK;
+  const supportMeetingUrl = config.supportMeetingUrl ?? defaultSupportMeetingUrl;
   const firstName = customer.name.split(' ')[0];
+  const email = customer.platformEmail ?? '';
+  const password = tempPasswordFromName(customer.name ?? '');
+  const launchUrl = email
+    ? `${config.productUrl}/?email=${encodeURIComponent(email)}`
+    : config.productUrl;
+  const [copied, setCopied] = useState<'email' | 'password' | null>(null);
+
+  async function copy(text: string, kind: 'email' | 'password') {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(kind);
+      setTimeout(() => setCopied(null), 1200);
+    } catch {
+      // clipboard unavailable
+    }
+  }
+
   const stageEnteredAt = customer.stageEnteredAt
     ? new Date(customer.stageEnteredAt).toLocaleDateString('en-US', {
         year: 'numeric', month: 'long', day: 'numeric',
@@ -78,7 +110,7 @@ export default function PortalHandyPage({ customer }: Props) {
         </h3>
         <div className="space-y-3">
           <a
-            href={config.productUrl}
+            href={launchUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-between rounded-lg border border-[#6C4AB6]/30 bg-[#6C4AB6]/5 px-4 py-3 transition-colors hover:bg-[#6C4AB6]/10"
@@ -94,15 +126,73 @@ export default function PortalHandyPage({ customer }: Props) {
         </div>
       </section>
 
+      {/* Sign-in credentials */}
+      {(email || password) && (
+        <section className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/60">
+            Sign-in credentials
+          </h3>
+          <div className="space-y-4">
+            {email && (
+              <div>
+                <label className="mb-1.5 block text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold">
+                  Email
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={email}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="flex-1 rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] px-3 py-2 text-sm text-[#1B2E35] font-mono focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copy(email, 'email')}
+                    className="rounded-lg border border-[#E0DEE4] bg-white px-3 py-2 text-xs text-[#1B2E35]/70 hover:border-[#6C4AB6] hover:text-[#6C4AB6]"
+                  >
+                    {copied === 'email' ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {password && (
+              <div>
+                <label className="mb-1.5 block text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold">
+                  Temporary password
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    readOnly
+                    value={password}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="flex-1 rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] px-3 py-2 text-sm text-[#1B2E35] font-mono focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copy(password, 'password')}
+                    className="rounded-lg border border-[#E0DEE4] bg-white px-3 py-2 text-xs text-[#1B2E35]/70 hover:border-[#6C4AB6] hover:text-[#6C4AB6]"
+                  >
+                    {copied === 'password' ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-xs text-[#1B2E35]/50">
+                  We recommend changing this on first sign in.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* Support */}
       <section className="rounded-lg border border-[#E0DEE4] bg-white p-5">
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/60">
           Get help
         </h3>
         <div className="space-y-2">
-          {config.supportMeetingUrl ? (
+          {supportMeetingUrl ? (
             <a
-              href={config.supportMeetingUrl}
+              href={supportMeetingUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-between rounded-lg border border-[#E0DEE4] px-4 py-3 transition-colors hover:bg-[#F7F4EB]"
@@ -145,12 +235,6 @@ export default function PortalHandyPage({ customer }: Props) {
           Account details
         </h3>
         <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-          {customer.platformEmail && (
-            <div>
-              <dt className="text-[#1B2E35]/60">Sign-in email</dt>
-              <dd className="font-medium text-[#1B2E35]">{customer.platformEmail}</dd>
-            </div>
-          )}
           {customer.businessName && (
             <div>
               <dt className="text-[#1B2E35]/60">Business</dt>
@@ -163,10 +247,6 @@ export default function PortalHandyPage({ customer }: Props) {
               <dd className="font-medium text-[#1B2E35]">{stageEnteredAt}</dd>
             </div>
           )}
-          <div>
-            <dt className="text-[#1B2E35]/60">Plan</dt>
-            <dd className="font-medium text-[#1B2E35]">{customer.workflowKey}</dd>
-          </div>
         </dl>
       </section>
     </div>
