@@ -114,22 +114,36 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // B2B HubSpot push — fire-and-forget. Creates the agent Contact (or finds
-  // existing) + Pre-Onboarding Ticket associated to brokerage Company. Soft-
-  // fails on any HS error: LP customer already landed, customer can use the
-  // portal; CSM-side experience just won't have a ticket until we fix.
+  // B2B HubSpot push — awaited (not fire-and-forget). Vercel serverless
+  // terminates the function instance when the response returns, so a void
+  // promise would not complete reliably (verified 2026-05-14 — a Keyes
+  // customer was created but the HS push never landed, only succeeded when
+  // re-fired manually).
+  //
+  // Adds 2-5s to the response time but guarantees the HS Ticket exists
+  // before we return success. Soft-fail: if HS push errors, we log it but
+  // still return the LP customer — the customer record is canonical, HS is
+  // the mirror. Admin can retry the push via backfill script if needed.
+  //
   // See src/lib/integrations/hubspot/b2b-intake-handler.ts for the full
   // object graph + association rules.
+  let hubspotTicketId: string | null = null;
+  let hubspotPushError: string | null = null;
   if (type === 'B2B') {
-    void pushB2BCustomerToHubSpot(customer.id).then((result) => {
-      if (result.kind === 'error') {
-        console.error('[customers POST] B2B HS push failed:', result.error);
-      } else if (result.kind === 'skipped') {
+    try {
+      const result = await pushB2BCustomerToHubSpot(customer.id);
+      if (result.kind === 'pushed') {
+        hubspotTicketId = result.ticketId;
+      } else if (result.kind === 'error') {
+        hubspotPushError = result.error;
+        console.error('[customers POST] B2B HS push error:', result.error);
+      } else {
         console.log('[customers POST] B2B HS push skipped:', result.reason);
       }
-    }).catch((err) => {
+    } catch (err) {
+      hubspotPushError = err instanceof Error ? err.message : String(err);
       console.error('[customers POST] B2B HS push threw:', err);
-    });
+    }
   }
 
   return Response.json({
@@ -140,5 +154,7 @@ export async function POST(request: NextRequest) {
     channel,
     stripeCustomerId,
     stripeSyncPending,
+    hubspotTicketId,
+    hubspotPushError,
   });
 }
