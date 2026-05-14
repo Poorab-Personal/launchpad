@@ -205,9 +205,23 @@ Below is the design we documented; keep as reference. **Do not build these yet.*
 
 Create the following workflows, but **leave them OFF until cutover**:
 
+> **🛑 Critical rule for every workflow below: gate the enrollment condition on Ticket status.**
+>
+> The trigger says *"a meeting outcome changed."* But meetings happen all through a customer's lifecycle — onboarding calls, monthly check-ins, renewal conversations, support calls. Without a Ticket-status gate, a post-onboarding "Completed" meeting would yank an Active ticket back to Active (wiping any in-flight attention reason); a check-in cancellation would dump a healthy customer into Watch.
+>
+> In every workflow's **"Only enroll contacts that meet these conditions"** filter:
+> ```
+> Contact is associated to: Any Ticket
+> AND associated Ticket has: Ticket status is any of <ELIGIBLE_STAGES>
+> ```
+> where `ELIGIBLE_STAGES` is listed per-workflow below.
+>
+> Optional defensive tweak: include `Pre-Onboarding` alongside `Onboarding Scheduled` in case Workflow F (which moves the ticket Pre-Onboarding → Onboarding Scheduled on meeting creation) hasn't fired yet when the meeting completes. Both stages are pre-Active so the stage-change action is still correct.
+
 ### Workflow A: "Meeting outcome → Completed"
 
 - **Trigger:** Contact has associated meeting where `Meeting outcome` = `Completed`
+- **Eligible Ticket stages:** `Onboarding Scheduled` (optional: + `Pre-Onboarding`)
 - **Actions:**
   - Set associated Ticket's `Ticket status` (= `hs_pipeline_stage`) to **Active** (the renamed Healthy stage)
   - Set associated Ticket's `onboarding_no_show_count` to `0`
@@ -217,6 +231,7 @@ Create the following workflows, but **leave them OFF until cutover**:
 ### Workflow B: "Meeting outcome → No-show"
 
 - **Trigger:** Contact has associated meeting where `Meeting outcome` = `No-show`
+- **Eligible Ticket stages:** `Onboarding Scheduled`
 - **Actions:**
   - Set associated Ticket's `Ticket status` to **Pre-Onboarding**
   - Increment `onboarding_no_show_count` by 1
@@ -227,6 +242,7 @@ Create the following workflows, but **leave them OFF until cutover**:
 ### Workflow C: "Meeting outcome → Partial"
 
 - **Trigger:** Contact has associated meeting where `Meeting outcome` = `Partial`
+- **Eligible Ticket stages:** `Onboarding Scheduled`
 - **Actions:**
   - Set associated Ticket's `Ticket status` to **Pre-Onboarding** (re-enters pre-onboarding so CSM sees it needs follow-up; the Meeting record's `hs_meeting_outcome = Partial` is the source-of-truth for "why")
   - Delay 48h → If still in Pre-Onboarding → Send email "Let's finish setting up"
@@ -235,6 +251,7 @@ Create the following workflows, but **leave them OFF until cutover**:
 ### Workflow D: "Meeting outcome → Cancelled"
 
 - **Trigger:** Contact has associated meeting where `Meeting outcome` = `Cancelled`
+- **Eligible Ticket stages:** `Onboarding Scheduled`
 - **Actions:**
   - Set associated Ticket's `Ticket status` to **Watch** (immediate)
   - Set `rejig_attention_reason` = `customer_cancelled_onboarding`
@@ -243,6 +260,7 @@ Create the following workflows, but **leave them OFF until cutover**:
 ### Workflow E: "Meeting outcome → Rescheduled"
 
 - **Trigger:** Contact has associated meeting where `Meeting outcome` = `Rescheduled`
+- **Eligible Ticket stages:** `Onboarding Scheduled`
 - **Actions:** none on the ticket (stay in current stage); date updates automatically from Meeting record.
 
 **Note:** "Partial" likely isn't in HubSpot's default Meeting outcome enum. You may need to **add a custom option** to the `hs_meeting_outcome` property: Settings → Properties → Meeting properties → Meeting outcome → Edit options → add `Partial`.
