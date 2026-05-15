@@ -114,7 +114,7 @@ type ChannelDecision = {
   channel: 'Standard' | 'Keyes' | 'BW';
   evidence: string;
   score: number;
-  signals: Record<1 | 2 | 3 | 4, 'keyes' | 'bw' | 'other' | 'standard' | 'public_webmail' | 'none'>;
+  signals: Record<1 | 2 | 3 | 4 | 5 | 6, 'keyes' | 'bw' | 'other' | 'standard' | 'public_webmail' | 'none'>;
 };
 
 type AuditRow = Record<CsvColumn, string>;
@@ -412,12 +412,17 @@ async function lookupStripeForRejig(
 }
 
 // ─── Channel detection ──────────────────────────────────────────────────────
+// B&W brokerage master-agreement sentinel expiry date (extracted from data).
+// Rejig sets every B&W direct-invoice agent's plan_expiry_date to 2027-12-31.
+// Strong (but heuristic) signal for B&W classification when other signals miss.
+const BW_SENTINEL_EXPIRY_PREFIX = '2027-12-31';
+
 function detectChannel(
   acct: RejigAccount,
   hsCompanyMatch: 'keyes' | 'bw' | 'other' | 'none',
 ): ChannelDecision {
   const signals: ChannelDecision['signals'] = {
-    1: 'none', 2: 'none', 3: 'none', 4: 'none',
+    1: 'none', 2: 'none', 3: 'none', 4: 'none', 5: 'none', 6: 'none',
   };
 
   // Signal 1: HS Company association
@@ -445,28 +450,45 @@ function detectChannel(
   else if (pk.includes('baird') || pk.includes('bairdwarner') || pk.startsWith('bw_')) signals[4] = 'bw';
   else if (/standard|d2c|monthly|annual/.test(pk)) signals[4] = 'standard';
 
-  // First decisive signal wins. Order: 1 → 2 → 3 → 4.
+  // Signal 5: Rejig business_name contains brokerage
+  const biz = (acct.business_name ?? acct.display_business_name ?? '').toLowerCase();
+  if (biz.includes('keyes')) signals[5] = 'keyes';
+  else if (biz.includes('baird & warner') || biz.includes('baird warner') || biz.includes('bairdwarner')) signals[5] = 'bw';
+
+  // Signal 6: B&W master-agreement sentinel expiry date
+  if ((acct.plan_expiry_date ?? '').startsWith(BW_SENTINEL_EXPIRY_PREFIX)) signals[6] = 'bw';
+
+  // Cascade order:
+  //   Pass 1: scan all 6 signals; any B2B vote (keyes or bw) wins. First B2B
+  //           signal in 1→6 order takes the channel; later signals only boost
+  //           the score.
+  //   Pass 2: if no B2B vote, check signal 4 for explicit 'standard' → use it.
+  //   Pass 3: otherwise fall through to Standard with 'default:none' evidence.
+  //
+  // Why B2B always wins: signal 4 = plan_key matches `standard|d2c|monthly|annual`
+  // is a heuristic — many B&W agents have generic `standard_*` plan_keys. If
+  // business_name says "Baird & Warner" or plan_expiry is the B&W sentinel,
+  // that's stronger evidence than the plan_key heuristic.
   let channel: ChannelDecision['channel'] = 'Standard';
   let evidence = 'default:none';
 
-  for (const s of [1, 2, 3, 4] as const) {
+  for (const s of [1, 2, 3, 4, 5, 6] as const) {
     const v = signals[s];
     if (v === 'keyes' || v === 'bw') {
       channel = v === 'keyes' ? 'Keyes' : 'BW';
       evidence = `signal_${s}:${v}`;
       break;
     }
-    if (v === 'standard' && s === 4) {
-      channel = 'Standard';
-      evidence = `signal_4:standard`;
-      break;
-    }
+  }
+
+  if (channel === 'Standard' && signals[4] === 'standard') {
+    evidence = `signal_4:standard`;
   }
 
   // Score: count signals that agree with the chosen channel
   let score = 0;
   const chosenLower = channel === 'Keyes' ? 'keyes' : channel === 'BW' ? 'bw' : 'standard';
-  for (const s of [1, 2, 3, 4] as const) {
+  for (const s of [1, 2, 3, 4, 5, 6] as const) {
     if (signals[s] === chosenLower) score++;
   }
 
@@ -862,17 +884,22 @@ async function main(): Promise<void> {
 
   const byChannel: Record<string, number> = {};
   const byState: Record<string, number> = {};
-  const byReviewReason: Record<string, number> = {};
+  const byReviewReasonActionReq: Record<string, number> = {};
+  const byReviewReasonTotal: Record<string, number> = {};
   const byTicketAction: Record<string, number> = {};
   let reviewCount = 0;
   for (const r of auditRows) {
     byChannel[r.proposed_channel_code] = (byChannel[r.proposed_channel_code] ?? 0) + 1;
     byState[r.proposed_onboarding_state] = (byState[r.proposed_onboarding_state] ?? 0) + 1;
     byTicketAction[r.proposed_ticket_action] = (byTicketAction[r.proposed_ticket_action] ?? 0) + 1;
+    const reasons = r.needs_review_reasons.split(';').filter(Boolean);
+    for (const reason of reasons) {
+      byReviewReasonTotal[reason] = (byReviewReasonTotal[reason] ?? 0) + 1;
+    }
     if (r.needs_review === 'Y') {
       reviewCount++;
-      for (const reason of r.needs_review_reasons.split(';').filter(Boolean)) {
-        byReviewReason[reason] = (byReviewReason[reason] ?? 0) + 1;
+      for (const reason of reasons) {
+        byReviewReasonActionReq[reason] = (byReviewReasonActionReq[reason] ?? 0) + 1;
       }
     }
   }
@@ -883,8 +910,12 @@ async function main(): Promise<void> {
   for (const [k, v] of Object.entries(byState).sort((a, b) => b[1] - a[1])) console.log(`  ${k.padEnd(20)} ${v}`);
   console.log(`\n— Ticket action —`);
   for (const [k, v] of Object.entries(byTicketAction).sort((a, b) => b[1] - a[1])) console.log(`  ${k.padEnd(20)} ${v}`);
-  console.log(`\n— Needs review: ${reviewCount} rows —`);
-  for (const [k, v] of Object.entries(byReviewReason).sort((a, b) => b[1] - a[1])) console.log(`  ${k.padEnd(40)} ${v}`);
+  console.log(`\n— Flag counts (all rows; action-required count in parens) —`);
+  for (const [k, v] of Object.entries(byReviewReasonTotal).sort((a, b) => b[1] - a[1])) {
+    const ar = byReviewReasonActionReq[k] ?? 0;
+    console.log(`  ${k.padEnd(40)} total=${String(v).padEnd(4)} (action-req: ${ar})`);
+  }
+  console.log(`\n— needs_review=Y total: ${reviewCount} rows —`);
 
   console.log(`\n[diag] Written: ${OUT_PATH}`);
   console.log(`[diag] Next: open the CSV in Excel/Sheets; review the top needs_review=Y rows.`);
