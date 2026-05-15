@@ -22,6 +22,7 @@
 import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db as defaultDb } from '@/db';
 import * as schema from '@/db/schema';
+import type { ChangeSource } from '@/db/schema/customerStateTransitions';
 import type {
   AirtableAttachment,
   Brokerage,
@@ -482,6 +483,221 @@ export async function updateCustomerFields(
     .returning();
   if (!row) throw new Error(`Customer ${id} not found`);
   return mapDbCustomer(row, await channelCodeFor(row.channelId));
+}
+
+// ─── Public API: Post-launch state transitions (BI write primitive) ─────
+
+/**
+ * Map LP onboardingState value → HubSpot pipeline stage label.
+ *
+ * LP uses `At-Risk` (hyphen) internally to match the locked attention-state
+ * vocabulary; HubSpot's pipeline stage label is `At Risk` (space). All other
+ * post-launch states map 1:1. Pre-launch states ('Pre-Onboarding',
+ * 'Onboarding Scheduled') aren't written by the BI cron — those are HS-side
+ * transitions — so we only need to translate the 5 BI-owned states here.
+ */
+function hubspotStageLabelFor(toState: string): string {
+  return toState === 'At-Risk' ? 'At Risk' : toState;
+}
+
+/**
+ * Core BI write primitive: atomically transition a customer's post-launch
+ * state, append a row to the state-transition log, and (optionally) push
+ * the new stage + attention metadata to the customer's HubSpot ticket.
+ *
+ * Used by:
+ *   - The 5-evaluator BI cron pipeline (changeSource='lp_bi')
+ *   - Backfill scripts (changeSource='lp_admin', usually pushToHubSpot=false)
+ *   - Auto-2's Launched-branch handoff (changeSource='lp_auto2')
+ *
+ * Guarantees:
+ *   - Idempotent: returns `no-op` if (toState, attentionReason) already match.
+ *   - Race-safe: conditional UPDATE pinned to the SELECT'd `fromState`. If
+ *     another writer beats us between SELECT and UPDATE we return
+ *     `expected-from-mismatch` rather than overwriting their work.
+ *   - Atomic LP-side: customer mutation + transition-log INSERT happen in
+ *     one transaction. HubSpot push runs after the commit (best-effort) so
+ *     a HS outage can never roll back canonical LP state.
+ *
+ * HubSpot push notes:
+ *   - Awaited (not fire-and-forget) per the 2026-05-14 Vercel serverless
+ *     learnings — see closedwon-handler.ts.
+ *   - `updateTicketProperties` is dynamically imported because Agent B's
+ *     Wave-1 work may not have merged yet; we gracefully skip with a
+ *     warning if the export doesn't exist at runtime.
+ */
+export async function applyStateTransition(args: {
+  customerId: string;
+  toState: string;                                                       // 'Active' | 'Watch' | 'At-Risk' | 'Critical' | 'Churned'
+  attentionReason: string | null;                                        // from locked 10-value enum, or null on Active/Churned
+  changeSource: ChangeSource;                                            // 'lp_bi' for cron; 'lp_auto2' / 'lp_admin' for other LP writers
+  sourceDetail: string;                                                  // e.g. 'rule:engagement_drop_30d'
+  expectedFromState?: string | null;                                     // optional conditional WHERE — opposite-direction race guard
+  pushToHubSpot?: boolean;                                               // default true; false for backfill scripts
+  payload?: Record<string, unknown>;                                     // BI rule context for the transition row's payload jsonb
+}): Promise<
+  | { applied: true; reason: 'applied' }
+  | { applied: false; reason: 'no-op' | 'expected-from-mismatch' | 'customer-not-found' }
+> {
+  const {
+    customerId,
+    toState,
+    attentionReason,
+    changeSource,
+    sourceDetail,
+    expectedFromState,
+    pushToHubSpot = true,
+    payload,
+  } = args;
+
+  // One timestamp per call — used for both attentionSetAt + changedAt so the
+  // transition log row and customer row agree exactly.
+  const now = new Date();
+
+  // ─── Atomic LP-side: customer UPDATE + transition INSERT ──────────────
+  // We don't push to HS inside the transaction; HS failures must not roll
+  // back canonical LP state (LP is system of record post-launch).
+  type TxResult =
+    | { kind: 'customer-not-found' }
+    | { kind: 'expected-from-mismatch' }
+    | { kind: 'no-op' }
+    | { kind: 'applied'; hubspotTicketId: string | null };
+
+  const txResult = await db.transaction(async (tx): Promise<TxResult> => {
+    const current = await tx
+      .select({
+        onboardingState: schema.customers.onboardingState,
+        attentionReason: schema.customers.attentionReason,
+        hubspotTicketId: schema.customers.hubspotTicketId,
+      })
+      .from(schema.customers)
+      .where(eq(schema.customers.id, customerId))
+      .limit(1);
+
+    if (current.length === 0) return { kind: 'customer-not-found' };
+
+    const currentState = current[0].onboardingState;
+    const currentReason = current[0].attentionReason;
+    const hubspotTicketId = current[0].hubspotTicketId;
+
+    // Opposite-direction race guard: caller asserted what state they read.
+    // If the customer's state moved out from under them, bail.
+    if (expectedFromState !== undefined && expectedFromState !== currentState) {
+      return { kind: 'expected-from-mismatch' };
+    }
+
+    // Idempotency: nothing actually changes → skip the write so we don't
+    // pollute the transition log with no-op rows.
+    if (currentState === toState && currentReason === attentionReason) {
+      return { kind: 'no-op' };
+    }
+
+    // Conditional UPDATE pinned to the value we SELECT'd. If another writer
+    // mutated state between our SELECT and our UPDATE the WHERE drops to
+    // 0 rows and we treat it as the same race condition as expected-from
+    // mismatch. `IS NOT DISTINCT FROM` so NULL fromState matches NULL.
+    const updated = await tx
+      .update(schema.customers)
+      .set({
+        onboardingState: toState,
+        attentionReason,
+        // When clearing attention (Active/Churned with null reason) we also
+        // clear the timestamp — otherwise stale set-at values would leak
+        // into staleness queries.
+        attentionSetAt: attentionReason === null ? null : now,
+      })
+      .where(
+        and(
+          eq(schema.customers.id, customerId),
+          sql`${schema.customers.onboardingState} IS NOT DISTINCT FROM ${currentState}`,
+        ),
+      )
+      .returning({ id: schema.customers.id });
+
+    if (updated.length === 0) {
+      return { kind: 'expected-from-mismatch' };
+    }
+
+    await tx.insert(schema.customerStateTransitions).values({
+      customerId,
+      fromState: currentState,
+      toState,
+      attentionReason,
+      changeSource,
+      sourceDetail,
+      changedAt: now,
+      payload: payload ?? null,
+    });
+
+    return { kind: 'applied', hubspotTicketId };
+  });
+
+  if (txResult.kind === 'customer-not-found') {
+    return { applied: false, reason: 'customer-not-found' };
+  }
+  if (txResult.kind === 'expected-from-mismatch') {
+    return { applied: false, reason: 'expected-from-mismatch' };
+  }
+  if (txResult.kind === 'no-op') {
+    return { applied: false, reason: 'no-op' };
+  }
+
+  // ─── Best-effort HubSpot push (post-commit) ──────────────────────────
+  // LP-side state is canonical and already durable; HS push failures are
+  // logged but never thrown — the cron should keep going. Awaited (not
+  // fire-and-forget) because Vercel serverless terminates dangling
+  // promises at the end of the invocation (proven 2026-05-14).
+  if (pushToHubSpot && txResult.hubspotTicketId) {
+    const ticketId = txResult.hubspotTicketId;
+    const stageLabel = hubspotStageLabelFor(toState);
+
+    try {
+      const { pushTicketStage } = await import('@/lib/integrations/hubspot/client');
+      await pushTicketStage(ticketId, stageLabel);
+    } catch (err) {
+      console.warn('[applyStateTransition] pushTicketStage failed (non-blocking)', {
+        customerId,
+        ticketId,
+        stageLabel,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    if (attentionReason !== null) {
+      // Dynamic import — `updateTicketProperties` is being built in parallel
+      // by Agent B (Wave 1). If it hasn't merged yet we log + skip rather
+      // than crashing the cron for every customer.
+      try {
+        const hubspotClient = (await import('@/lib/integrations/hubspot/client')) as Record<
+          string,
+          unknown
+        >;
+        const updateTicketProperties = hubspotClient.updateTicketProperties;
+        if (typeof updateTicketProperties === 'function') {
+          await (updateTicketProperties as (
+            id: string,
+            props: Record<string, string | number | boolean | null>,
+          ) => Promise<void>)(ticketId, {
+            rejig_attention_reason: attentionReason,
+            rejig_attention_set_at: now.toISOString(),
+          });
+        } else {
+          console.warn(
+            '[applyStateTransition] updateTicketProperties not exported yet — skipping ticket-property push',
+            { customerId, ticketId },
+          );
+        }
+      } catch (err) {
+        console.warn('[applyStateTransition] updateTicketProperties failed (non-blocking)', {
+          customerId,
+          ticketId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  return { applied: true, reason: 'applied' };
 }
 
 // ─── Public API: Tasks ──────────────────────────────────────────────────
