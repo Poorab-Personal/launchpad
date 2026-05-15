@@ -340,6 +340,28 @@ export async function updateDealProperties(
 }
 
 /**
+ * Update custom + standard properties on a HubSpot Ticket. Parallels
+ * updateContactProperties. Used by the Phase 4 BI cron to write
+ * rejig_attention_reason, rejig_attention_set_at, and the recommended-
+ * action property cluster onto the Customer Journey ticket.
+ *
+ * HubSpot rejects empty-string values for datetime / enum properties
+ * with strict validation. Pass null to clear a property; the helper
+ * converts null → empty string per HubSpot API convention.
+ */
+export async function updateTicketProperties(
+  ticketId: string,
+  properties: Record<string, string | number | boolean | null>,
+): Promise<void> {
+  const hs = client();
+  await hs.crm.tickets.basicApi.update(ticketId, {
+    properties: Object.fromEntries(
+      Object.entries(properties).map(([k, v]) => [k, v == null ? '' : String(v)]),
+    ),
+  });
+}
+
+/**
  * Post a Note on a Deal. Used for surfacing validation errors back to the
  * sales rep (e.g. "Stripe subscription not found").
  */
