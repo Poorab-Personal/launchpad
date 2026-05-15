@@ -41,7 +41,7 @@ const PUBLIC_WEBMAIL_DOMAINS = new Set([
   'icloud.com', 'me.com', 'comcast.net', 'att.net', 'verizon.net',
 ]);
 
-// CSV column order — matches plan §5
+// CSV column order — matches plan §5 + §18
 const CSV_COLUMNS = [
   'rejig_user_id',
   'rejig_email',
@@ -54,6 +54,7 @@ const CSV_COLUMNS = [
   'rejig_last_login',
   'rejig_plan_expiry_date',
   'rejig_post_count_total',
+  'rejig_account_created_at',          // NEW (§18) — derived from Mongo _id
   'email_match_mode',
   'hs_contact_id',
   'hs_contact_company_ids',
@@ -65,6 +66,8 @@ const CSV_COLUMNS = [
   'stripe_customer_id',
   'stripe_customer_email',
   'stripe_sub_status',
+  'stripe_current_period_start',       // NEW (§18) — Stripe sub.current_period_start
+  'stripe_current_period_end',         // NEW (§18) — Stripe sub.current_period_end
   'stripe_metadata_existing_keys',
   'lp_customer_id',
   'lp_customer_id_existing',
@@ -77,6 +80,10 @@ const CSV_COLUMNS = [
   'proposed_ticket_target_stage',
   'proposed_ticket_action',
   'proposed_subscription_status',
+  'proposed_current_period_start',     // NEW (§18) — per-cohort computed
+  'proposed_current_period_end',       // NEW (§18) — per-cohort computed
+  'proposed_current_period_start_source', // NEW (§18) — stripe | mongo_id | rejig_expiry | unparseable
+  'proposed_payment_source',           // NEW (§18) — stripe | invoice | (empty for NULL)
   'channel_detection_evidence',
   'channel_detection_score',
   'needs_review',
@@ -136,6 +143,41 @@ function writeCsv(path: string, rows: AuditRow[]): void {
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// ─── Mongo _id timestamp parser (§18 Round 1) ───────────────────────────────
+// First 4 bytes of an ObjectId encode Unix epoch seconds. Defensive parsing
+// with length + charset + sanity-range checks per architect spec.
+const MONGO_ID_MIN_DATE = Date.UTC(2020, 0, 1);   // Rejig founding floor
+const MONGO_ID_MAX_DATE_OFFSET_MS = 86_400_000;   // today + 1 day max
+
+function parseMongoIdTimestamp(id: string): Date | null {
+  if (typeof id !== 'string' || id.length !== 24) return null;
+  if (!/^[0-9a-f]{24}$/i.test(id)) return null;
+  const seconds = parseInt(id.substring(0, 8), 16);
+  if (!Number.isFinite(seconds)) return null;
+  const ms = seconds * 1000;
+  if (ms < MONGO_ID_MIN_DATE) return null;
+  if (ms > Date.now() + MONGO_ID_MAX_DATE_OFFSET_MS) return null;
+  return new Date(ms);
+}
+
+// ─── addMonths with last-day clamping (matches Stripe billing semantics) ────
+// e.g. Aug 31 + 6 months → Feb 28 (or Feb 29 in leap year)
+function addMonthsClamped(date: Date, months: number): Date {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const targetMonth = month + months;
+  const targetYear = year + Math.floor(targetMonth / 12);
+  const wrappedMonth = ((targetMonth % 12) + 12) % 12;
+  // Days in target month
+  const daysInTarget = new Date(Date.UTC(targetYear, wrappedMonth + 1, 0)).getUTCDate();
+  const targetDay = Math.min(day, daysInTarget);
+  return new Date(Date.UTC(
+    targetYear, wrappedMonth, targetDay,
+    date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds(), date.getUTCMilliseconds(),
+  ));
 }
 
 // ─── Phase loaders ──────────────────────────────────────────────────────────
@@ -325,6 +367,8 @@ async function lookupStripeForRejig(
   customerId?: string;
   customerEmail?: string;
   subStatus?: string;
+  currentPeriodStart?: Date | null;   // §18
+  currentPeriodEnd?: Date | null;     // §18
   metadataKeys?: string[];
 }> {
   try {
@@ -335,11 +379,25 @@ async function lookupStripeForRejig(
       typeof cus === 'string' ? '' : ((cus as Stripe.Customer)?.email ?? '');
     const subMdKeys = Object.keys(sub.metadata ?? {});
     const cusMdKeys = typeof cus === 'string' ? [] : Object.keys((cus as Stripe.Customer)?.metadata ?? {});
+    // Stripe API v2024-04-10+: current_period_* moved from subscription → subscription.items.data[0]
+    // Fall back to top-level if older API surface (some accounts may still serve those)
+    const subAny = sub as unknown as {
+      current_period_start?: number;
+      current_period_end?: number;
+      items?: { data?: Array<{ current_period_start?: number; current_period_end?: number }> };
+    };
+    const firstItem = subAny.items?.data?.[0];
+    const cpsSec = firstItem?.current_period_start ?? subAny.current_period_start;
+    const cpeSec = firstItem?.current_period_end ?? subAny.current_period_end;
+    const cps = cpsSec ? new Date(cpsSec * 1000) : null;
+    const cpe = cpeSec ? new Date(cpeSec * 1000) : null;
     return {
       status: 'ok',
       customerId: cusId,
       customerEmail: cusEmail,
       subStatus: sub.status,
+      currentPeriodStart: cps,
+      currentPeriodEnd: cpe,
       metadataKeys: Array.from(new Set([...subMdKeys, ...cusMdKeys])),
     };
   } catch (err) {
@@ -548,6 +606,8 @@ async function main(): Promise<void> {
     let stripeCustomerEmail = '';
     let stripeSubStatus = '';
     let stripeMetadataKeys: string[] = [];
+    let stripeCurrentPeriodStart: Date | null = null;
+    let stripeCurrentPeriodEnd: Date | null = null;
     if (acct.stripe_subscription_id) {
       const r = await lookupStripeForRejig(stripe, acct.stripe_subscription_id);
       stripeStatus = r.status;
@@ -555,8 +615,13 @@ async function main(): Promise<void> {
       stripeCustomerEmail = r.customerEmail ?? '';
       stripeSubStatus = r.subStatus ?? '';
       stripeMetadataKeys = r.metadataKeys ?? [];
+      stripeCurrentPeriodStart = r.currentPeriodStart ?? null;
+      stripeCurrentPeriodEnd = r.currentPeriodEnd ?? null;
       await sleep(50);
     }
+
+    // Mongo _id → account creation date (§18)
+    const rejigAccountCreatedAt = parseMongoIdTimestamp(acct._id);
     stripeChecked++;
     if (stripeChecked % 100 === 0) {
       process.stdout.write(`\r[diag] Stripe lookups: ${stripeChecked} / ${accounts.length}`);
@@ -586,6 +651,56 @@ async function main(): Promise<void> {
       hsTicketStageLabel: cjTicket?.stageLabel ?? '',
       hasTicket: Boolean(cjTicket),
     });
+
+    // ─── Period dates + payment_source per cohort (§18) ───────────────────
+    let proposedPeriodStart: Date | null = null;
+    let proposedPeriodEnd: Date | null = null;
+    let proposedPeriodStartSource: 'stripe' | 'mongo_id' | 'rejig_expiry' | 'unparseable' = 'unparseable';
+    let proposedPaymentSource: 'stripe' | 'invoice' | '' = '';
+
+    const hasStripeOk = acct.stripe_subscription_id && stripeStatus === 'ok';
+    const rejigExpiry = acct.plan_expiry_date ? new Date(acct.plan_expiry_date) : null;
+
+    if (hasStripeOk && stripeCurrentPeriodStart && stripeCurrentPeriodEnd) {
+      // Stripe customers (Keyes active+trial, D2C-with-Stripe active+trial)
+      proposedPeriodStart = stripeCurrentPeriodStart;
+      proposedPeriodEnd = stripeCurrentPeriodEnd;
+      proposedPeriodStartSource = 'stripe';
+      proposedPaymentSource = 'stripe';
+    } else if (channelCode === 'BW') {
+      // B&W invoice: _id timestamp + 6 months
+      if (rejigAccountCreatedAt) {
+        proposedPeriodStart = rejigAccountCreatedAt;
+        proposedPeriodEnd = addMonthsClamped(rejigAccountCreatedAt, 6);
+        proposedPeriodStartSource = 'mongo_id';
+        proposedPaymentSource = 'invoice';
+      } else {
+        proposedPeriodStartSource = 'unparseable';
+        proposedPaymentSource = 'invoice'; // still B&W, just missing anchor
+      }
+    } else if (!acct.stripe_subscription_id) {
+      // D2C-no-Stripe — two sub-cohorts (§18 Round 2)
+      const isCancelled = acct.subscription_status === 'canceled' || acct.subscription_status === 'deactivated';
+      if (rejigAccountCreatedAt) {
+        proposedPeriodStart = rejigAccountCreatedAt;
+        proposedPeriodEnd = rejigExpiry;
+        proposedPeriodStartSource = 'mongo_id';
+      } else if (rejigExpiry) {
+        proposedPeriodStart = null;
+        proposedPeriodEnd = rejigExpiry;
+        proposedPeriodStartSource = 'rejig_expiry';
+      } else {
+        proposedPeriodStartSource = 'unparseable';
+      }
+      // Sub-cohort 1: was Stripe historically (cancelled) → payment_source='stripe'
+      // Sub-cohort 2: active demos / data anomalies → payment_source=NULL
+      proposedPaymentSource = isCancelled ? 'stripe' : '';
+    } else {
+      // Stripe sub exists but lookup failed (404 / auth error)
+      // Don't propose period dates — backfill creates row with NULLs
+      proposedPeriodStartSource = 'unparseable';
+      proposedPaymentSource = 'stripe'; // historical truth
+    }
 
     // LP existing-row check
     const lpExisting = lpByRejigUserId.get(acct._id) ?? (rejigEmail ? lpByEmail.get(rejigEmail) : undefined);
@@ -637,6 +752,14 @@ async function main(): Promise<void> {
     if (acct.subscription_status === 'trialing' && channelCode !== 'Keyes') {
       reviewReasons.push('trial_non_keyes');
     }
+    // §18: payment_source_unknown — active D2C with no sub (demos / data anomalies)
+    if (proposedPaymentSource === '' && cohort.onboardingState === 'Active') {
+      reviewReasons.push('payment_source_unknown');
+    }
+    // §18: unparseable Mongo _id (BLOCKING)
+    if (proposedPeriodStartSource === 'unparseable' && !hasStripeOk) {
+      reviewReasons.push('mongo_id_unparseable');
+    }
 
     // Action-required vs informational split:
     // needs_review=Y only when the founder must actually decide something.
@@ -651,6 +774,7 @@ async function main(): Promise<void> {
       'b2b_company_id_mismatch',
       'lp_email_already_exists',
       'rejig_no_email',
+      'mongo_id_unparseable',          // §18 — blocking
     ]);
     const needsReview = reviewReasons.some((r) => ACTION_REQUIRED_REASONS.has(r));
 
@@ -678,6 +802,7 @@ async function main(): Promise<void> {
       rejig_last_login: acct.last_login ?? '',
       rejig_plan_expiry_date: acct.plan_expiry_date ?? '',
       rejig_post_count_total: String(acct.post_metrics?.total_published ?? ''),
+      rejig_account_created_at: rejigAccountCreatedAt ? rejigAccountCreatedAt.toISOString() : '',
       email_match_mode: emailMatchMode,
       hs_contact_id: hsContact?.id ?? '',
       hs_contact_company_ids: companyIds.join(','),
@@ -689,6 +814,8 @@ async function main(): Promise<void> {
       stripe_customer_id: stripeCustomerId,
       stripe_customer_email: stripeCustomerEmail,
       stripe_sub_status: stripeSubStatus,
+      stripe_current_period_start: stripeCurrentPeriodStart ? stripeCurrentPeriodStart.toISOString() : '',
+      stripe_current_period_end: stripeCurrentPeriodEnd ? stripeCurrentPeriodEnd.toISOString() : '',
       stripe_metadata_existing_keys: stripeMetadataKeys.join(','),
       lp_customer_id: randomUUID(),
       lp_customer_id_existing: lpExisting?.id ?? '',
@@ -701,6 +828,10 @@ async function main(): Promise<void> {
       proposed_ticket_target_stage: cohort.ticketTargetStage,
       proposed_ticket_action: cohort.ticketAction,
       proposed_subscription_status: cohort.subscriptionStatus,
+      proposed_current_period_start: proposedPeriodStart ? proposedPeriodStart.toISOString() : '',
+      proposed_current_period_end: proposedPeriodEnd ? proposedPeriodEnd.toISOString() : '',
+      proposed_current_period_start_source: proposedPeriodStartSource,
+      proposed_payment_source: proposedPaymentSource,
       channel_detection_evidence: decision.evidence,
       channel_detection_score: String(decision.score),
       needs_review: needsReview ? 'Y' : 'N',
