@@ -50,7 +50,14 @@ function csvEsc(s: string): string {
 }
 
 // Per-Rejig-_id overrides — unique per row, avoids email-duplicate ambiguity.
-const BY_REJIG_ID: Record<string, { action: string; notes: string }> = {
+// Optional override fields: hsTicketIdOverride, channelOverride.
+type RejigOverride = {
+  action: string;
+  notes: string;
+  hsTicketIdOverride?: string;
+  channelOverride?: 'Standard' | 'Keyes' | 'BW';
+};
+const BY_REJIG_ID: Record<string, RejigOverride> = {
   // R:32 — lisa@treugroup.com (OLD; another lisa row R:543 has live Stripe sub)
   '6911bcd00d29afe171c3bcb7': { action: 'skip', notes: 'old account; user swapped to treugroup-premium.com' },
   // R:34 — loodmy@jacquesrealty.com (OLD; another loodmy row R:549 has Stripe sub)
@@ -93,6 +100,22 @@ const BY_REJIG_ID: Record<string, { action: string; notes: string }> = {
   '6a045c23d2da0bead6d17c70': { action: 'demo', notes: 'IPRE demo account (founder confirmed)' },
   // R:493 — jhallas@ipre.com (IPRE demo, per founder)
   '6a059d69d2da0bead6d17c7d': { action: 'demo', notes: 'IPRE demo account (founder confirmed)' },
+
+  // ─── Non-payment-source overrides ────────────────────────────────────────
+  // R:40 — realtornancystetson@gmail.com (hs_multiple_open_tickets)
+  // Founder picks ticket 43821244970 (not the auto-picked 43584434083).
+  '69c50049b0680f18b06de9df': {
+    action: '',
+    notes: 'founder picked specific HS ticket (manual override)',
+    hsTicketIdOverride: '43821244970',
+  },
+  // R:48 — tiffany@miloffaubuchon.com (trial_non_keyes)
+  // Founder confirms this trial customer IS Keyes (signals missed).
+  '6a043e2ad2da0bead6d17c6b': {
+    action: '',
+    notes: 'founder confirms channel = Keyes (signals 1-6 missed)',
+    channelOverride: 'Keyes',
+  },
 };
 
 // Strip prior manual_action/manual_notes if re-running
@@ -106,7 +129,20 @@ const newIdxEmail = baseHeader.indexOf('rejig_email');
 const newIdxBiz = baseHeader.indexOf('rejig_business_name');
 const newIdxId = baseHeader.indexOf('rejig_user_id');
 
-const newHeader = [...baseHeader, 'manual_action', 'manual_notes'];
+// Strip prior override columns too
+const existingTicketIdx = baseHeader.indexOf('manual_hs_ticket_id_override');
+const existingChannelIdx = baseHeader.indexOf('manual_channel_code_override');
+const baseHeader2 = baseHeader.filter(
+  (h) => h !== 'manual_hs_ticket_id_override' && h !== 'manual_channel_code_override',
+);
+
+const newHeader = [
+  ...baseHeader2,
+  'manual_action',
+  'manual_notes',
+  'manual_hs_ticket_id_override',
+  'manual_channel_code_override',
+];
 const outLines: string[] = [newHeader.join(',')];
 
 let appliedById = 0;
@@ -116,19 +152,32 @@ let unchanged = 0;
 for (let i = 1; i < lines.length; i++) {
   if (!lines[i]) continue;
   const cellsRaw = parseLine(lines[i]);
-  const cells = stripExisting
-    ? cellsRaw.filter((_, k) => k !== existingActionIdx && k !== existingNotesIdx)
-    : cellsRaw;
+  // Strip ALL prior override columns (action, notes, ticket, channel)
+  const dropIndexes = new Set<number>();
+  if (stripExisting) {
+    dropIndexes.add(existingActionIdx);
+    dropIndexes.add(existingNotesIdx);
+  }
+  const t = header.indexOf('manual_hs_ticket_id_override');
+  const c = header.indexOf('manual_channel_code_override');
+  if (t >= 0) dropIndexes.add(t);
+  if (c >= 0) dropIndexes.add(c);
+  const cells = cellsRaw.filter((_, k) => !dropIndexes.has(k));
   const rejigId = cells[newIdxId] || '';
   const email = (cells[newIdxEmail] || '').toLowerCase();
   const biz = (cells[newIdxBiz] || '').toLowerCase();
 
   let action = '';
   let notes = '';
+  let ticketOverride = '';
+  let channelOverride = '';
 
   if (BY_REJIG_ID[rejigId]) {
-    action = BY_REJIG_ID[rejigId].action;
-    notes = BY_REJIG_ID[rejigId].notes;
+    const ov = BY_REJIG_ID[rejigId];
+    action = ov.action;
+    notes = ov.notes;
+    ticketOverride = ov.hsTicketIdOverride ?? '';
+    channelOverride = ov.channelOverride ?? '';
     appliedById++;
   } else if (
     email.includes('@uniquecollective.us')
@@ -142,7 +191,7 @@ for (let i = 1; i < lines.length; i++) {
     unchanged++;
   }
 
-  cells.push(action, notes);
+  cells.push(action, notes, ticketOverride, channelOverride);
   outLines.push(cells.map(csvEsc).join(','));
 }
 
