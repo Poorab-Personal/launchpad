@@ -29,6 +29,10 @@
  */
 import * as dotenv from 'dotenv';
 import { Client } from '@hubspot/api-client';
+import {
+  PropertyCreateTypeEnum,
+  PropertyCreateFieldTypeEnum,
+} from '@hubspot/api-client/lib/codegen/crm/properties/models/PropertyCreate';
 
 dotenv.config({ path: '.env.local' });
 
@@ -276,8 +280,8 @@ async function processObject(hs: Client, objectType: ObjectType): Promise<{
       await hs.crm.properties.coreApi.create(objectType, {
         name: spec.name,
         label: spec.label,
-        type: spec.type,
-        fieldType: spec.fieldType,
+        type: spec.type as unknown as PropertyCreateTypeEnum,
+        fieldType: spec.fieldType as unknown as PropertyCreateFieldTypeEnum,
         groupName: DEFAULT_GROUP[objectType],
         description: spec.description,
         ...(spec.options
