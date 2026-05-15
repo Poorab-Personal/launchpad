@@ -52,7 +52,7 @@ type PropSpec = {
   name: string;
   label: string;
   type: 'string' | 'number' | 'date' | 'datetime' | 'enumeration';
-  fieldType: 'text' | 'textarea' | 'number' | 'date' | 'datetimepicker' | 'select';
+  fieldType: 'text' | 'textarea' | 'number' | 'date' | 'select';
   description: string;
   options?: EnumOption[];
 };
@@ -138,7 +138,7 @@ const SPEC: Record<ObjectType, PropSpec[]> = {
       name: 'rejig_last_login',
       label: 'Rejig Last Login',
       type: 'datetime',
-      fieldType: 'datetimepicker',
+      fieldType: 'date',
       description: 'Customer last login to Rejig app (UTC). Mirrored from Rejig API.',
     },
     {
@@ -177,7 +177,7 @@ const SPEC: Record<ObjectType, PropSpec[]> = {
       name: 'rejig_attention_set_at',
       label: 'Rejig Attention Set At',
       type: 'datetime',
-      fieldType: 'datetimepicker',
+      fieldType: 'date',
       description: 'When the current attention state started.',
     },
     {
@@ -191,7 +191,7 @@ const SPEC: Record<ObjectType, PropSpec[]> = {
       name: 'rejig_recommended_action_set_at',
       label: 'Rejig Recommended Action Set At',
       type: 'datetime',
-      fieldType: 'datetimepicker',
+      fieldType: 'date',
       description: 'When the BI cron last set rejig_recommended_action.',
     },
     {
