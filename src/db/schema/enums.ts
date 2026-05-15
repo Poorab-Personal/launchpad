@@ -91,6 +91,12 @@ export const attachmentTypeEnum = pgEnum('attachment_type', [
 
 export const productEnum = pgEnum('product', ['Core', 'Voice', 'Avatar']);
 
+// Payment source for a customer subscription row.
+// 'stripe' — Stripe Subscription drives billing (Keyes, D2C, historical D2C-canceled).
+// 'invoice' — direct invoice (B&W master agreement; future enterprise customers).
+// NULL — unknown / demo (no payment arrangement).
+export const paymentSourceEnum = pgEnum('payment_source_enum', ['stripe', 'invoice']);
+
 export const paymentModeEnum = pgEnum('payment_mode', [
   'pre-paid',
   'setup-intent-at-intake',

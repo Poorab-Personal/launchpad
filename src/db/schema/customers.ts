@@ -178,7 +178,7 @@ export const customers = pgTable(
 
     // System
     environment: text('environment').array(),                                      // test/prod isolation
-    rejigAccountId: text('rejig_account_id'),                                      // engagement-data join target
+    rejigUserId: text('rejig_user_id'),                                            // Rejig Mongo _id — cross-system identity anchor
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastModified: timestamp('last_modified', { withTimezone: true })
@@ -200,6 +200,12 @@ export const customers = pgTable(
       .on(table.hubspotContactId)
       .where(sql`${table.hubspotContactId} IS NOT NULL`),
     hubspotTicketIdIdx: index('customers_hubspot_ticket_id_idx').on(table.hubspotTicketId),
+    // Rejig cross-system anchor. Partial unique — backfilled customers all have
+    // rejig_user_id; organically-onboarded customers (D2C closedwon path) may
+    // have NULL until the Rejig account is provisioned.
+    rejigUserIdUnique: uniqueIndex('customers_rejig_user_id_unique')
+      .on(table.rejigUserId)
+      .where(sql`${table.rejigUserId} IS NOT NULL`),
     // Drives "all customers on workflow X" queries and per-stage filters.
     workflowKeyIdx: index('customers_workflow_key_idx').on(table.workflowKey),
     // Belt-and-suspenders: even if app-layer resolution glitches, workflow_key

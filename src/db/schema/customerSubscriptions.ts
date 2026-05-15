@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   index,
   numeric,
@@ -8,7 +9,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { customers } from './customers';
-import { productEnum, subscriptionStatusEnum } from './enums';
+import { paymentSourceEnum, productEnum, subscriptionStatusEnum } from './enums';
 
 // 1:N customer ↔ Stripe subscription. One row per (customer, product) pair.
 // Created by /api/webhooks/hubspot on Deal closedwon — handler reads the
@@ -32,12 +33,20 @@ export const customerSubscriptions = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: 'cascade' }),
     product: productEnum('product').notNull(),
-    stripeSubscriptionId: text('stripe_subscription_id').notNull(),
+    stripeSubscriptionId: text('stripe_subscription_id'),                         // nullable: B&W and demos have no Stripe sub
     hubspotDealId: text('hubspot_deal_id'),                                       // same across all subs for one customer
     status: subscriptionStatusEnum('status'),                                     // mirrors Stripe sub status
     startedAt: timestamp('started_at', { withTimezone: true }),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     mrr: numeric('mrr'),                                                          // cents (string for precision)
+
+    // §18 — period + invoice tracking, uniform across cohorts
+    currentPeriodStart: timestamp('current_period_start', { withTimezone: true }),// Stripe: live billing cycle; B&W/demos: account creation
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: true }),    // Stripe: live; B&W: start + 6mo; D2C-no-Stripe: Rejig plan_expiry_date
+    currentPeriodStartSource: text('current_period_start_source'),                // 'stripe' | 'mongo_id' | 'rejig_expiry' | 'unparseable'
+    lastInvoiceStatus: text('last_invoice_status'),                               // 'paid' | 'open' | 'uncollectible' | 'void'
+    lastInvoiceUrl: text('last_invoice_url'),                                     // Stripe hosted_invoice_url
+    paymentSource: paymentSourceEnum('payment_source'),                           // 'stripe' | 'invoice' | NULL (demo/unknown)
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
@@ -50,11 +59,17 @@ export const customerSubscriptions = pgTable(
       table.customerId,
       table.product,
     ),
-    stripeSubscriptionUnique: uniqueIndex('customer_subscriptions_stripe_subscription_unique').on(
-      table.stripeSubscriptionId,
-    ),
+    // Partial unique — only enforced when Stripe sub ID is set. B&W and demos
+    // can have NULL stripe_subscription_id without colliding.
+    stripeSubscriptionUnique: uniqueIndex('customer_subscriptions_stripe_subscription_unique')
+      .on(table.stripeSubscriptionId)
+      .where(sql`${table.stripeSubscriptionId} IS NOT NULL`),
     customerIdx: index('customer_subscriptions_customer_idx').on(table.customerId),
     hubspotDealIdx: index('customer_subscriptions_hubspot_deal_idx').on(table.hubspotDealId),
+    // Defensive index for BI cron renewal-window queries (e.g. days_until_expiry).
+    currentPeriodEndIdx: index('idx_customer_subscriptions_current_period_end')
+      .on(table.currentPeriodEnd)
+      .where(sql`${table.currentPeriodEnd} IS NOT NULL`),
   }),
 );
 

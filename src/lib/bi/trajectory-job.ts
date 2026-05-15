@@ -254,7 +254,7 @@ export async function computeTrajectoriesForAllCustomers(): Promise<{
   const activeCustomers = await db
     .select({
       id: customers.id,
-      rejigAccountId: customers.rejigAccountId,
+      rejigUserId: customers.rejigUserId,
     })
     .from(customers)
     .where(ne(customers.subscriptionStatus, 'Cancelled'));
@@ -322,7 +322,7 @@ export async function computeTrajectoriesForAllCustomers(): Promise<{
       // === Persist as derived.posting_trajectory ===
       await db.insert(customerUsageSignals).values({
         customerId: customer.id,
-        rejigUserId: customer.rejigAccountId ?? null,
+        rejigUserId: customer.rejigUserId ?? null,
         signalType: SIGNAL_TYPES.DERIVED_POSTING_TRAJECTORY,
         signalValueNumeric: String(snapshot.cyclesObserved),
         signalValueJsonb: snapshot,

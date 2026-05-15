@@ -64,6 +64,20 @@
       "when": 1778794476829,
       "tag": "0008_phase_2_schema_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1778880000000,
+      "tag": "0009_rejig_user_id_rename_and_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1778880001000,
+      "tag": "0010_subscription_columns",
+      "breakpoints": true
     }
   ]
 }

@@ -563,7 +563,8 @@ async function main(): Promise<void> {
   const hs = new HsClient({ accessToken: process.env.HUBSPOT_STATIC_TOKEN! });
   const stripeKey = process.env.STRIPE_LIVE_SECRET_KEY ?? process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) throw new Error('STRIPE_LIVE_SECRET_KEY (or STRIPE_SECRET_KEY) not set');
-  const stripe = new Stripe(stripeKey, { apiVersion: '2025-05-28.basil' });
+  // Stripe SDK pins API version; let the SDK default to its own current version
+  const stripe = new Stripe(stripeKey);
 
   // Step 4: HS Contact search
   console.log('[diag] Searching HubSpot Contacts by email…');
