@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
@@ -42,4 +43,29 @@ export async function deleteCustomerAction(formData: FormData): Promise<void> {
   console.log(`[admin] deleted customer ${id} (${deleted[0].name})`);
 
   redirect('/admin');
+}
+
+/**
+ * Update billing_relationship for a customer. Admin only.
+ * Future: also push to HS Contact's rejig_billing_relationship property.
+ */
+const BILLING_VALUES = new Set(['paying', 'comped', 'internal_demo']);
+
+export async function updateBillingRelationshipAction(formData: FormData): Promise<void> {
+  await requireRole(['Admin']);
+
+  const id = formData.get('id');
+  const value = formData.get('billing_relationship');
+  if (typeof id !== 'string' || !id) throw new Error('Missing customer id');
+  if (typeof value !== 'string' || !BILLING_VALUES.has(value)) {
+    throw new Error(`Invalid billing_relationship: ${value}`);
+  }
+
+  await db
+    .update(customers)
+    .set({ billingRelationship: value as 'paying' | 'comped' | 'internal_demo' })
+    .where(eq(customers.id, id));
+
+  console.log(`[admin] customer ${id} billing_relationship → ${value}`);
+  revalidatePath(`/admin/${id}`);
 }

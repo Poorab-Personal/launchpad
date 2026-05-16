@@ -1,5 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { db } from '@/db';
+import { customers } from '@/db/schema/customers';
+import { customerUsageSignals } from '@/db/schema/customerUsageSignals';
 import {
   getCustomerById,
   getEventsForCustomer,
@@ -9,7 +13,7 @@ import {
   getBrokerageById,
 } from '@/lib/db';
 import type { TaskStatus } from '@/types';
-import { deleteCustomerAction } from './actions';
+import { deleteCustomerAction, updateBillingRelationshipAction } from './actions';
 import DeleteCustomerButton from './delete-customer-button';
 
 const CHANGE_SOURCE_BADGE: Record<string, string> = {
@@ -55,11 +59,51 @@ export default async function CustomerDetailPage({
     notFound();
   }
 
-  const [tasks, teamMembers, stateTransitions, eventsLog] = await Promise.all([
+  const [tasks, teamMembers, stateTransitions, eventsLog, customerExtra, rejigSignals] = await Promise.all([
     getTasksForCustomer(customer.id),
     getTeamMembers(),
     getStateTransitionsForCustomer(customer.id, 25),
     getEventsForCustomer(customer.id, 25),
+    // Fields the legacy mapper doesn't expose yet
+    db.query.customers.findFirst({
+      where: eq(customers.id, customer.id),
+      columns: {
+        billingRelationship: true,
+        onboardingState: true,
+        attentionReason: true,
+        rejigUserId: true,
+        createdVia: true,
+      },
+    }),
+    // Latest Rejig signal of each rejig.* type for this customer
+    (async () => {
+      const rejigTypes = [
+        'rejig.last_login',
+        'rejig.days_since_last_post',
+        'rejig.total_published_posts',
+        'rejig.listing_count',
+        'rejig.days_until_expiry',
+        'rejig.account_active',
+      ];
+      const rows = await db
+        .select({
+          signalType: customerUsageSignals.signalType,
+          observedAt: customerUsageSignals.observedAt,
+          signalValueNumeric: customerUsageSignals.signalValueNumeric,
+          signalValueJsonb: customerUsageSignals.signalValueJsonb,
+        })
+        .from(customerUsageSignals)
+        .where(
+          and(
+            eq(customerUsageSignals.customerId, customer.id),
+            inArray(customerUsageSignals.signalType, rejigTypes),
+          ),
+        )
+        .orderBy(desc(customerUsageSignals.observedAt));
+      const byType = new Map<string, (typeof rows)[number]>();
+      for (const r of rows) if (!byType.has(r.signalType)) byType.set(r.signalType, r);
+      return byType;
+    })(),
   ]);
   const memberNameMap = new Map(teamMembers.map((m) => [m.id, m.name]));
   const brokerageName = customer.type === 'B2B' && customer.brokerage.length > 0
@@ -119,6 +163,106 @@ export default async function CustomerDetailPage({
           <input type="hidden" name="id" value={customer.id} />
           <DeleteCustomerButton customerName={customer.name} />
         </form>
+      </div>
+
+      {/* Billing Relationship + Rejig Engagement */}
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+          <h2 className="mb-1 font-[var(--font-outfit)] text-sm font-semibold uppercase tracking-wider text-[#1B2E35]/60">
+            Billing Relationship
+          </h2>
+          <p className="mb-3 text-xs text-[#1B2E35]/50">
+            How we treat this customer billing-wise. Default is <b>paying</b>; set to <b>comped</b>{' '}
+            for sponsor execs / free accounts (real users we don&apos;t charge), <b>internal_demo</b>{' '}
+            for Rejig-internal accounts (BI cron skips these entirely).
+          </p>
+          <form action={updateBillingRelationshipAction} className="flex items-center gap-2">
+            <input type="hidden" name="id" value={customer.id} />
+            <select
+              name="billing_relationship"
+              defaultValue={customerExtra?.billingRelationship ?? 'paying'}
+              className="rounded border border-[#E0DEE4] bg-white px-2 py-1.5 text-sm text-[#1B2E35] focus:border-[#6C4AB6] focus:outline-none"
+            >
+              <option value="paying">paying</option>
+              <option value="comped">comped</option>
+              <option value="internal_demo">internal_demo</option>
+            </select>
+            <button
+              type="submit"
+              className="rounded bg-[#6C4AB6] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#6C4AB6]/90"
+            >
+              Save
+            </button>
+            {customerExtra?.createdVia === 'backfill' && (
+              <span className="text-xs text-[#1B2E35]/40">Backfilled</span>
+            )}
+          </form>
+        </div>
+
+        <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+          <h2 className="mb-1 font-[var(--font-outfit)] text-sm font-semibold uppercase tracking-wider text-[#1B2E35]/60">
+            Rejig Engagement
+          </h2>
+          <p className="mb-3 text-xs text-[#1B2E35]/50">
+            Latest signals from the Rejig API snapshot. Updated by the weekly cron.
+          </p>
+          {rejigSignals.size === 0 ? (
+            <p className="text-sm text-[#1B2E35]/50 italic">
+              No signals yet — wait for next Rejig snapshot or backfill.
+            </p>
+          ) : (
+            <dl className="divide-y divide-[#E0DEE4]/60 text-sm">
+              {[
+                ['rejig.last_login', 'Last login'],
+                ['rejig.days_since_last_post', 'Days since last post'],
+                ['rejig.total_published_posts', 'Total posts'],
+                ['rejig.listing_count', 'Listings'],
+                ['rejig.days_until_expiry', 'Days until expiry'],
+                ['rejig.account_active', 'Account active'],
+              ].map(([type, label]) => {
+                const sig = rejigSignals.get(type);
+                let displayVal = '—';
+                if (sig) {
+                  if (type === 'rejig.last_login') {
+                    const j = sig.signalValueJsonb as { lastLoginISO?: string | null; never?: boolean } | null;
+                    if (j?.never) displayVal = 'never';
+                    else if (j?.lastLoginISO) {
+                      const d = new Date(j.lastLoginISO);
+                      displayVal = `${d.toLocaleDateString()} (${relativeTime(j.lastLoginISO)})`;
+                    }
+                  } else if (type === 'rejig.account_active') {
+                    displayVal = sig.signalValueNumeric === '1' ? 'yes' : 'no';
+                  } else if (type === 'rejig.days_since_last_post') {
+                    const j = sig.signalValueJsonb as { neverPosted?: boolean } | null;
+                    if (j?.neverPosted) displayVal = 'never posted';
+                    else if (sig.signalValueNumeric != null) displayVal = `${sig.signalValueNumeric} days`;
+                  } else if (type === 'rejig.days_until_expiry') {
+                    if (sig.signalValueNumeric != null) {
+                      const n = Number(sig.signalValueNumeric);
+                      displayVal = n < 0 ? `expired ${-n}d ago` : `${n} days`;
+                    }
+                  } else {
+                    if (sig.signalValueNumeric != null) displayVal = sig.signalValueNumeric;
+                  }
+                }
+                return (
+                  <div key={type} className="flex justify-between gap-2 py-1.5">
+                    <dt className="text-[#1B2E35]/70">{label}</dt>
+                    <dd className="text-[#1B2E35] font-medium tabular-nums">{displayVal}</dd>
+                  </div>
+                );
+              })}
+            </dl>
+          )}
+          {rejigSignals.size > 0 && (
+            <p className="mt-3 text-[11px] text-[#1B2E35]/40">
+              Snapshot at {(() => {
+                const any = [...rejigSignals.values()][0];
+                return any ? new Date(any.observedAt).toLocaleString() : 'unknown';
+              })()}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Identity */}
@@ -230,81 +374,6 @@ export default async function CustomerDetailPage({
         <Field label="Call Completed" value={customer.callCompleted ? 'Yes' : 'No'} />
         <Field label="CSM Assigned" value={customer.csmAssigned.length > 0 ? memberNameMap.get(customer.csmAssigned[0]) ?? customer.csmAssigned[0] : ''} />
       </Section>
-
-      {/* Stage history + Events activity log */}
-      <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
-          <h2 className="mb-1 font-[var(--font-outfit)] text-sm font-semibold uppercase tracking-wider text-[#1B2E35]/60">
-            Stage history
-          </h2>
-          <p className="mb-3 text-xs text-[#1B2E35]/50">
-            HubSpot ticket pipeline transitions. Mirrored via Phase 3 sync.
-          </p>
-          {stateTransitions.length === 0 ? (
-            <p className="text-sm text-[#1B2E35]/50 italic">No transitions yet.</p>
-          ) : (
-            <ol className="space-y-2 text-sm">
-              {stateTransitions.map((t) => (
-                <li key={t.id} className="flex flex-col gap-1 rounded-md border border-[#E0DEE4]/60 bg-[#F7F4EB]/40 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-[#1B2E35]">
-                      {t.fromState ?? '(none)'} <span className="text-[#1B2E35]/40">→</span> {t.toState}
-                    </span>
-                    <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
-                        CHANGE_SOURCE_BADGE[t.changeSource] ?? 'bg-[#1B2E35]/8 text-[#1B2E35]/60'
-                      }`}
-                    >
-                      {t.changeSource.replace(/_/g, ' ')}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-[#1B2E35]/50">
-                    <span>{relativeTime(t.changedAt)}</span>
-                    {t.sourceDetail && (
-                      <span className="truncate font-mono text-[#1B2E35]/40" title={t.sourceDetail}>
-                        · {t.sourceDetail}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
-          <h2 className="mb-1 font-[var(--font-outfit)] text-sm font-semibold uppercase tracking-wider text-[#1B2E35]/60">
-            Activity log
-          </h2>
-          <p className="mb-3 text-xs text-[#1B2E35]/50">
-            LaunchPad-side events: tasks completed, stage advances, design approvals, etc.
-          </p>
-          {eventsLog.length === 0 ? (
-            <p className="text-sm text-[#1B2E35]/50 italic">No events yet.</p>
-          ) : (
-            <ol className="space-y-2 text-sm">
-              {eventsLog.map((e) => (
-                <li key={e.id} className="flex flex-col gap-1 rounded-md border border-[#E0DEE4]/60 bg-[#F7F4EB]/40 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-[#1B2E35]">{e.eventType}</span>
-                    <span className="shrink-0 rounded-full bg-[#1B2E35]/8 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#1B2E35]/60">
-                      {e.actorType}
-                    </span>
-                  </div>
-                  <div className="text-xs text-[#1B2E35]/50">{relativeTime(e.createdAt)}</div>
-                  {e.details != null && (typeof e.details === 'string' ? e.details.length > 0 : true) && (
-                    <div className="mt-1 font-mono text-[10px] text-[#1B2E35]/50 break-all">
-                      {typeof e.details === 'string'
-                        ? e.details
-                        : JSON.stringify(e.details)}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      </div>
 
       {/* Tasks grouped by stage */}
       <h2 className="mt-8 mb-4 font-[var(--font-outfit)] text-lg font-semibold text-[#1B2E35]">
@@ -473,6 +542,88 @@ export default async function CustomerDetailPage({
               </div>
             );
           })}
+      </div>
+
+      {/* Stage history + Events activity log */}
+      <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+          <h2 className="mb-1 font-[var(--font-outfit)] text-sm font-semibold uppercase tracking-wider text-[#1B2E35]/60">
+            Stage history
+          </h2>
+          <p className="mb-3 text-xs text-[#1B2E35]/50">
+            HubSpot ticket pipeline transitions. Mirrored via Phase 3 sync.
+          </p>
+          {stateTransitions.length === 0 ? (
+            <p className="text-sm text-[#1B2E35]/50 italic">No transitions yet.</p>
+          ) : (
+            <ol className="divide-y divide-[#E0DEE4]/60 text-sm">
+              {stateTransitions.map((t) => (
+                <li key={t.id} className="flex items-center justify-between gap-2 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium text-[#1B2E35]">
+                      {t.fromState ?? '(none)'} <span className="text-[#1B2E35]/40">→</span> {t.toState}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#1B2E35]/50">
+                      <span>{relativeTime(t.changedAt)}</span>
+                      {t.sourceDetail && (
+                        <span className="truncate font-mono text-[#1B2E35]/40" title={t.sourceDetail}>
+                          · {t.sourceDetail}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
+                      CHANGE_SOURCE_BADGE[t.changeSource] ?? 'bg-[#1B2E35]/8 text-[#1B2E35]/60'
+                    }`}
+                  >
+                    {t.changeSource.replace(/_/g, ' ')}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">
+          <h2 className="mb-1 font-[var(--font-outfit)] text-sm font-semibold uppercase tracking-wider text-[#1B2E35]/60">
+            Activity log
+          </h2>
+          <p className="mb-3 text-xs text-[#1B2E35]/50">
+            LaunchPad-side events: tasks completed, stage advances, design approvals, etc.
+          </p>
+          {eventsLog.length === 0 ? (
+            <p className="text-sm text-[#1B2E35]/50 italic">No events yet.</p>
+          ) : (
+            <ol className="divide-y divide-[#E0DEE4]/60 text-sm">
+              {eventsLog.map((e) => {
+                const detailText = e.details == null
+                  ? ''
+                  : typeof e.details === 'string'
+                    ? e.details
+                    : JSON.stringify(e.details);
+                return (
+                  <li key={e.id} className="flex items-start justify-between gap-2 py-1.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-[13px] font-medium text-[#1B2E35]">{e.eventType}</span>
+                        <span className="shrink-0 text-[11px] text-[#1B2E35]/50">{relativeTime(e.createdAt)}</span>
+                      </div>
+                      {detailText && (
+                        <div className="truncate font-mono text-[10px] text-[#1B2E35]/55" title={detailText}>
+                          {detailText}
+                        </div>
+                      )}
+                    </div>
+                    <span className="shrink-0 rounded-full bg-[#1B2E35]/8 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide text-[#1B2E35]/60">
+                      {e.actorType}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
       </div>
     </div>
   );
