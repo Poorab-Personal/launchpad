@@ -120,10 +120,20 @@ async function ensureStageCache(): Promise<Record<string, string>> {
   return cache;
 }
 
+// LP onboarding_state → HS CJ pipeline stage label translation.
+// Mostly identity, except 'At-Risk' (LP enum) → 'At Risk' (HS label) and
+// any other future mismatches go here. Centralizing prevents the same
+// silent push failure that surfaced when At-Risk transitions weren't
+// reflecting in HS (2026-05-16 smoke).
+const LP_TO_HS_STAGE_LABEL: Record<string, string> = {
+  'At-Risk': 'At Risk',
+};
+
 async function getStageIdByLabel(stageLabel: string): Promise<string> {
   const cache = await ensureStageCache();
-  const id = cache[stageLabel];
-  if (!id) throw new Error(`No pipeline stage labeled "${stageLabel}" (have: ${Object.keys(cache).join(', ')})`);
+  const hsLabel = LP_TO_HS_STAGE_LABEL[stageLabel] ?? stageLabel;
+  const id = cache[hsLabel];
+  if (!id) throw new Error(`No pipeline stage labeled "${hsLabel}" (have: ${Object.keys(cache).join(', ')})`);
   return id;
 }
 
