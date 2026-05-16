@@ -151,19 +151,99 @@ export default async function CustomerDetailPage({
         &larr; Back to customers
       </Link>
 
-      {/* Customer header */}
-      <div className="mb-6 rounded-lg border border-[#E0DEE4] bg-white p-6 shadow-[0px_4px_12px_#1B2E3514] flex items-start justify-between gap-4">
-        <div>
-          <h1 className="mb-1 font-[var(--font-outfit)] text-2xl font-bold text-[#1B2E35]">{customer.name}</h1>
-          {customer.businessName && (
-            <p className="text-sm text-[#1B2E35]/60">{customer.businessName}</p>
-          )}
-        </div>
-        <form action={deleteCustomerAction}>
-          <input type="hidden" name="id" value={customer.id} />
-          <DeleteCustomerButton customerName={customer.name} />
-        </form>
-      </div>
+      {/* Customer hero */}
+      {(() => {
+        const state = customerExtra?.onboardingState ?? null;
+        const attention = customerExtra?.attentionReason ?? null;
+        const billing = customerExtra?.billingRelationship ?? 'paying';
+        const stateBadgeClass: Record<string, string> = {
+          Active: 'bg-[#05C68E]/12 text-[#05C68E] border-[#05C68E]/30',
+          Watch: 'bg-[#DABA21]/15 text-[#A18A18] border-[#DABA21]/30',
+          'At-Risk': 'bg-[#EC531A]/12 text-[#EC531A] border-[#EC531A]/30',
+          Critical: 'bg-[#EC531A]/20 text-[#EC531A] border-[#EC531A]/40 font-bold',
+          Churned: 'bg-[#1B2E35]/12 text-[#1B2E35]/60 border-[#1B2E35]/20',
+          'On Hold': 'bg-[#1B2E35]/8 text-[#1B2E35]/50 border-[#1B2E35]/15',
+          'Pre-Onboarding': 'bg-[#6C4AB6]/12 text-[#6C4AB6] border-[#6C4AB6]/25',
+          'Onboarding Scheduled': 'bg-[#6C4AB6]/12 text-[#6C4AB6] border-[#6C4AB6]/25',
+        };
+        const stateClass = state ? stateBadgeClass[state] ?? 'bg-[#1B2E35]/8 text-[#1B2E35]/60 border-[#1B2E35]/15' : '';
+
+        // Tenure (days since customer.createdAt)
+        const tenureDays = Math.floor((Date.now() - new Date(customer.createdAt).getTime()) / 86400000);
+        const tenureLabel = tenureDays < 30 ? `${tenureDays}d` : tenureDays < 365 ? `${Math.floor(tenureDays / 30)}mo` : `${(tenureDays / 365).toFixed(1)}y`;
+
+        // Engagement quick-stats
+        const sigLogin = rejigSignals.get('rejig.last_login');
+        const loginJsonb = sigLogin?.signalValueJsonb as { lastLoginISO?: string | null; never?: boolean } | null;
+        const lastLoginRel = loginJsonb?.never ? 'never' : loginJsonb?.lastLoginISO ? relativeTime(loginJsonb.lastLoginISO) : '—';
+
+        const sigPosts = rejigSignals.get('rejig.total_published_posts');
+        const totalPosts = sigPosts?.signalValueNumeric ?? '—';
+
+        const sigDaysSincePost = rejigSignals.get('rejig.days_since_last_post');
+        const daysSincePostJsonb = sigDaysSincePost?.signalValueJsonb as { neverPosted?: boolean } | null;
+        const daysSincePostVal = daysSincePostJsonb?.neverPosted ? 'never' : sigDaysSincePost?.signalValueNumeric ? `${sigDaysSincePost.signalValueNumeric}d` : '—';
+
+        const sigListings = rejigSignals.get('rejig.listing_count');
+        const listings = sigListings?.signalValueNumeric ?? '—';
+
+        const sigExpiry = rejigSignals.get('rejig.days_until_expiry');
+        const daysUntilExpiryNum = sigExpiry?.signalValueNumeric ? Number(sigExpiry.signalValueNumeric) : null;
+        const daysUntilExpiryLabel = daysUntilExpiryNum == null
+          ? '—'
+          : daysUntilExpiryNum < 0
+          ? `expired ${-daysUntilExpiryNum}d ago`
+          : daysUntilExpiryNum <= 14
+          ? `${daysUntilExpiryNum}d ⚠`
+          : `${daysUntilExpiryNum}d`;
+
+        return (
+          <div className="mb-6 rounded-lg border border-[#E0DEE4] bg-white shadow-[0px_4px_12px_#1B2E3514]">
+            {/* Top row — name + state + delete */}
+            <div className="flex items-start justify-between gap-4 border-b border-[#E0DEE4]/60 p-5">
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-3 flex-wrap">
+                  <h1 className="font-[var(--font-outfit)] text-2xl font-bold text-[#1B2E35]">{customer.name}</h1>
+                  {state && (
+                    <span className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-semibold ${stateClass}`}>
+                      {state}
+                    </span>
+                  )}
+                  <span className="inline-flex items-center rounded-md border border-[#1B2E35]/15 bg-white px-2 py-0.5 text-xs font-medium text-[#1B2E35]/70">
+                    {billing}
+                  </span>
+                </div>
+                <div className="text-sm text-[#1B2E35]/60">
+                  {customer.businessName && <span>{customer.businessName}</span>}
+                  {customer.businessName && <span className="mx-1.5 text-[#1B2E35]/30">·</span>}
+                  <span>{customer.type}</span>
+                  <span className="mx-1.5 text-[#1B2E35]/30">·</span>
+                  <span>{customer.channel}</span>
+                </div>
+                {attention && (
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-[#EC531A]/8 px-2 py-1 text-xs font-medium text-[#EC531A]">
+                    📍 {attention}
+                  </div>
+                )}
+              </div>
+              <form action={deleteCustomerAction}>
+                <input type="hidden" name="id" value={customer.id} />
+                <DeleteCustomerButton customerName={customer.name} />
+              </form>
+            </div>
+
+            {/* Bottom row — key signals */}
+            <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 lg:grid-cols-6">
+              <StatTile label="Tenure" value={tenureLabel} />
+              <StatTile label="Days until expiry" value={daysUntilExpiryLabel} warn={daysUntilExpiryNum != null && daysUntilExpiryNum <= 14} />
+              <StatTile label="Last login" value={lastLoginRel} />
+              <StatTile label="Posts" value={String(totalPosts)} />
+              <StatTile label="Listings" value={String(listings)} />
+              <StatTile label="Days since post" value={daysSincePostVal} />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Billing Relationship + Rejig Engagement */}
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -364,16 +444,18 @@ export default async function CustomerDetailPage({
         </Section>
       )}
 
-      {/* Status */}
-      <Section title="Status">
-        <Field label="Current Stage" value={customer.currentStage} />
-        <Field label="Stage Entered At" value={customer.stageEnteredAt ? new Date(customer.stageEnteredAt).toLocaleDateString() : ''} />
-        <Field label="Account Created" value={customer.accountCreated ? 'Yes' : 'No'} />
-        <Field label="Credentials Sent" value={customer.credentialsSent ? 'Yes' : 'No'} />
-        <Field label="Call Booked" value={customer.callBooked ? 'Yes' : 'No'} />
-        <Field label="Call Completed" value={customer.callCompleted ? 'Yes' : 'No'} />
-        <Field label="CSM Assigned" value={customer.csmAssigned.length > 0 ? memberNameMap.get(customer.csmAssigned[0]) ?? customer.csmAssigned[0] : ''} />
-      </Section>
+      {/* Status — only show for mid-onboarding customers (skip for backfilled / Launched) */}
+      {customer.currentStage !== 'Backfilled' && customer.currentStage !== 'Launched' && (
+        <Section title="Onboarding Progress">
+          <Field label="Current Stage" value={customer.currentStage} />
+          <Field label="Stage Entered At" value={customer.stageEnteredAt ? new Date(customer.stageEnteredAt).toLocaleDateString() : ''} />
+          <Field label="Account Created" value={customer.accountCreated ? 'Yes' : 'No'} />
+          <Field label="Credentials Sent" value={customer.credentialsSent ? 'Yes' : 'No'} />
+          <Field label="Call Booked" value={customer.callBooked ? 'Yes' : 'No'} />
+          <Field label="Call Completed" value={customer.callCompleted ? 'Yes' : 'No'} />
+          <Field label="CSM Assigned" value={customer.csmAssigned.length > 0 ? memberNameMap.get(customer.csmAssigned[0]) ?? customer.csmAssigned[0] : ''} />
+        </Section>
+      )}
 
       {/* Tasks grouped by stage */}
       <h2 className="mt-8 mb-4 font-[var(--font-outfit)] text-lg font-semibold text-[#1B2E35]">
@@ -625,6 +707,15 @@ export default async function CustomerDetailPage({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function StatTile({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className={`rounded-md border px-3 py-2 ${warn ? 'border-[#EC531A]/30 bg-[#EC531A]/5' : 'border-[#E0DEE4] bg-[#F7F4EB]/40'}`}>
+      <div className="text-[10px] font-medium uppercase tracking-wider text-[#1B2E35]/50">{label}</div>
+      <div className={`mt-0.5 font-[var(--font-outfit)] text-base font-bold ${warn ? 'text-[#EC531A]' : 'text-[#1B2E35]'}`}>{value}</div>
     </div>
   );
 }
