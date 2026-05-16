@@ -22,7 +22,10 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const CSV_PATH = 'scripts/data/backfill-audit-2026-05-15.csv';
+const csvArg = process.argv.find((a) => a.startsWith('--csv='));
+const CSV_PATH = csvArg
+  ? csvArg.split('=')[1]
+  : `scripts/data/backfill-audit-${new Date().toISOString().slice(0, 10)}.csv`;
 
 const text = readFileSync(CSV_PATH, 'utf8');
 const lines = text.split('\n');

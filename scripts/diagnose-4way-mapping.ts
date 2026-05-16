@@ -183,7 +183,7 @@ function addMonthsClamped(date: Date, months: number): Date {
 // ─── Phase loaders ──────────────────────────────────────────────────────────
 async function loadLpCustomers(): Promise<LpCustomerRow[]> {
   const r = await db.execute(sql`
-    SELECT id, contact_email, hubspot_contact_id, hubspot_ticket_id, rejig_account_id
+    SELECT id, contact_email, hubspot_contact_id, hubspot_ticket_id, rejig_user_id
     FROM customers
   `);
   const rows = (Array.isArray(r) ? r : (r as { rows: unknown[] }).rows) as Array<{
@@ -191,14 +191,14 @@ async function loadLpCustomers(): Promise<LpCustomerRow[]> {
     contact_email: string | null;
     hubspot_contact_id: string | null;
     hubspot_ticket_id: string | null;
-    rejig_account_id: string | null;
+    rejig_user_id: string | null;
   }>;
   return rows.map((row) => ({
     id: row.id,
     contactEmail: row.contact_email,
     hubspotContactId: row.hubspot_contact_id,
     hubspotTicketId: row.hubspot_ticket_id,
-    rejigUserId: row.rejig_account_id, // accepts the old column name
+    rejigUserId: row.rejig_user_id,
   }));
 }
 
@@ -516,9 +516,11 @@ function decideCohort(args: {
   const onboardingState: 'Active' | 'Churned' = isChurned ? 'Churned' : 'Active';
   const ticketTargetStage = onboardingState;
 
-  // Subscription status — Stripe authoritative if available
+  // Subscription status — Stripe authoritative if available, fall through to
+  // Rejig status when no Stripe sub (B&W). Use || not ?? because stripeSubStatus
+  // is '' (empty string) for non-Stripe customers, not null/undefined.
   let subscriptionStatus: CohortDecision['subscriptionStatus'] = '';
-  const ss = (stripeSubStatus ?? rejigStatus ?? '').toLowerCase();
+  const ss = (stripeSubStatus || rejigStatus || '').toLowerCase();
   if (ss === 'active') subscriptionStatus = 'Active';
   else if (ss === 'trialing') subscriptionStatus = 'Trial';
   else if (ss === 'past_due' || ss === 'unpaid') subscriptionStatus = 'Past Due';
