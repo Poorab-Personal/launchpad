@@ -133,6 +133,26 @@ const HS_CHANNEL_ENUM: Record<string, string> = {
   BW: 'b2b_bw',
 };
 
+// ─── Brokerage business_name patterns to NOT use as customer/ticket name ──
+// Rejig's `business_name` for B2B agents is often the brokerage's master name
+// (e.g. "The Keyes Company"), not the agent's. Falling back to email-local
+// gives a more identifiable name in those cases.
+const BROKERAGE_BUSINESS_NAMES = new Set([
+  'the keyes company',
+  'the keyes co',
+  'keyes',
+  'baird & warner',
+  'baird and warner',
+  'bairdwarner',
+]);
+
+function pickDisplayName(row: Row): string {
+  const biz = (row.rejig_business_name || '').trim();
+  const localPart = row.rejig_email.split('@')[0];
+  if (biz && !BROKERAGE_BUSINESS_NAMES.has(biz.toLowerCase())) return biz;
+  return localPart;
+}
+
 // ─── Determine payment_mode per cohort ──────────────────────────────────────
 function paymentModeFor(channelCode: string, subStatus: string): string {
   if (channelCode === 'Keyes' && subStatus === 'trialing') return 'setup-intent-at-intake';
@@ -239,13 +259,16 @@ async function processRow(
   }
   log.lp_customer_id = lpCustomerId;
 
+  // Display name for customer.name + HS Ticket subject
+  const displayName = pickDisplayName(row);
+
   // ── HS Contact upsert ────────────────────────────────────────────────────
   let hsContactId = row.hs_contact_id || existing?.hubspotContactId || '';
 
   if (APPLY) {
     if (!hsContactId) {
       // Create new HS Contact (cohort D — Rejig only, no existing HS row)
-      const [firstName, ...rest] = (row.rejig_account_name || row.rejig_email).split(' ');
+      const [firstName, ...rest] = displayName.split(' ');
       const lastName = rest.join(' ');
       try {
         const created = await createContact({
@@ -309,12 +332,18 @@ async function processRow(
   }
 
   // ── HS Ticket upsert ─────────────────────────────────────────────────────
+  // Resume safety: if LP customer already has hubspot_ticket_id stored, the
+  // ticket was created/moved in a prior run. Don't re-run the ticket op or
+  // we get duplicate tickets (the bug that surfaced in the 2026-05-16 smoke).
   let hsTicketId = effectiveHsTicketId;
-  if (APPLY) {
+  if (isResume && existing?.hubspotTicketId) {
+    hsTicketId = existing.hubspotTicketId;
+    steps.push('hs:ticket-skip-resume');
+  } else if (APPLY) {
     try {
       if (ticketAction === 'create_new') {
         const created = await createCustomerJourneyTicket({
-          subject: `${row.rejig_account_name || row.rejig_email} - LP`,
+          subject: `${displayName} - LP`,
           stageLabel: ticketTargetStage,
           contactId: hsContactId,
           companyId: hsCompanyId || undefined,
@@ -347,7 +376,7 @@ async function processRow(
         await db.transaction(async (tx) => {
           await tx.insert(customers).values({
             id: lpCustomerId,
-            name: row.rejig_account_name || row.rejig_email.split('@')[0],
+            name: displayName,
             contactEmail: row.rejig_email,
             platformEmail: row.rejig_email,
             phone: null,
