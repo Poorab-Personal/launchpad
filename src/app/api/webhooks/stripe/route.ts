@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
 import Stripe from 'stripe';
+import { eq } from 'drizzle-orm';
 import { db } from '@/db';
+import { customerSubscriptions } from '@/db/schema/customerSubscriptions';
 import { customerUsageSignals } from '@/db/schema/customerUsageSignals';
 import { verifyWebhookSignature } from '@/lib/stripe';
 import { getCustomers, getTasksForCustomer, updateCustomerFields, updateTaskStatus } from '@/lib/db';
@@ -21,6 +23,64 @@ const SIGNAL_TYPE_BY_EVENT: Record<string, string> = {
   'invoice.payment_failed': 'stripe.invoice.payment_failed',
   'setup_intent.succeeded': 'stripe.setup_intent.succeeded',
 };
+
+/**
+ * §18 — update customer_subscriptions row with the latest period dates from
+ * Stripe. Idempotent; no-op if no customer_subscriptions row exists yet for
+ * this stripe_subscription_id (e.g. pre-backfill or non-Core subs we don't
+ * track). Stripe API v2024-04-10+ moved current_period_* from subscription
+ * root to subscription.items.data[0].
+ */
+async function updateSubscriptionPeriodsFromStripe(sub: Stripe.Subscription): Promise<void> {
+  const subAny = sub as unknown as {
+    current_period_start?: number;
+    current_period_end?: number;
+    items?: { data?: Array<{ current_period_start?: number; current_period_end?: number }> };
+  };
+  const firstItem = subAny.items?.data?.[0];
+  const cpsSec = firstItem?.current_period_start ?? subAny.current_period_start;
+  const cpeSec = firstItem?.current_period_end ?? subAny.current_period_end;
+  if (!cpsSec && !cpeSec) return; // nothing to write
+
+  try {
+    await db
+      .update(customerSubscriptions)
+      .set({
+        currentPeriodStart: cpsSec ? new Date(cpsSec * 1000) : null,
+        currentPeriodEnd: cpeSec ? new Date(cpeSec * 1000) : null,
+        currentPeriodStartSource: 'stripe',
+        paymentSource: 'stripe',
+      })
+      .where(eq(customerSubscriptions.stripeSubscriptionId, sub.id));
+  } catch (err) {
+    console.warn(`[stripe webhook] customer_subscriptions period update failed for sub=${sub.id}:`, err);
+  }
+}
+
+/**
+ * §18 — update customer_subscriptions row with the latest invoice status.
+ * Idempotent; no-op if no row exists for the invoice's subscription_id.
+ */
+async function updateLastInvoiceFromStripe(invoice: Stripe.Invoice): Promise<void> {
+  const invAny = invoice as unknown as { subscription?: string | { id?: string } | null };
+  const subId =
+    typeof invAny.subscription === 'string'
+      ? invAny.subscription
+      : invAny.subscription?.id ?? null;
+  if (!subId) return; // not a subscription invoice
+
+  try {
+    await db
+      .update(customerSubscriptions)
+      .set({
+        lastInvoiceStatus: invoice.status ?? null,
+        lastInvoiceUrl: invoice.hosted_invoice_url ?? null,
+      })
+      .where(eq(customerSubscriptions.stripeSubscriptionId, subId));
+  } catch (err) {
+    console.warn(`[stripe webhook] customer_subscriptions invoice update failed for sub=${subId}:`, err);
+  }
+}
 
 async function writeStripeSignal(args: {
   customerId: string;
@@ -103,6 +163,10 @@ export async function POST(request: NextRequest) {
 
       case 'invoice.payment_succeeded':
       case 'invoice.payment_failed':
+      case 'invoice.paid':                  // §18
+      case 'invoice.finalized':             // §18
+      case 'invoice.voided':                // §18
+      case 'invoice.marked_uncollectible':  // §18
         await handleInvoiceEvent(event.data.object as Stripe.Invoice, event);
         break;
 
@@ -227,6 +291,10 @@ async function handleSubscriptionEvent(subscription: Stripe.Subscription, event:
     stripeSubscriptionId: subscription.id,
     subscriptionStatus: newStatus as 'Trial' | 'Active' | 'Past Due' | 'Cancelled',
   });
+
+  // §18 — keep customer_subscriptions period dates fresh
+  await updateSubscriptionPeriodsFromStripe(subscription);
+
   console.log(
     `[stripe webhook] ${eventType}: customer ${customer.id} → status=${newStatus} (sub=${subscription.id})`,
   );
@@ -266,6 +334,9 @@ async function handleInvoiceEvent(invoice: Stripe.Invoice, event: Stripe.Event) 
       attemptCount: invoice.attempt_count,
     },
   });
+
+  // §18 — keep customer_subscriptions last_invoice_* fresh
+  await updateLastInvoiceFromStripe(invoice);
 
   console.log(`[stripe webhook] ${eventType}: signal logged for customer ${customer.id}`);
 }

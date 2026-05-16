@@ -19,6 +19,7 @@ import { Client } from '@hubspot/api-client';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { customers } from '@/db/schema/customers';
+import { customerSubscriptions } from '@/db/schema/customerSubscriptions';
 import { customerUsageSignals } from '@/db/schema/customerUsageSignals';
 import { SIGNAL_TYPES } from './signal-types';
 import type { BiContext, TrajectorySnapshot } from './types';
@@ -179,9 +180,24 @@ export async function buildBiContext(customerId: string): Promise<BiContext | nu
   const expiryJsonb = (expirySig?.signalValueJsonb as
     | { planKey?: string | null; isManual?: boolean }
     | undefined) ?? undefined;
-  const daysUntilExpiry = expirySig?.signalValueNumeric != null
-    ? Number(expirySig.signalValueNumeric)
-    : null;
+  // §18 — days_until_expiry derivation: prefer customer_subscriptions.current_period_end
+  // (Stripe-authoritative for paying customers; computed at backfill for B&W/demos).
+  // Legacy fallback to rejig signal for pre-backfill customers or customers
+  // whose customer_subscriptions row hasn't been written yet.
+  let daysUntilExpiry: number | null = null;
+  const coreSub = await db.query.customerSubscriptions.findFirst({
+    where: and(
+      eq(customerSubscriptions.customerId, customerId),
+      eq(customerSubscriptions.product, 'Core'),
+    ),
+  });
+  if (coreSub?.currentPeriodEnd) {
+    daysUntilExpiry = Math.floor(
+      (coreSub.currentPeriodEnd.getTime() - now.getTime()) / MS_PER_DAY,
+    );
+  } else if (expirySig?.signalValueNumeric != null) {
+    daysUntilExpiry = Number(expirySig.signalValueNumeric);
+  }
 
   // === Trajectory (Layer 2 output — may not exist on first BI run) ===
   const trajSig = latest.get(SIGNAL_TYPES.DERIVED_POSTING_TRAJECTORY);
