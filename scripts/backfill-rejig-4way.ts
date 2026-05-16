@@ -376,6 +376,9 @@ async function processRow(
         await db.transaction(async (tx) => {
           await tx.insert(customers).values({
             id: lpCustomerId,
+            // Override createdAt = Rejig account creation date (Mongo _id ts)
+            // so BI tenure calc reflects actual customer age, not LP row age.
+            createdAt: rejigAccountCreatedAt ?? new Date(),
             name: displayName,
             contactEmail: row.rejig_email,
             platformEmail: row.rejig_email,
