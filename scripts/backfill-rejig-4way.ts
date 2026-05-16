@@ -124,11 +124,13 @@ function appendLog(entry: LogEntry): void {
   appendFileSync(LOG_PATH, JSON.stringify(entry) + '\n');
 }
 
-// ─── Channel → HS enum mapping (for rejig_brokerage_channel property) ──────
+// ─── Channel → HS enum INTERNAL value for rejig_brokerage_channel property ──
+// HS portal has: d2c, b2b_keyes, b2b_bw, b2b_ipre. These are the internal
+// option values (not display labels).
 const HS_CHANNEL_ENUM: Record<string, string> = {
-  Standard: 'D2C',
-  Keyes: 'B2B - Keyes',
-  BW: 'B2B - B&W',
+  Standard: 'd2c',
+  Keyes: 'b2b_keyes',
+  BW: 'b2b_bw',
 };
 
 // ─── Determine payment_mode per cohort ──────────────────────────────────────

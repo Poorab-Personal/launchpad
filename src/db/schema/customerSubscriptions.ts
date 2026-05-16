@@ -59,11 +59,10 @@ export const customerSubscriptions = pgTable(
       table.customerId,
       table.product,
     ),
-    // Partial unique — only enforced when Stripe sub ID is set. B&W and demos
-    // can have NULL stripe_subscription_id without colliding.
-    stripeSubscriptionUnique: uniqueIndex('customer_subscriptions_stripe_subscription_unique')
-      .on(table.stripeSubscriptionId)
-      .where(sql`${table.stripeSubscriptionId} IS NOT NULL`),
+    // (stripe_subscription_id is NOT unique — 4 team subscriptions are shared
+    // by 60 agents in real data: Keyes master, agentship.com agency, KW teams.
+    // Dedup on retries is enforced by customer_subscriptions_customer_product_unique
+    // above. Dropped in migration 0011.)
     customerIdx: index('customer_subscriptions_customer_idx').on(table.customerId),
     hubspotDealIdx: index('customer_subscriptions_hubspot_deal_idx').on(table.hubspotDealId),
     // Defensive index for BI cron renewal-window queries (e.g. days_until_expiry).

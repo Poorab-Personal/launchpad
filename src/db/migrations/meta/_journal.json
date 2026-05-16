@@ -78,6 +78,13 @@
       "when": 1778880001000,
       "tag": "0010_subscription_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1778891500000,
+      "tag": "0011_drop_stripe_sub_unique",
+      "breakpoints": true
     }
   ]
 }
