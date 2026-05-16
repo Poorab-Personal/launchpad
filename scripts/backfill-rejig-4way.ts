@@ -153,6 +153,39 @@ function pickDisplayName(row: Row): string {
   return localPart;
 }
 
+// Derive billing_relationship from manual_action + URL/business signals.
+// Default is 'paying'. See migration 0012 + plan §X for the 3-way taxonomy.
+function deriveBillingRelationship(row: Row): 'paying' | 'comped' | 'internal_demo' {
+  const action = (row.manual_action || '').toLowerCase();
+  const notes = (row.manual_notes || '').toLowerCase();
+  const url = (row.rejig_domain_url || '').toLowerCase();
+  const email = (row.rejig_email || '').toLowerCase();
+  const biz = (row.rejig_business_name || '').toLowerCase();
+
+  // Rule 1: URL contains '-demo' → internal Rejig demo (catches Andrew Burr demo)
+  if (url.includes('-demo')) return 'internal_demo';
+
+  // Rule 2: explicit manual_action='demo' — split internal vs comped via notes
+  if (action === 'demo') {
+    if (notes.includes('internal demo') || notes.includes('internal/sample') || email.endsWith('@rejig.ai')) {
+      return 'internal_demo';
+    }
+    // UniqueCollective auto-flag, IPRE demo accounts, etc. — these are real
+    // users we don't charge, not internal Rejig accounts. Comped.
+    return 'comped';
+  }
+
+  // Rule 3: leave_alone (sponsor exec / trialing exec) → comped
+  if (action === 'leave_alone') return 'comped';
+
+  // Rule 4: design.3@rejig.ai / similar internal emails → internal_demo
+  if (email.endsWith('@rejig.ai')) return 'internal_demo';
+
+  // All other paths (paying customers, churned, stripe_pending, tbd, skip)
+  // default to 'paying'. Skip rows aren't backfilled anyway.
+  return 'paying';
+}
+
 // ─── Determine payment_mode per cohort ──────────────────────────────────────
 function paymentModeFor(channelCode: string, subStatus: string): string {
   if (channelCode === 'Keyes' && subStatus === 'trialing') return 'setup-intent-at-intake';
@@ -261,6 +294,7 @@ async function processRow(
 
   // Display name for customer.name + HS Ticket subject
   const displayName = pickDisplayName(row);
+  const billingRelationship = deriveBillingRelationship(row);
 
   // ── HS Contact upsert ────────────────────────────────────────────────────
   let hsContactId = row.hs_contact_id || existing?.hubspotContactId || '';
@@ -283,6 +317,7 @@ async function processRow(
             rejig_user_id: rejigUserId,
             rejig_brokerage_channel: HS_CHANNEL_ENUM[channelCode],
             rejig_payment_mode: paymentModeFor(channelCode, row.rejig_subscription_status),
+            rejig_billing_relationship: billingRelationship,
             company: row.rejig_business_name || '',
           },
         });
@@ -405,6 +440,7 @@ async function processRow(
             callCompleted: false,
             createdVia: 'backfill',
             environment: ['prod'],
+            billingRelationship,
           });
 
           await tx.insert(customerStateTransitions).values({

@@ -97,6 +97,23 @@ export const productEnum = pgEnum('product', ['Core', 'Voice', 'Avatar']);
 // NULL — unknown / demo (no payment arrangement).
 export const paymentSourceEnum = pgEnum('payment_source_enum', ['stripe', 'invoice']);
 
+// Billing relationship — distinguishes:
+//   'paying'         — normal customer billed via Stripe or invoice
+//   'comped'         — real user, billing waived (sponsor exec, brokerage comp,
+//                      UniqueCollective, IPRE, Tristan, VP Group, NEXT, etc.)
+//   'internal_demo'  — Rejig-internal account (sales demos, dev testing, showcase).
+//                      BI cron skips these entirely.
+//
+// Default: 'paying' (set via column default). New customers created via the
+// D2C closedwon webhook, /api/customers, or LP brokerage intake automatically
+// land as 'paying' because they have a Stripe customer at creation. LP admin
+// can manually override to 'comped' or 'internal_demo'.
+export const billingRelationshipEnum = pgEnum('billing_relationship_enum', [
+  'paying',
+  'comped',
+  'internal_demo',
+]);
+
 export const paymentModeEnum = pgEnum('payment_mode', [
   'pre-paid',
   'setup-intent-at-intake',

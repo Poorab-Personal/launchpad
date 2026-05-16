@@ -17,6 +17,7 @@ import { channels } from './channels';
 import {
   atRiskReasonEnum,
   atRiskSourceEnum,
+  billingRelationshipEnum,
   customerTypeEnum,
   designApprovalEnum,
   paymentStatusEnum,
@@ -179,6 +180,7 @@ export const customers = pgTable(
     // System
     environment: text('environment').array(),                                      // test/prod isolation
     rejigUserId: text('rejig_user_id'),                                            // Rejig Mongo _id — cross-system identity anchor
+    billingRelationship: billingRelationshipEnum('billing_relationship').default('paying'), // paying / comped / internal_demo
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastModified: timestamp('last_modified', { withTimezone: true })

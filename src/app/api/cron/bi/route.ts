@@ -40,9 +40,10 @@
  * the profile lives on the HS Contact only via rejig_engagement_profile.
  */
 import type { NextRequest } from 'next/server';
-import { and, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, ne, or, isNull } from 'drizzle-orm';
 import { db } from '@/db';
 import { customers } from '@/db/schema/customers';
+import { customerUsageSignals } from '@/db/schema/customerUsageSignals';
 import { applyStateTransition } from '@/lib/db';
 import { buildBiContext } from '@/lib/bi/context';
 import { classifyProfile } from '@/lib/bi/profile-classifier';
@@ -52,6 +53,7 @@ import {
 import { RuleBasedOutcomePredictor } from '@/lib/bi/outcome-predictor';
 import { recommendAction } from '@/lib/bi/action-recommender';
 import { mapToState } from '@/lib/bi/state-mapper';
+import { SIGNAL_TYPES } from '@/lib/bi/signal-types';
 import {
   updateContactProperties,
   updateTicketProperties,
@@ -158,6 +160,13 @@ export async function GET(request: NextRequest) {
       and(
         isNotNull(customers.onboardingState),
         isNotNull(customers.subscriptionStatus),
+        // Skip internal_demo entirely. 'comped' rows still evaluate so engagement
+        // signals reach HS; the state-mapper / action-recommender should treat
+        // payment-related rules as no-ops for them (separate tuning task).
+        or(
+          ne(customers.billingRelationship, 'internal_demo'),
+          isNull(customers.billingRelationship),
+        ),
       ),
     );
 
@@ -229,6 +238,28 @@ export async function GET(request: NextRequest) {
       // exists, mirror the classified profile to LP DB here. For v1 the
       // profile is surfaced only via the HS Contact property below.
 
+      // Latest 2 total_published_posts snapshots — drive posts_last_7d diff
+      // (current − previous) and the "data as of" freshness timestamp the
+      // HubSpot Engagement card surfaces.
+      const recentTotalSigs = await db.query.customerUsageSignals.findMany({
+        where: and(
+          eq(customerUsageSignals.customerId, c.id),
+          eq(customerUsageSignals.signalType, SIGNAL_TYPES.REJIG_TOTAL_PUBLISHED_POSTS),
+        ),
+        orderBy: desc(customerUsageSignals.observedAt),
+        limit: 2,
+      });
+      const signalsObservedAt = recentTotalSigs[0]?.observedAt ?? null;
+      const currTotal = recentTotalSigs[0]?.signalValueNumeric != null
+        ? Number(recentTotalSigs[0].signalValueNumeric)
+        : null;
+      const prevTotal = recentTotalSigs[1]?.signalValueNumeric != null
+        ? Number(recentTotalSigs[1].signalValueNumeric)
+        : null;
+      const postsLast7d = (currTotal != null && prevTotal != null)
+        ? Math.max(0, currTotal - prevTotal)
+        : null;
+
       // ─── Push Layer-1 + Layer-3 metadata to HS Contact ────────────────
       if (ctx.hubspotContactId) {
         try {
@@ -242,6 +273,14 @@ export async function GET(request: NextRequest) {
             rejig_days_until_expiry: ctx.signals.rejig.daysUntilExpiry,
             rejig_posting_trajectory:
               trajectory.pattern === 'insufficient_data' ? null : trajectory.pattern,
+            rejig_listing_count: ctx.signals.rejig.listingCount,
+            rejig_total_posts: ctx.signals.rejig.totalPosts,
+            rejig_video_posts: ctx.signals.rejig.videoPosts,
+            rejig_image_posts: ctx.signals.rejig.imagePosts,
+            rejig_posts_last_7d: postsLast7d,
+            rejig_signals_observed_at: signalsObservedAt
+              ? signalsObservedAt.toISOString()
+              : null,
           });
           summary.contactPropertiesWritten++;
         } catch (err) {
