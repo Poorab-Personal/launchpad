@@ -225,6 +225,48 @@ export default async function CustomerDetailPage({
                     📍 {attention}
                   </div>
                 )}
+
+                {/* Quick links — HubSpot, Stripe (IDs buried in href) */}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {customer.hubspotContactId && (
+                    <a
+                      href={hubspotContactUrl(customer.hubspotContactId) ?? '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border border-[#FF7A59]/30 bg-[#FF7A59]/8 px-2.5 py-1 text-xs font-medium text-[#FF7A59] hover:bg-[#FF7A59]/15 transition-colors"
+                    >
+                      HubSpot Contact ↗
+                    </a>
+                  )}
+                  {customer.hubspotTicketId && (
+                    <a
+                      href={hubspotTicketUrl(customer.hubspotTicketId) ?? '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border border-[#FF7A59]/30 bg-[#FF7A59]/8 px-2.5 py-1 text-xs font-medium text-[#FF7A59] hover:bg-[#FF7A59]/15 transition-colors"
+                    >
+                      HubSpot Ticket ↗
+                    </a>
+                  )}
+                  {customer.stripeCustomerId && (
+                    <a
+                      href={stripeCustomerUrl(customer.stripeCustomerId) ?? '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-md border border-[#635BFF]/30 bg-[#635BFF]/8 px-2.5 py-1 text-xs font-medium text-[#635BFF] hover:bg-[#635BFF]/15 transition-colors"
+                    >
+                      Stripe ↗
+                    </a>
+                  )}
+                  <a
+                    href={`/r/${customer.accessToken}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-[#05C68E]/30 bg-[#05C68E]/8 px-2.5 py-1 text-xs font-medium text-[#05C68E] hover:bg-[#05C68E]/15 transition-colors"
+                  >
+                    Customer Portal ↗
+                  </a>
+                </div>
               </div>
               <form action={deleteCustomerAction}>
                 <input type="hidden" name="id" value={customer.id} />
@@ -383,50 +425,25 @@ export default async function CustomerDetailPage({
         </Section>
       )}
 
-      {/* Cross-System References — all IDs as clickable links */}
-      {(customer.hubspotContactId ||
-        customer.hubspotDealId ||
-        customer.hubspotTicketId ||
-        customer.stripeCustomerId ||
-        customer.stripeSubscriptionId) && (
-        <Section title="Cross-System References">
-          <LinkField
-            label="HubSpot Contact"
-            value={customer.hubspotContactId}
-            href={hubspotContactUrl(customer.hubspotContactId)}
-          />
-          <LinkField
-            label="HubSpot Deal"
-            value={customer.hubspotDealId}
-            href={hubspotDealUrl(customer.hubspotDealId)}
-          />
-          <LinkField
-            label="HubSpot Ticket"
-            value={customer.hubspotTicketId}
-            href={hubspotTicketUrl(customer.hubspotTicketId)}
-          />
-          <LinkField
-            label="Stripe Customer"
-            value={customer.stripeCustomerId}
-            href={stripeCustomerUrl(customer.stripeCustomerId)}
-          />
-          <LinkField
-            label="Stripe Subscription — Core"
-            value={customer.stripeSubscriptionId}
-            href={stripeSubscriptionUrl(customer.stripeSubscriptionId)}
-          />
-          <LinkField
-            label="Stripe Subscription — Voice"
-            value={customer.voiceStripeId}
-            href={stripeSubscriptionUrl(customer.voiceStripeId)}
-          />
-          <LinkField
-            label="Stripe Subscription — Avatar"
-            value={customer.avatarStripeId}
-            href={stripeSubscriptionUrl(customer.avatarStripeId)}
-          />
-          <Field label="LaunchPad Customer ID" value={customer.id} />
-        </Section>
+      {/* IDs (collapsible) — debug/forensics only; primary nav lives in the hero */}
+      {(customer.hubspotContactId || customer.stripeCustomerId || customer.stripeSubscriptionId || customer.hubspotDealId) && (
+        <details className="mb-6 rounded-lg border border-[#E0DEE4] bg-white">
+          <summary className="cursor-pointer px-5 py-3 text-xs font-medium uppercase tracking-wider text-[#1B2E35]/40 hover:text-[#1B2E35]/60">
+            IDs (debug)
+          </summary>
+          <div className="px-5 pb-4">
+            <dl className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2 text-xs">
+              <IdRow label="LaunchPad" value={customer.id} />
+              <IdRow label="HubSpot Contact" value={customer.hubspotContactId} />
+              <IdRow label="HubSpot Ticket" value={customer.hubspotTicketId} />
+              <IdRow label="HubSpot Deal" value={customer.hubspotDealId} />
+              <IdRow label="Stripe Customer" value={customer.stripeCustomerId} />
+              <IdRow label="Stripe Sub Core" value={customer.stripeSubscriptionId} />
+              <IdRow label="Stripe Sub Voice" value={customer.voiceStripeId} />
+              <IdRow label="Stripe Sub Avatar" value={customer.avatarStripeId} />
+            </dl>
+          </div>
+        </details>
       )}
 
       {/* Design (D2C only) */}
@@ -707,6 +724,16 @@ export default async function CustomerDetailPage({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function IdRow({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value) return null;
+  return (
+    <div className="flex justify-between gap-2 py-0.5">
+      <dt className="text-[#1B2E35]/50">{label}</dt>
+      <dd className="font-mono text-[11px] text-[#1B2E35]/70 truncate" title={value}>{value}</dd>
     </div>
   );
 }
