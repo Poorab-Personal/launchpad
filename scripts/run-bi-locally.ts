@@ -17,6 +17,7 @@ import { computeTrajectoriesForAllCustomers } from '@/lib/bi/trajectory-job';
 import { RuleBasedOutcomePredictor } from '@/lib/bi/outcome-predictor';
 import { recommendAction } from '@/lib/bi/action-recommender';
 import { mapToState } from '@/lib/bi/state-mapper';
+import { humanizeReasoning } from '@/lib/bi/humanize-reasoning';
 import {
   updateContactProperties,
   updateTicketProperties,
@@ -104,6 +105,7 @@ async function main() {
           await updateContactProperties(ctx.hubspotContactId, {
             rejig_engagement_profile: profile,
             rejig_predicted_outcome: prediction.outcome,
+            rejig_outcome_reasoning: humanizeReasoning(prediction.reasoning) || null,
             rejig_last_login: ctx.signals.rejig.lastLoginAt?.toISOString() ?? null,
             rejig_days_since_last_post: ctx.signals.rejig.daysSinceLastPost,
             rejig_days_until_expiry: ctx.signals.rejig.daysUntilExpiry,

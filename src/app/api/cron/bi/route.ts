@@ -53,6 +53,7 @@ import {
 import { RuleBasedOutcomePredictor } from '@/lib/bi/outcome-predictor';
 import { recommendAction } from '@/lib/bi/action-recommender';
 import { mapToState } from '@/lib/bi/state-mapper';
+import { humanizeReasoning } from '@/lib/bi/humanize-reasoning';
 import { SIGNAL_TYPES } from '@/lib/bi/signal-types';
 import {
   updateContactProperties,
@@ -266,6 +267,7 @@ export async function GET(request: NextRequest) {
           await updateContactProperties(ctx.hubspotContactId, {
             rejig_engagement_profile: profile,
             rejig_predicted_outcome: prediction.outcome,
+            rejig_outcome_reasoning: humanizeReasoning(prediction.reasoning) || null,
             rejig_last_login: ctx.signals.rejig.lastLoginAt
               ? ctx.signals.rejig.lastLoginAt.toISOString()
               : null,

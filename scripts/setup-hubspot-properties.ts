@@ -147,6 +147,13 @@ const SPEC: Record<ObjectType, PropSpec[]> = {
       options: opts(OUTCOME_VALUES),
     },
     {
+      name: 'rejig_outcome_reasoning',
+      label: 'Rejig Outcome Reasoning',
+      type: 'string',
+      fieldType: 'textarea',
+      description: 'Top-2 predicates the BI cron fired for the predicted outcome, humanized (e.g. "tenure 92d (≥ 30d) · never logged in"). Rendered as microcopy on the Engagement Card.',
+    },
+    {
       name: 'rejig_last_login',
       label: 'Rejig Last Login',
       type: 'datetime',
