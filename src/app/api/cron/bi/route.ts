@@ -58,6 +58,7 @@ import { SIGNAL_TYPES } from '@/lib/bi/signal-types';
 import {
   updateContactProperties,
   updateTicketProperties,
+  pushTicketStage,
 } from '@/lib/integrations/hubspot/client';
 import type { TrajectorySnapshot } from '@/lib/bi/types';
 
@@ -87,6 +88,10 @@ type BiCronSummary = {
   durationMs: number;
   trajectoriesComputed: { processed: number; written: number };
   customersEvaluated: number;
+  customersTotal: number;
+  offset: number;
+  limit: number;
+  nextOffset: number | null;
   stateTransitionsApplied: number;
   contactPropertiesWritten: number;
   ticketActionPropertiesWritten: number;
@@ -111,11 +116,32 @@ export async function GET(request: NextRequest) {
     return new Response('Unauthorized', { status: 401 });
   }
 
+  // ─── Pagination (chunked Vercel-cron runs) ────────────────────────────
+  // Vercel function timeout caps each invocation at 300s (Pro plan), so a
+  // ~700-customer all-or-nothing run gets killed mid-pass. vercel.json
+  // schedules N cron entries with different ?offset values 5 min apart;
+  // each invocation handles a chunk and returns. nextOffset in the
+  // response lets operators chain manually if needed.
+  const { searchParams } = new URL(request.url);
+  const offset = Math.max(0, Number(searchParams.get('offset') ?? '0') | 0);
+  const limit = Math.min(
+    500,
+    Math.max(1, Number(searchParams.get('limit') ?? '200') | 0),
+  );
+  // skipTrajectory=1 lets later chunks skip the Phase-1 trajectory job
+  // (it's already done by chunk 0; re-running per chunk wastes ~30s and
+  // does no useful work since the result is the same).
+  const skipTrajectory = searchParams.get('skipTrajectory') === '1';
+
   const t0 = Date.now();
   const summary: BiCronSummary = {
     durationMs: 0,
     trajectoriesComputed: { processed: 0, written: 0 },
     customersEvaluated: 0,
+    customersTotal: 0,
+    offset,
+    limit,
+    nextOffset: null,
     stateTransitionsApplied: 0,
     contactPropertiesWritten: 0,
     ticketActionPropertiesWritten: 0,
@@ -124,11 +150,12 @@ export async function GET(request: NextRequest) {
   };
 
   // ─── Phase 1: refresh derived.posting_trajectory signals ──────────────
-  // We deliberately run this BEFORE per-customer evaluation so each
-  // buildBiContext() picks up the freshest trajectory snapshot in one
-  // pass. Failures here don't abort the run — we'll fall back to whatever
-  // trajectory rows already exist (or insufficient_data on first run).
-  try {
+  // Skipped on chunks after the first (skipTrajectory=1) — the result is
+  // global and stable for the full run window. Without skip, every chunk
+  // burns ~30s repeating the same work.
+  if (skipTrajectory) {
+    console.log('[BI cron] Phase 1 — skipped (skipTrajectory=1)');
+  } else try {
     const traj = await computeTrajectoriesForAllCustomers();
     summary.trajectoriesComputed = {
       processed: traj.customersProcessed,
@@ -154,7 +181,11 @@ export async function GET(request: NextRequest) {
   // legacy rows are skipped. This matches Pass 2.7 §29.2's "real customers"
   // scope; the trajectory job above is wider (ne(Cancelled)) on purpose so
   // we have history when these rows do become active.
-  const activeCustomers = await db
+  // Stable order is critical for pagination — id ASC means chunk N+1 picks
+  // up where chunk N left off even though the second invocation hits a
+  // separate Postgres connection. id is the primary key, so the index
+  // makes this cheap regardless of customer count.
+  const allActive = await db
     .select({ id: customers.id })
     .from(customers)
     .where(
@@ -169,7 +200,13 @@ export async function GET(request: NextRequest) {
           isNull(customers.billingRelationship),
         ),
       ),
-    );
+    )
+    .orderBy(customers.id);
+  summary.customersTotal = allActive.length;
+  const activeCustomers = allActive.slice(offset, offset + limit);
+  summary.nextOffset = offset + activeCustomers.length < allActive.length
+    ? offset + activeCustomers.length
+    : null;
 
   for (const c of activeCustomers) {
     try {
@@ -328,6 +365,18 @@ export async function GET(request: NextRequest) {
         } catch (err) {
           console.warn(
             `[BI cron] HS Ticket property push failed for ${c.id}`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+
+        // F4-ext: unconditional HS pipeline-stage push. applyStateTransition
+        // only pushes stage on transition, leaving backfilled tickets with
+        // stale stages forever. Push on every eval so HS always matches LP.
+        try {
+          await pushTicketStage(ctx.hubspotTicketId, stateDecision.state);
+        } catch (err) {
+          console.warn(
+            `[BI cron] HS Ticket stage push failed for ${c.id}`,
             err instanceof Error ? err.message : String(err),
           );
         }

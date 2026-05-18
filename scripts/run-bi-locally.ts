@@ -23,6 +23,7 @@ import { SIGNAL_TYPES } from '@/lib/bi/signal-types';
 import {
   updateContactProperties,
   updateTicketProperties,
+  pushTicketStage,
 } from '@/lib/integrations/hubspot/client';
 import type { TrajectorySnapshot } from '@/lib/bi/types';
 
@@ -181,6 +182,19 @@ async function main() {
         } catch (err) {
           if ((i + 1) % 100 === 0) {
             console.warn(`\n[bi-local] ticket push failed for ${c.id}: ${err instanceof Error ? err.message : err}`);
+          }
+        }
+
+        // F4-ext: unconditional stage push. applyStateTransition only pushes
+        // stage on transition, leaving backfilled tickets with stale stages
+        // (e.g. backfill set "Active" but BI later decided "Watch" with no
+        // transition fired → HS shows Active forever). Push every eval so
+        // HS stage always matches LP state.
+        try {
+          await pushTicketStage(ctx.hubspotTicketId, stateDecision.state);
+        } catch (err) {
+          if ((i + 1) % 100 === 0) {
+            console.warn(`\n[bi-local] stage push failed for ${c.id}: ${err instanceof Error ? err.message : err}`);
           }
         }
       }
