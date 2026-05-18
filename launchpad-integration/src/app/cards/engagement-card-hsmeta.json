@@ -1,0 +1,10 @@
+{
+  "uid": "rejig_engagement_card",
+  "type": "card",
+  "config": {
+    "name": "Rejig Engagement",
+    "location": "crm.record.tab",
+    "entrypoint": "/app/cards/EngagementCard.jsx",
+    "objectTypes": ["contacts"]
+  }
+}

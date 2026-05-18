@@ -7,9 +7,10 @@
  * tool. Future weekly runs will be mostly no-ops on state and just refresh
  * HS properties.
  */
-import { and, isNotNull, ne, or, isNull } from 'drizzle-orm';
+import { and, isNotNull, ne, or, isNull, eq, desc } from 'drizzle-orm';
 import { db } from '@/db';
 import { customers } from '@/db/schema/customers';
+import { customerUsageSignals } from '@/db/schema/customerUsageSignals';
 import { applyStateTransition } from '@/lib/db';
 import { buildBiContext } from '@/lib/bi/context';
 import { classifyProfile } from '@/lib/bi/profile-classifier';
@@ -18,6 +19,7 @@ import { RuleBasedOutcomePredictor } from '@/lib/bi/outcome-predictor';
 import { recommendAction } from '@/lib/bi/action-recommender';
 import { mapToState } from '@/lib/bi/state-mapper';
 import { humanizeReasoning } from '@/lib/bi/humanize-reasoning';
+import { SIGNAL_TYPES } from '@/lib/bi/signal-types';
 import {
   updateContactProperties,
   updateTicketProperties,
@@ -94,11 +96,32 @@ async function main() {
           profile,
           outcome: prediction.outcome,
           outcomeConfidence: prediction.confidence,
+          outcomeReasoning: prediction.reasoning,
           trajectoryPattern: trajectory.pattern,
+          trajectoryConfidence: trajectory.confidence,
           actionTemplateId: action?.template.id ?? null,
         },
       });
       if (t.applied) transitions++;
+
+      const recentTotalSigs = await db.query.customerUsageSignals.findMany({
+        where: and(
+          eq(customerUsageSignals.customerId, c.id),
+          eq(customerUsageSignals.signalType, SIGNAL_TYPES.REJIG_TOTAL_PUBLISHED_POSTS),
+        ),
+        orderBy: desc(customerUsageSignals.observedAt),
+        limit: 2,
+      });
+      const signalsObservedAt = recentTotalSigs[0]?.observedAt ?? null;
+      const currTotal = recentTotalSigs[0]?.signalValueNumeric != null
+        ? Number(recentTotalSigs[0].signalValueNumeric)
+        : null;
+      const prevTotal = recentTotalSigs[1]?.signalValueNumeric != null
+        ? Number(recentTotalSigs[1].signalValueNumeric)
+        : null;
+      const postsLast7d = (currTotal != null && prevTotal != null)
+        ? Math.max(0, currTotal - prevTotal)
+        : null;
 
       if (ctx.hubspotContactId) {
         try {
@@ -106,27 +129,59 @@ async function main() {
             rejig_engagement_profile: profile,
             rejig_predicted_outcome: prediction.outcome,
             rejig_outcome_reasoning: humanizeReasoning(prediction.reasoning) || null,
+            rejig_trajectory_confidence: trajectory.pattern === 'insufficient_data' ? null : trajectory.confidence,
+            rejig_billing_relationship: ctx.billingRelationship ?? null,
+            rejig_plan_name: ctx.selectedPlanName ?? null,
             rejig_last_login: ctx.signals.rejig.lastLoginAt?.toISOString() ?? null,
             rejig_days_since_last_post: ctx.signals.rejig.daysSinceLastPost,
             rejig_days_until_expiry: ctx.signals.rejig.daysUntilExpiry,
             rejig_posting_trajectory: trajectory.pattern === 'insufficient_data' ? null : trajectory.pattern,
+            rejig_listing_count: ctx.signals.rejig.listingCount,
+            rejig_total_posts: ctx.signals.rejig.totalPosts,
+            rejig_video_posts: ctx.signals.rejig.videoPosts,
+            rejig_image_posts: ctx.signals.rejig.imagePosts,
+            rejig_posts_last_7d: postsLast7d,
+            rejig_signals_observed_at: signalsObservedAt?.toISOString() ?? null,
           });
           contactsWritten++;
         } catch (err) {
-          // non-blocking
+          if ((i + 1) % 100 === 0) {
+            console.warn(`\n[bi-local] contact push failed for ${c.id}: ${err instanceof Error ? err.message : err}`);
+          }
         }
       }
 
-      if (ctx.hubspotTicketId && action) {
+      // F4: ALWAYS push attention_reason + action to Ticket on every eval,
+      // regardless of whether state actually transitioned. Decoupling from
+      // applyStateTransition (which only fires on real transitions) ensures
+      // backfilled tickets that never transitioned still get the current
+      // attention/action surfaced on the HS Engagement Card.
+      if (ctx.hubspotTicketId) {
         try {
-          await updateTicketProperties(ctx.hubspotTicketId, {
-            rejig_recommended_action: action.template.contentSummary,
-            rejig_recommended_action_set_at: new Date().toISOString(),
-            rejig_recommended_action_urgency: action.template.urgency,
-          });
+          const ticketProps: Record<string, string | number | boolean | null> = {
+            rejig_attention_reason: stateDecision.attentionReason ?? null,
+            rejig_attention_set_at:
+              stateDecision.attentionReason && ctx.attentionSetAt
+                ? ctx.attentionSetAt.toISOString()
+                : stateDecision.attentionReason
+                ? new Date().toISOString()
+                : null,
+          };
+          if (action) {
+            ticketProps.rejig_recommended_action = action.template.contentSummary;
+            ticketProps.rejig_recommended_action_urgency = action.template.urgency;
+            ticketProps.rejig_recommended_action_set_at = new Date().toISOString();
+          } else {
+            ticketProps.rejig_recommended_action = 'Healthy customer — monitor only';
+            ticketProps.rejig_recommended_action_urgency = 'monitor';
+            ticketProps.rejig_recommended_action_set_at = new Date().toISOString();
+          }
+          await updateTicketProperties(ctx.hubspotTicketId, ticketProps);
           ticketsWritten++;
         } catch (err) {
-          // non-blocking
+          if ((i + 1) % 100 === 0) {
+            console.warn(`\n[bi-local] ticket push failed for ${c.id}: ${err instanceof Error ? err.message : err}`);
+          }
         }
       }
     } catch (err) {

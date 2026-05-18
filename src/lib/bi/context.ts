@@ -231,8 +231,11 @@ export async function buildBiContext(customerId: string): Promise<BiContext | nu
     customerType,
     subscriptionStatus: customer.subscriptionStatus ?? null,
     stripeSubscriptionId: customer.stripeSubscriptionId ?? null,
+    stripeCustomerId: customer.stripeCustomerId ?? null,
     hubspotTicketId: customer.hubspotTicketId ?? null,
     hubspotContactId: customer.hubspotContactId ?? null,
+    selectedPlanName: customer.selectedPlanName ?? null,
+    billingRelationship: customer.billingRelationship ?? null,
     currentOnboardingState: customer.onboardingState ?? null,
     currentAttentionReason: customer.attentionReason ?? null,
     // The `customers` table doesn't yet have a typed engagementProfile

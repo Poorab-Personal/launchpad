@@ -175,6 +175,21 @@ const SPEC: Record<ObjectType, PropSpec[]> = {
       description: 'Days until Stripe plan expires (renewal anchor). Mirrored from Rejig API.',
     },
     {
+      name: 'rejig_trajectory_confidence',
+      label: 'Rejig Trajectory Confidence',
+      type: 'enumeration',
+      fieldType: 'select',
+      description: 'Trajectory derivation confidence (low/medium/high). Surfaced next to "Predicted" on the HS Engagement Card.',
+      options: opts(['low', 'medium', 'high']),
+    },
+    {
+      name: 'rejig_plan_name',
+      label: 'Rejig Plan Name',
+      type: 'string',
+      fieldType: 'text',
+      description: 'customers.selectedPlanName mirror — surfaced on HS Engagement Card alongside expiry.',
+    },
+    {
       name: 'rejig_posting_trajectory',
       label: 'Rejig Posting Trajectory',
       type: 'enumeration',

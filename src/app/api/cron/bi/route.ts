@@ -268,6 +268,10 @@ export async function GET(request: NextRequest) {
             rejig_engagement_profile: profile,
             rejig_predicted_outcome: prediction.outcome,
             rejig_outcome_reasoning: humanizeReasoning(prediction.reasoning) || null,
+            rejig_trajectory_confidence:
+              trajectory.pattern === 'insufficient_data' ? null : trajectory.confidence,
+            rejig_billing_relationship: ctx.billingRelationship ?? null,
+            rejig_plan_name: ctx.selectedPlanName ?? null,
             rejig_last_login: ctx.signals.rejig.lastLoginAt
               ? ctx.signals.rejig.lastLoginAt.toISOString()
               : null,
@@ -293,20 +297,37 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // ─── Push Layer-4 action properties to HS Ticket ──────────────────
-      // Properties-only per Pass 2.7 §29.7 Q-2.5-4 — Tier-B HubSpot Task
-      // auto-creation is a flip-on-later feature (Phase 4-Polish).
-      if (ctx.hubspotTicketId && action) {
+      // ─── Push Layer-4 action + attention properties to HS Ticket ──────
+      // Unconditional push every eval (F4) — applyStateTransition only
+      // pushes attention_reason on real transitions, leaving backfilled
+      // tickets with empty attention props until a state actually flips.
+      // We push current attention + action every run so the HS Engagement
+      // Card always has fresh data.
+      if (ctx.hubspotTicketId) {
         try {
-          await updateTicketProperties(ctx.hubspotTicketId, {
-            rejig_recommended_action: action.template.contentSummary,
-            rejig_recommended_action_set_at: new Date().toISOString(),
-            rejig_recommended_action_urgency: action.template.urgency,
-          });
+          const ticketProps: Record<string, string | number | boolean | null> = {
+            rejig_attention_reason: stateDecision.attentionReason ?? null,
+            rejig_attention_set_at:
+              stateDecision.attentionReason && ctx.attentionSetAt
+                ? ctx.attentionSetAt.toISOString()
+                : stateDecision.attentionReason
+                ? new Date().toISOString()
+                : null,
+          };
+          if (action) {
+            ticketProps.rejig_recommended_action = action.template.contentSummary;
+            ticketProps.rejig_recommended_action_urgency = action.template.urgency;
+            ticketProps.rejig_recommended_action_set_at = new Date().toISOString();
+          } else {
+            ticketProps.rejig_recommended_action = 'Healthy customer — monitor only';
+            ticketProps.rejig_recommended_action_urgency = 'monitor';
+            ticketProps.rejig_recommended_action_set_at = new Date().toISOString();
+          }
+          await updateTicketProperties(ctx.hubspotTicketId, ticketProps);
           summary.ticketActionPropertiesWritten++;
         } catch (err) {
           console.warn(
-            `[BI cron] HS Ticket action property push failed for ${c.id}`,
+            `[BI cron] HS Ticket property push failed for ${c.id}`,
             err instanceof Error ? err.message : String(err),
           );
         }

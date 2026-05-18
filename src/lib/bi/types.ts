@@ -129,8 +129,11 @@ export type BiContext = {
   customerType: 'D2C' | 'B2B';
   subscriptionStatus: 'Active' | 'Trial' | 'Past Due' | 'Cancelled' | null;
   stripeSubscriptionId: string | null;
+  stripeCustomerId: string | null;
   hubspotTicketId: string | null;
   hubspotContactId: string | null;
+  selectedPlanName: string | null;              // customers.selectedPlanName — surfaced on HS Engagement Card
+  billingRelationship: 'paying' | 'comped' | 'internal_demo' | null;  // customers.billingRelationship
   currentOnboardingState: string | null;        // mirror; what's in customers.onboardingState
   currentAttentionReason: string | null;
   currentEngagementProfile: EngagementProfile | null;

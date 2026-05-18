@@ -20,12 +20,16 @@ const PROPS = [
   'rejig_predicted_outcome',
   'rejig_outcome_reasoning',
   'rejig_posting_trajectory',
+  'rejig_trajectory_confidence',
   'rejig_last_login',
   'rejig_days_since_last_post',
   'rejig_days_until_expiry',
   'rejig_brokerage_channel',
+  'rejig_billing_relationship',
+  'rejig_plan_name',
   'onboarding_no_show_count',
   'launchpad_customer_id',
+  'stripe_customer_id',
   'rejig_listing_count',
   'rejig_total_posts',
   'rejig_video_posts',
@@ -105,7 +109,26 @@ const TRAJECTORY_LABEL = {
   insufficient_data: 'Insufficient data',
 };
 
+const BILLING_LABEL = {
+  paying: 'Paying',
+  comped: 'Comped',
+  internal_demo: 'Internal demo',
+};
+
+const BILLING_VARIANT = {
+  paying: 'success',
+  comped: 'default',
+  internal_demo: 'default',
+};
+
+const CONFIDENCE_LABEL = {
+  high: 'high confidence',
+  medium: 'medium confidence',
+  low: 'low confidence',
+};
+
 const LP_ADMIN_BASE = 'https://launchpad-indol-ten.vercel.app/admin/';
+const STRIPE_CUSTOMER_BASE = 'https://dashboard.stripe.com/customers/';
 
 hubspot.extend(() => <EngagementCard />);
 
@@ -120,18 +143,27 @@ function EngagementCard() {
   const outcome = p.rejig_predicted_outcome;
   const outcomeReasoning = p.rejig_outcome_reasoning;
   const trajectory = p.rejig_posting_trajectory;
+  const trajectoryConfidence = p.rejig_trajectory_confidence;
   const channel = p.rejig_brokerage_channel;
+  const billing = p.rejig_billing_relationship;
+  const planName = p.rejig_plan_name;
   const noShow = numberOrNull(p.onboarding_no_show_count);
   const daysSincePost = numberOrNull(p.rejig_days_since_last_post);
   const daysUntilExpiry = numberOrNull(p.rejig_days_until_expiry);
   const lastLogin = p.rejig_last_login;
   const customerId = p.launchpad_customer_id;
+  const stripeCustomerId = p.stripe_customer_id;
   const listingCount = numberOrNull(p.rejig_listing_count);
   const totalPosts = numberOrNull(p.rejig_total_posts);
   const videoPosts = numberOrNull(p.rejig_video_posts);
   const imagePosts = numberOrNull(p.rejig_image_posts);
   const postsLast7d = numberOrNull(p.rejig_posts_last_7d);
   const signalsObservedAt = p.rejig_signals_observed_at;
+
+  const lastLoginDate = parseHsDateTime(lastLogin);
+  const daysSinceLogin = lastLoginDate
+    ? Math.floor((Date.now() - lastLoginDate.getTime()) / 86400000)
+    : null;
 
   const hasAnyBI = profile || outcome || trajectory;
 
@@ -148,9 +180,14 @@ function EngagementCard() {
   return (
     <Tile>
       <Flex direction="column" gap="medium">
-        {channel ? (
+        {channel || billing ? (
           <Flex direction="row" gap="extra-small">
-            <Tag variant="default">{channel}</Tag>
+            {channel ? <Tag variant="default">{channel}</Tag> : null}
+            {billing ? (
+              <Tag variant={BILLING_VARIANT[billing] || 'default'}>
+                {BILLING_LABEL[billing] || billing}
+              </Tag>
+            ) : null}
           </Flex>
         ) : null}
 
@@ -179,7 +216,12 @@ function EngagementCard() {
             </Text>
           ) : null}
           <LabeledRow label="Trajectory">
-            <Text>{trajectory ? TRAJECTORY_LABEL[trajectory] || trajectory : '—'}</Text>
+            <Text>
+              {trajectory ? TRAJECTORY_LABEL[trajectory] || trajectory : '—'}
+              {trajectory && trajectoryConfidence
+                ? ` · ${CONFIDENCE_LABEL[trajectoryConfidence] || trajectoryConfidence}`
+                : ''}
+            </Text>
           </LabeledRow>
         </Flex>
 
@@ -203,12 +245,19 @@ function EngagementCard() {
 
         <Flex direction="column" gap="extra-small">
           <LabeledRow label="Last login">
-            <Text>{formatRelativeAndAbsolute(lastLogin)}</Text>
+            <Text>
+              {lastLoginDate ? formatRelativeAndAbsolute(lastLogin) : '—'}
+            </Text>
           </LabeledRow>
+          {daysSinceLogin != null ? (
+            <LabeledRow label="Days since login">
+              <Text>{daysSinceLogin}</Text>
+            </LabeledRow>
+          ) : null}
           <LabeledRow label="Days since last post">
             <Text>{daysSincePost ?? '—'}</Text>
           </LabeledRow>
-          <LabeledRow label="Days until expiry">
+          <LabeledRow label={planName ? `Plan · ${planName}` : 'Plan'}>
             <Text>{formatExpiry(daysUntilExpiry)}</Text>
           </LabeledRow>
           {noShow != null && noShow > 0 ? (
@@ -218,12 +267,21 @@ function EngagementCard() {
           ) : null}
         </Flex>
 
-        {customerId ? (
+        {customerId || stripeCustomerId ? (
           <>
             <Divider />
-            <Link href={`${LP_ADMIN_BASE}${customerId}`} external>
-              Open customer in LaunchPad admin
-            </Link>
+            <Flex direction="column" gap="extra-small">
+              {customerId ? (
+                <Link href={`${LP_ADMIN_BASE}${customerId}`} external>
+                  Open in LaunchPad admin
+                </Link>
+              ) : null}
+              {stripeCustomerId ? (
+                <Link href={`${STRIPE_CUSTOMER_BASE}${stripeCustomerId}`} external>
+                  Open in Stripe
+                </Link>
+              ) : null}
+            </Flex>
           </>
         ) : null}
 
@@ -252,10 +310,19 @@ function numberOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-function formatRelativeAndAbsolute(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
+// HubSpot returns datetime properties as Unix-ms numeric strings (e.g.
+// "1779081154000") via useCrmProperties — `new Date(numericString)` parses
+// that as an invalid date string. Detect digit-only strings and convert.
+function parseHsDateTime(raw) {
+  if (raw == null || raw === '') return null;
+  const s = String(raw);
+  const d = /^\d+$/.test(s) ? new Date(Number(s)) : new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatRelativeAndAbsolute(raw) {
+  const d = parseHsDateTime(raw);
+  if (!d) return '—';
   const days = Math.floor((Date.now() - d.getTime()) / 86400000);
   const abs = d.toISOString().slice(0, 10);
   if (days === 0) return `today (${abs})`;
@@ -271,10 +338,9 @@ function formatExpiry(days) {
   return `${days} days`;
 }
 
-function formatFreshness(iso) {
-  if (!iso) return 'unknown';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'unknown';
+function formatFreshness(raw) {
+  const d = parseHsDateTime(raw);
+  if (!d) return 'unknown';
   const abs = d.toISOString().slice(0, 10);
   const days = Math.floor((Date.now() - d.getTime()) / 86400000);
   if (days === 0) return `today (${abs})`;
