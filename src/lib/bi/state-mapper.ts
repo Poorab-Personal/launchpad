@@ -57,8 +57,25 @@ export function mapToState(args: {
   const { profile, outcome, ctx } = args;
   const now = Date.now();
 
+  // ─── Suppress payment-related overrides for comped customers ──────────
+  // 'comped' = real engaged user, billing waived (UniqueCollective, IPRE,
+  // NEXT, VP Group, etc.). They legitimately have no Stripe subscription
+  // or a stale Cancelled / Past Due status that doesn't reflect reality.
+  // Without this short-circuit they get flagged Critical / At-Risk for
+  // payment_failed / payment_past_due — pure noise on the CSM queue.
+  //
+  // We DON'T suppress override 5/6 (no-show pattern, stuck in pre-launch)
+  // because those represent real workflow signals independent of billing.
+  // We DO suppress overrides 1-4 + 7 (all payment- or subscription-driven).
+  // 'internal_demo' is already filtered out at the BI cron query level,
+  // but we treat it the same here as a belt-and-suspenders.
+  const billingSuppressed =
+    ctx.billingRelationship === 'comped' ||
+    ctx.billingRelationship === 'internal_demo';
+
   // --- Override 1: subscription canceled AND past expiry → Churned ---
   if (
+    !billingSuppressed &&
     ctx.subscriptionStatus === 'Cancelled' &&
     ctx.signals.rejig.daysUntilExpiry !== null &&
     ctx.signals.rejig.daysUntilExpiry <= 0
@@ -75,7 +92,7 @@ export function mapToState(args: {
   // the importer/context-builder owns when to clear subscriptionStatus.
   // For now, any Cancelled status that didn't hit override 1 still maps
   // to Churned per Pass 2.6 §15.1.
-  if (ctx.subscriptionStatus === 'Cancelled') {
+  if (!billingSuppressed && ctx.subscriptionStatus === 'Cancelled') {
     return {
       state: 'Churned',
       attentionReason: null,
@@ -90,6 +107,7 @@ export function mapToState(args: {
     now - TIME_WINDOWS.payment_failed_window_days * 86400 * 1000,
   );
   if (
+    !billingSuppressed &&
     failedAt &&
     failedAt > paymentFailedCutoff &&
     (!succeededAt || succeededAt < failedAt)
@@ -102,7 +120,7 @@ export function mapToState(args: {
   }
 
   // --- Override 4: past_due → At-Risk / payment_past_due ---
-  if (ctx.subscriptionStatus === 'Past Due') {
+  if (!billingSuppressed && ctx.subscriptionStatus === 'Past Due') {
     return {
       state: 'At-Risk',
       attentionReason: 'payment_past_due',
@@ -145,6 +163,7 @@ export function mapToState(args: {
     now - TIME_WINDOWS.trial_not_activated_grace_hours * 3600 * 1000,
   );
   if (
+    !billingSuppressed &&
     ctx.workflowKey === 'B2B-Keyes' &&
     ctx.currentOnboardingState === 'Active' &&
     !ctx.stripeSubscriptionId &&

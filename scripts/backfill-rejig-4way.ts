@@ -326,9 +326,35 @@ async function processRow(
         await sleep(100);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        log.status = 'error';
-        log.error = `hs:contact-create failed: ${msg}`;
-        return { status: 'error', log };
+        // Find-or-create fallback: HS returns 409 + "Existing ID: <id>"
+        // when a Contact with this email already exists. Reuse that id
+        // and patch its properties to mirror what we would have set on
+        // create. Recovers the 5 pre-existing-HS-Contact cases from the
+        // 2026-05-18 backfill apply log.
+        const dupMatch = msg.match(/Existing ID:\s*(\d+)/);
+        if (msg.includes('409') && dupMatch) {
+          hsContactId = dupMatch[1];
+          steps.push('hs:contact-reused');
+          try {
+            await updateContactProperties(hsContactId, {
+              launchpad_customer_id: lpCustomerId,
+              stripe_customer_id: row.stripe_customer_id || '',
+              rejig_user_id: rejigUserId,
+              rejig_brokerage_channel: HS_CHANNEL_ENUM[channelCode],
+              rejig_payment_mode: paymentModeFor(channelCode, row.rejig_subscription_status),
+              rejig_billing_relationship: billingRelationship,
+            });
+            steps.push('hs:contact-patched');
+            await sleep(100);
+          } catch (patchErr) {
+            // Patch failed but we still have the contact ID — keep going.
+            console.warn(`  [warn] patch of reused contact ${hsContactId} failed: ${patchErr instanceof Error ? patchErr.message : patchErr}`);
+          }
+        } else {
+          log.status = 'error';
+          log.error = `hs:contact-create failed: ${msg}`;
+          return { status: 'error', log };
+        }
       }
     } else {
       // Update existing HS Contact properties
