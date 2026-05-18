@@ -40,6 +40,7 @@
  * the profile lives on the HS Contact only via rejig_engagement_profile.
  */
 import type { NextRequest } from 'next/server';
+import { after } from 'next/server';
 import { and, desc, eq, isNotNull, ne, or, isNull } from 'drizzle-orm';
 import { db } from '@/db';
 import { customers } from '@/db/schema/customers';
@@ -392,6 +393,50 @@ export async function GET(request: NextRequest) {
 
   summary.durationMs = Date.now() - t0;
   console.log('[BI cron] complete', summary);
+
+  // ─── Auto-chain next chunk if more customers remain ───────────────────
+  // We need a SINGLE Vercel cron entry that auto-scales as the customer
+  // base grows. Pattern: each invocation processes a bounded chunk, then
+  // after() fires the next chunk's URL via fetch. We don't await the fetch
+  // fully — a 2-second setTimeout race gives the request enough time to
+  // dispatch headers, then the function dies. The child invocation runs
+  // independently on its own 300s budget. Total wall-clock for the chain
+  // ≈ chunks × per-chunk-runtime; per-invocation runtime stays bounded.
+  if (summary.nextOffset !== null) {
+    const nextOffset = summary.nextOffset;
+    const baseUrl = (() => {
+      const fromEnv = process.env.VERCEL_PROJECT_PRODUCTION_URL
+        ?? process.env.VERCEL_URL
+        ?? process.env.NEXT_PUBLIC_APP_URL;
+      if (fromEnv) {
+        return fromEnv.startsWith('http') ? fromEnv : `https://${fromEnv}`;
+      }
+      // Last-resort: use the incoming request's origin.
+      return new URL(request.url).origin;
+    })();
+    const nextUrl = `${baseUrl}/api/cron/bi?offset=${nextOffset}&limit=${limit}&skipTrajectory=1`;
+
+    after(async () => {
+      try {
+        // Fire-and-don't-fully-await. Race the fetch against a 2-second
+        // hold so the runtime stays alive just long enough to dispatch
+        // the request. We don't care about the child's response.
+        const child = fetch(nextUrl, {
+          method: 'GET',
+          headers: { authorization: `Bearer ${cronSecret}` },
+        }).catch((e) => {
+          console.warn('[BI cron] chain fetch failed', e);
+        });
+        await Promise.race([
+          child,
+          new Promise((r) => setTimeout(r, 2000)),
+        ]);
+        console.log(`[BI cron] chained next chunk offset=${nextOffset}`);
+      } catch (err) {
+        console.error('[BI cron] auto-chain dispatch failed', err);
+      }
+    });
+  }
 
   return Response.json(summary);
 }

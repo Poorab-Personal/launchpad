@@ -1,20 +1,8 @@
 {
   "crons": [
     {
-      "path": "/api/cron/bi?offset=0&limit=200",
+      "path": "/api/cron/bi",
       "schedule": "0 6 * * 0"
-    },
-    {
-      "path": "/api/cron/bi?offset=200&limit=200&skipTrajectory=1",
-      "schedule": "5 6 * * 0"
-    },
-    {
-      "path": "/api/cron/bi?offset=400&limit=200&skipTrajectory=1",
-      "schedule": "10 6 * * 0"
-    },
-    {
-      "path": "/api/cron/bi?offset=600&limit=200&skipTrajectory=1",
-      "schedule": "15 6 * * 0"
     }
   ],
   "functions": {
