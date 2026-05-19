@@ -153,7 +153,7 @@ async function main() {
   console.log(`  Pure orphan (archive):       ${p2Archive}`);
   console.log(`  Errors:                      ${p2Fail}`);
   console.log(`Unmatched-with-contact (skipped, ${unmatchedRows.length}):`);
-  for (const u of unmatchedRows) console.log(`  ${u.ticket} | ${u.subject.slice(0, 50)} | ${u.contact_email}`);
+  for (const u of unmatchedRows) console.log(`  ${u.ticket_id} | ${u.subject.slice(0, 50)} | ${u.contact_email}`);
   console.log(APPLY ? '\n✓ Applied' : '\n(dry-run — re-run with --apply to execute)');
   process.exit(0);
 }
