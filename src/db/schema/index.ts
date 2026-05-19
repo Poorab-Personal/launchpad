@@ -6,6 +6,7 @@ export * from './channels';
 export * from './customers';
 export * from './teamMembers';
 export * from './brokerages';
+export * from './brokerageRoster';
 export * from './roster';
 export * from './calls';
 export * from './tasks';

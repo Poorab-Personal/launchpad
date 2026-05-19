@@ -1,29 +1,26 @@
 import {
   boolean,
+  jsonb,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { sourceTypeEnum, verificationModeEnum } from './enums';
 
 // Mirrors Brokerage interface in src/types/index.ts.
 //
-// Note on rosterApiUrl/rosterApiKey/rosterRefreshInterval: these are
-// Airtable-era fields that the DMG roster plan (docs/integrations/
-// dmg-roster-plan.md) will deprecate or refactor. Kept here for clean port;
-// DMG plan handles cleanup in its own follow-up.
+// DMG roster integration plan implemented here:
+// docs/integrations/dmg-roster-plan.md (§3.2 — column changes).
 
 export const brokerages = pgTable(
   'brokerages',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     name: text('name').notNull(),
-    landingPageSlug: text('landing_page_slug').notNull(),                  // /b/[slug]
+    landingPageSlug: text('landing_page_slug').notNull(),                  // /{slug}
     defaultWorkflowKey: text('default_workflow_key').notNull(),
-    rosterApiUrl: text('roster_api_url'),                                  // vestigial post-DMG plan
-    rosterApiKey: text('roster_api_key'),                                  // vestigial post-DMG plan
-    rosterRefreshInterval: text('roster_refresh_interval'),                // vestigial post-DMG plan
     lastRosterSync: timestamp('last_roster_sync', { withTimezone: true }),
     defaultCalendlyUrl: text('default_calendly_url'),
     billingContact: text('billing_contact'),
@@ -38,6 +35,13 @@ export const brokerages = pgTable(
     includesVoice: boolean('includes_voice').notNull().default(false),
     includesAvatar: boolean('includes_avatar').notNull().default(false),
     pricingTagline: text('pricing_tagline'),                               // pricing-page subhead; supports {Name} substitution
+    // DMG roster plan §3.2 — multi-source roster integration.
+    sourceType: sourceTypeEnum('source_type').notNull().default('dmg'),    // discriminator for src/lib/roster/sources/* adapter
+    sourceConfig: jsonb('source_config'),                                  // per-source bits (e.g. DMG env-var key prefix)
+    verificationMode: verificationModeEnum('verification_mode').notNull().default('soft'),  // escape hatch — flip to 'magic_link_required' if abuse
+    supportContactName: text('support_contact_name'),                      // shown on the "we don't see you" failure screen
+    supportContactEmail: text('support_contact_email'),
+    supportContactPhone: text('support_contact_phone'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

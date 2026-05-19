@@ -135,3 +135,16 @@ export const callStatusEnum = pgEnum('call_status', [
   'Rescheduled',
   'Canceled',
 ]);
+
+// Roster source — discriminator on `brokerages.source_type` for per-source
+// adapter dispatch (docs/integrations/dmg-roster-plan.md §2). Extensible:
+// add 'mls_grid' / 'manual_csv' / etc. when a non-DMG brokerage joins.
+export const sourceTypeEnum = pgEnum('source_type', ['dmg']);
+
+// Verification mode at the brokerage landing page. 'soft' = hCaptcha + roster
+// email match (default). 'magic_link_required' is the escape hatch if abuse
+// appears; the branch ships if/when we flip the flag. See plan §4.2.
+export const verificationModeEnum = pgEnum('verification_mode', [
+  'soft',
+  'magic_link_required',
+]);
