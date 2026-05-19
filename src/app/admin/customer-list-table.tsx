@@ -103,24 +103,22 @@ export default function CustomerListTable({ customers, memberNameMap, activeTask
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-[#E0DEE4] bg-white shadow-[0px_4px_12px_#1B2E3514]">
-        <table className="min-w-full divide-y divide-[#E0DEE4]">
+      <div className="rounded-lg border border-[#E0DEE4] bg-white shadow-[0px_4px_12px_#1B2E3514]">
+        <table className="w-full table-fixed divide-y divide-[#E0DEE4]">
           <thead className="bg-[#F7F4EB]">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">Name</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">Channel</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">Type</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">State</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">Current Stage</th>
+              <th className="w-[28%] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">Name</th>
+              <th className="w-[10%] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">Channel</th>
+              <th className="w-[12%] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">State</th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">Current Task</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">CSM</th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54"></th>
+              <th className="w-[14%] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">CSM</th>
+              <th className="w-[10%] px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#E0DEE4] bg-white">
             {filteredCustomers.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-[#1B2E35]/40">
+                <td colSpan={6} className="px-4 py-8 text-center text-sm text-[#1B2E35]/40">
                   No customers match.
                 </td>
               </tr>
@@ -135,21 +133,22 @@ export default function CustomerListTable({ customers, memberNameMap, activeTask
                 const stateClass = state ? STATE_BADGE[state] ?? 'bg-[#1B2E35]/8 text-[#1B2E35]/60 border-[#1B2E35]/15' : '';
                 return (
                   <tr key={customer.id} className="hover:bg-[#F7F4EB]/60 transition-colors">
-                    <td className="whitespace-nowrap px-4 py-3">
+                    <td className="px-4 py-3 align-top">
                       <Link
                         href={`/admin/${customer.id}`}
-                        className="font-medium text-[#6C4AB6] hover:text-[#6C4AB6]/80 transition-colors"
+                        className="font-medium text-[#6C4AB6] hover:text-[#6C4AB6]/80 transition-colors break-words"
                       >
                         {customer.name}
                       </Link>
+                      <div className="text-[11px] text-[#1B2E35]/40 mt-0.5 truncate">
+                        {customer.contactEmail}
+                      </div>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-[#1B2E35]/70">{customer.channel}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm">
-                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-[#6C4AB6]/10 text-[#6C4AB6]">
-                        {customer.type}
-                      </span>
+                    <td className="px-3 py-3 text-sm align-top">
+                      <div className="text-[#1B2E35]/70">{customer.channel}</div>
+                      <div className="text-[11px] text-[#1B2E35]/40 mt-0.5">{customer.type}</div>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm">
+                    <td className="px-3 py-3 text-sm align-top">
                       {state ? (
                         <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${stateClass}`}>
                           {state}
@@ -158,13 +157,12 @@ export default function CustomerListTable({ customers, memberNameMap, activeTask
                         <span className="text-[#1B2E35]/40">—</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-[#1B2E35]/70">{customer.currentStage}</td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm align-top">
                       {currentTask ? (
                         <div className="space-y-0.5">
                           <div className="flex items-center gap-2">
                             <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${healthClass(days)}`} aria-hidden="true" />
-                            <span className="text-[#1B2E35]">{currentTask.taskName}</span>
+                            <span className="text-[#1B2E35] break-words">{currentTask.taskName}</span>
                           </div>
                           <div className="text-[11px] text-[#1B2E35]/50 ml-4">
                             {days === 0 ? 'today' : `${days}d active`}
@@ -183,10 +181,10 @@ export default function CustomerListTable({ customers, memberNameMap, activeTask
                         <span className="text-[#1B2E35]/40">—</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-[#1B2E35]/60">
+                    <td className="px-3 py-3 text-sm text-[#1B2E35]/60 align-top break-words">
                       {customer.csmAssigned.length > 0 ? memberNameMap[customer.csmAssigned[0]] ?? customer.csmAssigned[0] : '—'}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm">
+                    <td className="px-3 py-3 text-sm align-top">
                       <div className="flex items-center gap-2">
                         {customer.hubspotTicketId && (
                           <a
@@ -202,7 +200,7 @@ export default function CustomerListTable({ customers, memberNameMap, activeTask
                         <a
                           href={`/r/${customer.accessToken}`}
                           target="_blank"
-                          className="text-[#05C68E] hover:text-[#04946A] font-medium transition-colors"
+                          className="text-[#05C68E] hover:text-[#04946A] font-medium transition-colors text-xs"
                         >
                           Portal &rarr;
                         </a>
