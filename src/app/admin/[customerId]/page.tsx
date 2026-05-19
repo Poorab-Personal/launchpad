@@ -818,19 +818,22 @@ function hubspotTicketUrl(id: string): string | null {
   return `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-5/${id}`;
 }
 
-function isStripeTestMode(): boolean {
-  // Stripe test keys start with sk_test_ — used in non-prod environments.
-  return process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ?? false;
-}
+// All backfilled customer Stripe IDs (cus_*, sub_*) live in Rejig's
+// PRODUCTION Stripe account. Our STRIPE_SECRET_KEY is sk_test_ (Keyes
+// Sandbox) because we use it for the new D2C/Keyes-trial setup-intent
+// flow on the test side. So we can't infer the URL prefix from the key.
+// Hardcode the Rejig production account anchor; if a customer's Stripe
+// data is actually in the test sandbox the link will 404 (rare, only
+// post-Keyes-Sandbox-cutover D2C customers).
+const STRIPE_DASHBOARD_ACCOUNT = process.env.STRIPE_DASHBOARD_ACCOUNT_ID
+  ?? 'acct_1MgW0DCQTlvKI2AN'; // Rejig production
 
 function stripeCustomerUrl(id: string): string | null {
   if (!id) return null;
-  const prefix = isStripeTestMode() ? 'test/' : '';
-  return `https://dashboard.stripe.com/${prefix}customers/${id}`;
+  return `https://dashboard.stripe.com/${STRIPE_DASHBOARD_ACCOUNT}/customers/${id}`;
 }
 
 function stripeSubscriptionUrl(id: string): string | null {
   if (!id) return null;
-  const prefix = isStripeTestMode() ? 'test/' : '';
-  return `https://dashboard.stripe.com/${prefix}subscriptions/${id}`;
+  return `https://dashboard.stripe.com/${STRIPE_DASHBOARD_ACCOUNT}/subscriptions/${id}`;
 }
