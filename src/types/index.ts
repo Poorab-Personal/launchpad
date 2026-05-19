@@ -220,9 +220,6 @@ export interface Brokerage {
   name: string;
   landingPageSlug: string;
   defaultWorkflowKey: string;
-  rosterApiUrl: string;
-  rosterApiKey: string;
-  rosterRefreshInterval: string;
   lastRosterSync: string;
   defaultCalendlyUrl: string;
   billingContact: string;

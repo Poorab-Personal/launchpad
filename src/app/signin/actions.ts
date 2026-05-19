@@ -27,6 +27,12 @@ export async function sendMagicLink(
     return { status: 'error', message: 'Please enter a valid email address.' };
   }
 
+  // LaunchPad is internal-only. Only @rejig.ai emails can request a link.
+  // Reject everything else up front — no DB lookup, no email send.
+  if (!email.endsWith('@rejig.ai')) {
+    return { status: 'error', message: 'Only @rejig.ai email addresses can sign in.' };
+  }
+
   // Don't reveal whether the email exists — same response regardless.
   const member = await getTeamMemberByEmail(email);
 

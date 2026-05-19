@@ -14,6 +14,7 @@ import {
 } from '@/lib/db';
 import type { TaskStatus } from '@/types';
 import { deleteCustomerAction, updateBillingRelationshipAction } from './actions';
+import { requireSession, isAdminWriter } from '@/lib/auth/dal';
 import DeleteCustomerButton from './delete-customer-button';
 
 const CHANGE_SOURCE_BADGE: Record<string, string> = {
@@ -53,6 +54,8 @@ export default async function CustomerDetailPage({
   params: Promise<{ customerId: string }>;
 }) {
   const { customerId } = await params;
+  const session = await requireSession();
+  const writer = isAdminWriter(session);
   const customer = await getCustomerById(customerId);
 
   if (!customer) {
@@ -268,10 +271,12 @@ export default async function CustomerDetailPage({
                   </a>
                 </div>
               </div>
-              <form action={deleteCustomerAction}>
-                <input type="hidden" name="id" value={customer.id} />
-                <DeleteCustomerButton customerName={customer.name} />
-              </form>
+              {writer && (
+                <form action={deleteCustomerAction}>
+                  <input type="hidden" name="id" value={customer.id} />
+                  <DeleteCustomerButton customerName={customer.name} />
+                </form>
+              )}
             </div>
 
             {/* Bottom row — key signals */}
@@ -298,27 +303,38 @@ export default async function CustomerDetailPage({
             for sponsor execs / free accounts (real users we don&apos;t charge), <b>internal_demo</b>{' '}
             for Rejig-internal accounts (BI cron skips these entirely).
           </p>
-          <form action={updateBillingRelationshipAction} className="flex items-center gap-2">
-            <input type="hidden" name="id" value={customer.id} />
-            <select
-              name="billing_relationship"
-              defaultValue={customerExtra?.billingRelationship ?? 'paying'}
-              className="rounded border border-[#E0DEE4] bg-white px-2 py-1.5 text-sm text-[#1B2E35] focus:border-[#6C4AB6] focus:outline-none"
-            >
-              <option value="paying">paying</option>
-              <option value="comped">comped</option>
-              <option value="internal_demo">internal_demo</option>
-            </select>
-            <button
-              type="submit"
-              className="rounded bg-[#6C4AB6] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#6C4AB6]/90"
-            >
-              Save
-            </button>
-            {customerExtra?.createdVia === 'backfill' && (
-              <span className="text-xs text-[#1B2E35]/40">Backfilled</span>
-            )}
-          </form>
+          {writer ? (
+            <form action={updateBillingRelationshipAction} className="flex items-center gap-2">
+              <input type="hidden" name="id" value={customer.id} />
+              <select
+                name="billing_relationship"
+                defaultValue={customerExtra?.billingRelationship ?? 'paying'}
+                className="rounded border border-[#E0DEE4] bg-white px-2 py-1.5 text-sm text-[#1B2E35] focus:border-[#6C4AB6] focus:outline-none"
+              >
+                <option value="paying">paying</option>
+                <option value="comped">comped</option>
+                <option value="internal_demo">internal_demo</option>
+              </select>
+              <button
+                type="submit"
+                className="rounded bg-[#6C4AB6] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#6C4AB6]/90"
+              >
+                Save
+              </button>
+              {customerExtra?.createdVia === 'backfill' && (
+                <span className="text-xs text-[#1B2E35]/40">Backfilled</span>
+              )}
+            </form>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-[#1B2E35]/70">
+              <span className="rounded border border-[#E0DEE4] bg-[#F7F4EB] px-2 py-1.5">
+                {customerExtra?.billingRelationship ?? 'paying'}
+              </span>
+              {customerExtra?.createdVia === 'backfill' && (
+                <span className="text-xs text-[#1B2E35]/40">Backfilled</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="rounded-lg border border-[#E0DEE4] bg-white p-5">

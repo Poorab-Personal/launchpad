@@ -11,6 +11,7 @@ import {
 import CustomerFilters from './customer-filters';
 import AddCustomerForm from './add-customer-form';
 import CustomerListTable from './customer-list-table';
+import { requireSession, isAdminWriter } from '@/lib/auth/dal';
 
 export default async function AdminPage({
   searchParams,
@@ -18,6 +19,8 @@ export default async function AdminPage({
   searchParams: Promise<{ type?: string; stage?: string; channel?: string }>;
 }) {
   const { type, stage, channel } = await searchParams;
+  const session = await requireSession();
+  const writer = isAdminWriter(session);
   const allCustomers = await getCustomers();
   const [teamMembers, workflows, activeTasksByCustomer, stuckSummary] = await Promise.all([
     getTeamMembers(),
@@ -53,7 +56,7 @@ export default async function AdminPage({
         <span className="text-sm text-[#1B2E35]/40">{allCustomers.length} total</span>
       </div>
 
-      <AddCustomerForm workflows={workflows} />
+      {writer && <AddCustomerForm workflows={workflows} />}
 
       <StuckCustomersTile summary={stuckSummary} />
 

@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { customers } from '@/db/schema/customers';
-import { requireRole } from '@/lib/auth/dal';
+import { requireAdminWrite } from '@/lib/auth/dal';
 
 /**
  * Hard-delete a customer. Cascades via FK constraints to:
@@ -24,7 +24,7 @@ import { requireRole } from '@/lib/auth/dal';
  * Admin only.
  */
 export async function deleteCustomerAction(formData: FormData): Promise<void> {
-  await requireRole(['Admin']);
+  await requireAdminWrite();
 
   const id = formData.get('id');
   if (typeof id !== 'string' || !id) {
@@ -52,7 +52,7 @@ export async function deleteCustomerAction(formData: FormData): Promise<void> {
 const BILLING_VALUES = new Set(['paying', 'comped', 'internal_demo']);
 
 export async function updateBillingRelationshipAction(formData: FormData): Promise<void> {
-  await requireRole(['Admin']);
+  await requireAdminWrite();
 
   const id = formData.get('id');
   const value = formData.get('billing_relationship');

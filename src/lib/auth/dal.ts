@@ -47,6 +47,31 @@ export async function requireRole(allowedRoles: string[]): Promise<SessionPayloa
   return session;
 }
 
+/**
+ * Sole writer to /admin. Everyone in the team can VIEW /admin (via
+ * requireSession on the layout), but only this address can mutate
+ * customer records (create, delete, billing changes). Hardcoded by design —
+ * /admin is destructive surface and write access is intentionally narrow.
+ */
+const ADMIN_WRITE_EMAIL = 'poorab@rejig.ai';
+
+export function isAdminWriter(session: SessionPayload): boolean {
+  return session.email.toLowerCase() === ADMIN_WRITE_EMAIL;
+}
+
+/**
+ * Gate /admin mutations (server actions + write API routes). Throws on
+ * non-writers so server actions surface the rejection rather than silently
+ * succeeding with no DB change.
+ */
+export async function requireAdminWrite(): Promise<SessionPayload> {
+  const session = await requireSession();
+  if (!isAdminWriter(session)) {
+    throw new Error('Forbidden: admin write access required');
+  }
+  return session;
+}
+
 export type EffectiveContext = {
   /** Role used for routing & UI flow decisions */
   role: string;
