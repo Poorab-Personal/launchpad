@@ -1,0 +1,10 @@
+{
+  "uid": "rejig_customer_card",
+  "type": "card",
+  "config": {
+    "name": "Rejig — Customer Dashboard",
+    "location": "crm.record.tab",
+    "entrypoint": "/app/cards/RejigCustomerCard.jsx",
+    "objectTypes": ["contacts", "tickets"]
+  }
+}

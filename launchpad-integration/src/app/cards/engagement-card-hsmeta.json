@@ -2,7 +2,7 @@
   "uid": "rejig_engagement_card",
   "type": "card",
   "config": {
-    "name": "Rejig Engagement",
+    "name": "Rejig Engagement (DEPRECATED — use Rejig Customer Dashboard)",
     "location": "crm.record.tab",
     "entrypoint": "/app/cards/EngagementCard.jsx",
     "objectTypes": ["contacts"]

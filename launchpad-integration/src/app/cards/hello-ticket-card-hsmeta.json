@@ -1,0 +1,10 @@
+{
+  "uid": "hello_ticket_card",
+  "type": "card",
+  "config": {
+    "name": "LaunchPad — Hello (Ticket)",
+    "location": "crm.record.tab",
+    "entrypoint": "/app/cards/HelloTicketCard.jsx",
+    "objectTypes": ["tickets"]
+  }
+}
