@@ -818,15 +818,15 @@ function hubspotTicketUrl(id: string): string | null {
   return `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-5/${id}`;
 }
 
-// All backfilled customer Stripe IDs (cus_*, sub_*) live in Rejig's
-// PRODUCTION Stripe account. Our STRIPE_SECRET_KEY is sk_test_ (Keyes
-// Sandbox) because we use it for the new D2C/Keyes-trial setup-intent
-// flow on the test side. So we can't infer the URL prefix from the key.
-// Hardcode the Rejig production account anchor; if a customer's Stripe
-// data is actually in the test sandbox the link will 404 (rare, only
-// post-Keyes-Sandbox-cutover D2C customers).
+// All customer Stripe IDs (cus_*, sub_*) live in the LIVE Rejig account
+// (acct_1MgW0DCQTlvKI2AN). The runtime STRIPE_SECRET_KEY is still the Keyes
+// Sandbox today (used for B2B portal SetupIntent testing), so we can't infer
+// the dashboard URL from the key — hardcode the Rejig live account anchor.
+// The closedwon handler reads STRIPE_LIVE_SECRET_KEY explicitly so the live
+// account is the source of truth for D2C subs. Override with
+// STRIPE_DASHBOARD_ACCOUNT_ID if needed.
 const STRIPE_DASHBOARD_ACCOUNT = process.env.STRIPE_DASHBOARD_ACCOUNT_ID
-  ?? 'acct_1MgW0DCQTlvKI2AN'; // Rejig production
+  ?? 'acct_1MgW0DCQTlvKI2AN'; // Rejig live
 
 function stripeCustomerUrl(id: string): string | null {
   if (!id) return null;

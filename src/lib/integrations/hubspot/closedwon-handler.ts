@@ -37,8 +37,15 @@ const PRODUCT_KEY_TO_ENUM = {
 let _stripeClient: Stripe | null = null;
 function stripe(): Stripe {
   if (_stripeClient) return _stripeClient;
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) throw new Error('STRIPE_SECRET_KEY not set');
+  // D2C subs live in the LIVE Rejig Stripe account (created outside LP and
+  // pasted into the HS deal as stripe_payment_id). The other LP Stripe paths
+  // (B2B-Keyes SetupIntent, portal payment) use STRIPE_SECRET_KEY which
+  // currently points at Keyes Sandbox. So this handler explicitly prefers
+  // STRIPE_LIVE_SECRET_KEY; fall back to STRIPE_SECRET_KEY for local-dev
+  // setups that only have one key. Until the Option A staging split lands,
+  // closedwon is the one path that MUST hit live.
+  const key = process.env.STRIPE_LIVE_SECRET_KEY ?? process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new Error('STRIPE_LIVE_SECRET_KEY (or STRIPE_SECRET_KEY) not set');
   _stripeClient = new Stripe(key);
   return _stripeClient;
 }
