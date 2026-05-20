@@ -80,6 +80,46 @@ export async function sendEmail<T extends EmailTemplate>({
 }
 
 /**
+ * Send a plain-text operational alert (e.g. cron failure) to the ops inbox.
+ * Separate from sendEmail() because:
+ *   - No React template — plain text only.
+ *   - Recipient is internal ops (ALERTS_EMAIL), not a customer.
+ *   - Subject is dynamic (per-incident), not template-keyed.
+ *
+ * Reuses the same Resend client construction + error-surfacing pattern as
+ * sendEmail() / sendMagicLinkEmail() so callers don't need to import Resend
+ * directly. Per docs/integrations/dmg-roster-plan.md §6.3.
+ */
+export async function sendAlertEmail({
+  to,
+  subject,
+  text,
+}: {
+  to: string;
+  subject: string;
+  text: string;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set');
+  }
+  const resend = new Resend(apiKey);
+
+  const result = await resend.emails.send({
+    from: FROM,
+    to,
+    replyTo: REPLY_TO,
+    subject,
+    text,
+  });
+
+  if (result.error) {
+    throw new Error(`Resend error: ${result.error.message}`);
+  }
+  return result.data;
+}
+
+/**
  * Send a magic-link sign-in email to an internal team member.
  * Separate from sendEmail() because the data shape is different
  * (signInUrl vs portalUrl) and the recipient is internal, not a customer.
