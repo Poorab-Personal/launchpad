@@ -48,13 +48,17 @@ interface DmgUser {
   CellPhone?: string;
   OfficePhone?: string;
   Username?: string;
+  WebsiteURL?: string;
   StateLicensingInformation?: string;
   PhotoURL?: string;
   Bio?: string;
-  MlsIds?: string[];
+  MlsIds?: Array<{ MlsSourceId: string | number; MlsId: string }>;
   Offices?: Array<{ OfficeId: string | number; Primary?: string }>;
   [k: string]: unknown;
 }
+
+/** /mlsSource/ response row — MlsSourceId comes back as a string here even though the user payload encodes it as a number. */
+type DmgMlsSource = { MlsSourceId: string; MlsName: string };
 
 interface DmgOffice {
   OfficeId: string | number;
@@ -136,10 +140,39 @@ async function dmgGet<T>(path: string, token: string): Promise<T> {
 
 // ─── Normalization ────────────────────────────────────────────────────────
 
+/**
+ * Format raw DMG `MlsIds[]` into the locked display string
+ * `"MLS Name: id, id\nMLS Name: id, id"`. See
+ * memory/mls_ids_display_format.md (decision 2026-05-20).
+ *
+ * DMG encodes each entry as `{MlsSourceId, MlsId: "<csv>"}` where the csv may
+ * start with an empty value (e.g. `",276580753,277013181,N634516"`), so we
+ * split + trim + drop empties. `lookup` resolves `MlsSourceId → MlsName`; on
+ * miss we fall back to `MLS#{id}` so the agent still sees a parseable line.
+ */
+function formatMlsIds(
+  mlsIds: unknown,
+  lookup: Map<string, string>,
+): string | null {
+  if (!Array.isArray(mlsIds) || mlsIds.length === 0) return null;
+  const lines: string[] = [];
+  for (const entry of mlsIds) {
+    if (!entry || typeof entry !== 'object') continue;
+    const sourceId = String((entry as { MlsSourceId?: unknown }).MlsSourceId ?? '');
+    const idStr = String((entry as { MlsId?: unknown }).MlsId ?? '');
+    const ids = idStr.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    if (ids.length === 0) continue;
+    const name = lookup.get(sourceId) ?? `MLS#${sourceId}`;
+    lines.push(`${name}: ${ids.join(', ')}`);
+  }
+  return lines.length > 0 ? lines.join('\n') : null;
+}
+
 function normalizeUser(
   user: DmgUser,
   accountType: string,
   officeMap: Map<string, DmgOffice>,
+  mlsSourceMap: Map<string, string>,
 ): NormalizedRosterRow {
   // Pick primary office (matches GAS logic in Code.gs#processUserData).
   let primaryOfficeRef: { OfficeId: string | number; Primary?: string } | undefined;
@@ -153,21 +186,9 @@ function normalizeUser(
   const matchedOffice =
     primaryOfficeId != null ? officeMap.get(primaryOfficeId) ?? null : null;
 
-  // MLS IDs: legacy stored as JSON string; preserve that shape so downstream
-  // (customers.mls_ids text column) gets the same payload it used to.
-  const mlsIds =
-    Array.isArray(user.MlsIds) && user.MlsIds.length > 0
-      ? JSON.stringify(user.MlsIds)
-      : null;
-
-  // DMG does NOT return a Website field. The legacy Keyes Apps Script
-  // synthesized `https://{username}.keyes.com` because Keyes maps each agent's
-  // Username to a subdomain page on their site — a Keyes-specific quirk
-  // (verified absent from the Baird & Warner GAS app). Don't fabricate URLs at
-  // sync time. The agent's actual website is confirmed/edited on the intake
-  // form. If a brokerage later wants to default-fill the field from Username,
-  // that's a per-brokerage intake-form enrichment, not adapter logic.
-  // The raw Username is still preserved in sourceData for that future use.
+  // Format MLS IDs using the per-brokerage /mlsSource/ lookup. Display format
+  // is locked: "MLS Name: id, id\n..." (see memory/mls_ids_display_format.md).
+  const mlsIds = formatMlsIds(user.MlsIds, mlsSourceMap);
 
   return {
     sourceUserId: String(user.UserId),
@@ -179,14 +200,24 @@ function normalizeUser(
     publicEmail: user.PublicEmail ?? null,
     privateEmail: user.PrivateEmail ?? null,
     cellPhone: user.CellPhone ?? null,
-    website: null,
+    // Real WebsiteURL field from DMG; prepend https:// if missing protocol.
+    // Legacy GAS missed this and synthesized {username}.keyes.com instead.
+    website: user.WebsiteURL
+      ? (user.WebsiteURL.startsWith('http://') || user.WebsiteURL.startsWith('https://')
+          ? user.WebsiteURL
+          : `https://${user.WebsiteURL}`)
+      : null,
     license: user.StateLicensingInformation ?? null,
     photoUrl: user.PhotoURL ?? null,
     bio: user.Bio ?? null,
     mlsIds,
     primaryOfficeId,
     officeName: matchedOffice?.DisplayName ?? null,
-    sourceData: { user, office: matchedOffice },
+    sourceData: {
+      user,
+      office: matchedOffice,
+      mlsIdsRaw: Array.isArray(user.MlsIds) ? user.MlsIds : null,
+    },
     sourceSchemaVersion: DMG_SOURCE_SCHEMA_VERSION,
   };
 }
@@ -199,16 +230,50 @@ function buildOfficeMap(offices: DmgOffice[]): Map<string, DmgOffice> {
   return map;
 }
 
+function buildMlsSourceMap(sources: DmgMlsSource[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const s of sources) {
+    if (s?.MlsSourceId != null && s?.MlsName != null) {
+      // Coerce to string — /mlsSource/ returns MlsSourceId as a string but
+      // user.MlsIds[].MlsSourceId is a number; the map key must match the
+      // shape we look up with.
+      map.set(String(s.MlsSourceId), s.MlsName);
+    }
+  }
+  return map;
+}
+
+/**
+ * Fetch the per-brokerage MLS source list and build a lookup map. Treated as
+ * non-fatal: if DMG returns non-OK, log a warning and proceed with an empty
+ * map so `formatMlsIds` falls back to `MLS#{id}` placeholders rather than
+ * failing the whole sync.
+ */
+async function fetchMlsSourceMap(token: string): Promise<Map<string, string>> {
+  try {
+    const sources = await dmgGet<DmgMlsSource[]>('/mlsSource/', token);
+    return buildMlsSourceMap(Array.isArray(sources) ? sources : []);
+  } catch (err) {
+    console.warn(
+      `[dmg adapter] /mlsSource/ fetch failed; falling back to MLS#{id} placeholders. ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return new Map<string, string>();
+  }
+}
+
 // ─── Public adapter ───────────────────────────────────────────────────────
 
 export const dmgAdapter: RosterSourceAdapter = {
   async fetchAll(config: SourceConfig): Promise<NormalizedRosterRow[]> {
     const token = await getAccessToken(config);
 
-    // Parallelize users + offices — independent endpoints.
-    const [usersResp, officesResp] = await Promise.all([
+    // Parallelize users + offices + mlsSource — independent endpoints. The
+    // mls source map is an internal-to-the-adapter lookup table (see
+    // memory/mls_ids_display_format.md); not part of the adapter interface.
+    const [usersResp, officesResp, mlsSourceMap] = await Promise.all([
       dmgGet<DmgUsersResponse>('/users/', token),
       dmgGet<DmgOffice[]>('/users/offices/', token),
+      fetchMlsSourceMap(token),
     ]);
 
     const officeMap = buildOfficeMap(officesResp ?? []);
@@ -222,7 +287,7 @@ export const dmgAdapter: RosterSourceAdapter = {
       if (!Array.isArray(users)) continue;
       for (const user of users) {
         if (user == null || user.UserId == null) continue;
-        rows.push(normalizeUser(user, accountType, officeMap));
+        rows.push(normalizeUser(user, accountType, officeMap, mlsSourceMap));
       }
     }
 
@@ -249,11 +314,18 @@ export const dmgAdapter: RosterSourceAdapter = {
     }
     if (!user || user.UserId == null) return null;
 
-    const offices = await dmgGet<DmgOffice[]>('/users/offices/', token).catch(
-      () => [] as DmgOffice[],
-    );
+    // Fetch offices + mlsSource alongside the single user. Both are
+    // best-effort: failures fall back to empty maps so a transient lookup
+    // failure produces `MLS#{id}` placeholders rather than blocking the
+    // single-user refresh path.
+    const [offices, mlsSourceMap] = await Promise.all([
+      dmgGet<DmgOffice[]>('/users/offices/', token).catch(
+        () => [] as DmgOffice[],
+      ),
+      fetchMlsSourceMap(token),
+    ]);
     const officeMap = buildOfficeMap(offices ?? []);
 
-    return normalizeUser(user, 'agent', officeMap);
+    return normalizeUser(user, 'agent', officeMap, mlsSourceMap);
   },
 };
