@@ -35,6 +35,8 @@ export const brokerages = pgTable(
     includesVoice: boolean('includes_voice').notNull().default(false),
     includesAvatar: boolean('includes_avatar').notNull().default(false),
     pricingTagline: text('pricing_tagline'),                               // pricing-page subhead; supports {Name} substitution
+    // brokerage's master logo URL; pre-pop default for agent's businessLogo at customer creation (download to Vercel Blob).
+    masterLogoUrl: text('master_logo_url'),
     // DMG roster plan §3.2 — multi-source roster integration.
     sourceType: sourceTypeEnum('source_type').notNull().default('dmg'),    // discriminator for src/lib/roster/sources/* adapter
     sourceConfig: jsonb('source_config'),                                  // per-source bits (e.g. DMG env-var key prefix)

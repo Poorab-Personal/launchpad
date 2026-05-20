@@ -99,6 +99,13 @@
       "when": 1779224258321,
       "tag": "0013_brokerage_roster",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779298061031,
+      "tag": "0014_brokerage_master_logo_url",
+      "breakpoints": true
     }
   ]
 }
