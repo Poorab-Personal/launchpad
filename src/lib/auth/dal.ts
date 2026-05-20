@@ -60,13 +60,30 @@ export function isAdminWriter(session: SessionPayload): boolean {
 }
 
 /**
+ * Effective writer status — also honors the workspace view-as override.
+ * When the writer (poorab@rejig.ai) is impersonating any role or member
+ * via /workspace's RoleSwitcher, treat them as read-only so /admin renders
+ * exactly what that role would see and mutations 403. Lets us test the
+ * read-only experience without a second account.
+ *
+ * Clear view-as in /workspace → writer mode restored.
+ */
+export async function isEffectiveAdminWriter(
+  session: SessionPayload,
+): Promise<boolean> {
+  if (!isAdminWriter(session)) return false;
+  const view = await readViewAs();
+  return view.kind === 'none';
+}
+
+/**
  * Gate /admin mutations (server actions + write API routes). Throws on
  * non-writers so server actions surface the rejection rather than silently
- * succeeding with no DB change.
+ * succeeding with no DB change. Respects view-as.
  */
 export async function requireAdminWrite(): Promise<SessionPayload> {
   const session = await requireSession();
-  if (!isAdminWriter(session)) {
+  if (!(await isEffectiveAdminWriter(session))) {
     throw new Error('Forbidden: admin write access required');
   }
   return session;

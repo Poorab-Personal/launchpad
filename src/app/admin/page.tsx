@@ -11,7 +11,7 @@ import {
 import CustomerFilters from './customer-filters';
 import AddCustomerForm from './add-customer-form';
 import CustomerListTable from './customer-list-table';
-import { requireSession, isAdminWriter } from '@/lib/auth/dal';
+import { requireSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
 
 export default async function AdminPage({
   searchParams,
@@ -20,7 +20,7 @@ export default async function AdminPage({
 }) {
   const { type, stage, channel } = await searchParams;
   const session = await requireSession();
-  const writer = isAdminWriter(session);
+  const writer = await isEffectiveAdminWriter(session);
   const allCustomers = await getCustomers();
   const [teamMembers, workflows, activeTasksByCustomer, stuckSummary] = await Promise.all([
     getTeamMembers(),

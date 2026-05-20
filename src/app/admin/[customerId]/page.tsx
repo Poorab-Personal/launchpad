@@ -14,7 +14,7 @@ import {
 } from '@/lib/db';
 import type { TaskStatus } from '@/types';
 import { deleteCustomerAction, updateBillingRelationshipAction } from './actions';
-import { requireSession, isAdminWriter } from '@/lib/auth/dal';
+import { requireSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
 import DeleteCustomerButton from './delete-customer-button';
 
 const CHANGE_SOURCE_BADGE: Record<string, string> = {
@@ -55,7 +55,7 @@ export default async function CustomerDetailPage({
 }) {
   const { customerId } = await params;
   const session = await requireSession();
-  const writer = isAdminWriter(session);
+  const writer = await isEffectiveAdminWriter(session);
   const customer = await getCustomerById(customerId);
 
   if (!customer) {

@@ -6,7 +6,7 @@ import { getBrokerageByDefaultWorkflowKey } from '@/lib/db';
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
-import { getSession, isAdminWriter } from '@/lib/auth/dal';
+import { getSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
 import type { Customer } from '@/types';
 
 export async function POST(request: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   // (poorab@rejig.ai). Everyone else gets 403 — matches the UI gating in
   // /admin which hides the form for non-writers.
   const session = await getSession();
-  if (!session || !isAdminWriter(session)) {
+  if (!session || !(await isEffectiveAdminWriter(session))) {
     return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
 

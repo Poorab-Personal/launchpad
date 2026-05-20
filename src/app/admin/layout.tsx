@@ -1,11 +1,20 @@
 import Link from 'next/link';
-import { requireSession, isAdminWriter } from '@/lib/auth/dal';
+import { requireSession, isAdminWriter, isEffectiveAdminWriter } from '@/lib/auth/dal';
 import { getTeamMemberById } from '@/lib/db';
+import { readViewAs } from '@/lib/auth/view-as';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
-  const writer = isAdminWriter(session);
-  const member = await getTeamMemberById(session.memberId);
+  const [writer, member, view] = await Promise.all([
+    isEffectiveAdminWriter(session),
+    getTeamMemberById(session.memberId),
+    readViewAs(),
+  ]);
+  // Surface "viewing as" banner only when an actual writer is impersonating.
+  // For non-writers, the read-only badge is enough — no banner clutter.
+  const impersonating = isAdminWriter(session) && view.kind !== 'none';
+  const viewLabel =
+    view.kind === 'role' ? view.role : view.kind === 'member' ? 'a team member' : '';
 
   return (
     <div className="min-h-screen bg-[#F7F4EB] text-[#1B2E35]">
@@ -52,6 +61,22 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </div>
         </div>
       </header>
+      {impersonating && (
+        <div className="bg-[#6C4AB6]/10 border-b border-[#6C4AB6]/30">
+          <div className="mx-auto max-w-7xl px-4 py-2 sm:px-6 lg:px-8 flex items-center justify-between gap-3 text-sm text-[#6C4AB6]">
+            <span>
+              Viewing as <span className="font-semibold">{viewLabel}</span> — write actions
+              are hidden. Switch back to Admin in /workspace to restore write mode.
+            </span>
+            <Link
+              href="/workspace"
+              className="underline hover:no-underline whitespace-nowrap"
+            >
+              Open Workspace
+            </Link>
+          </div>
+        </div>
+      )}
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {children}
       </main>
