@@ -160,12 +160,14 @@ function normalizeUser(
       ? JSON.stringify(user.MlsIds)
       : null;
 
-  // Website synthesis from Username — matches the GAS-era convention. If a
-  // brokerage's domain ever differs from keyes.com we promote this to per-
-  // brokerage config; for now keep parity with the legacy app.
-  const website = user.Username
-    ? `https://${String(user.Username).toLowerCase()}.keyes.com`
-    : null;
+  // DMG does NOT return a Website field. The legacy Keyes Apps Script
+  // synthesized `https://{username}.keyes.com` because Keyes maps each agent's
+  // Username to a subdomain page on their site — a Keyes-specific quirk
+  // (verified absent from the Baird & Warner GAS app). Don't fabricate URLs at
+  // sync time. The agent's actual website is confirmed/edited on the intake
+  // form. If a brokerage later wants to default-fill the field from Username,
+  // that's a per-brokerage intake-form enrichment, not adapter logic.
+  // The raw Username is still preserved in sourceData for that future use.
 
   return {
     sourceUserId: String(user.UserId),
@@ -177,7 +179,7 @@ function normalizeUser(
     publicEmail: user.PublicEmail ?? null,
     privateEmail: user.PrivateEmail ?? null,
     cellPhone: user.CellPhone ?? null,
-    website,
+    website: null,
     license: user.StateLicensingInformation ?? null,
     photoUrl: user.PhotoURL ?? null,
     bio: user.Bio ?? null,
