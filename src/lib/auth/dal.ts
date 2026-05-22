@@ -48,15 +48,15 @@ export async function requireRole(allowedRoles: string[]): Promise<SessionPayloa
 }
 
 /**
- * Sole writer to /admin. Everyone in the team can VIEW /admin (via
- * requireSession on the layout), but only this address can mutate
- * customer records (create, delete, billing changes). Hardcoded by design —
- * /admin is destructive surface and write access is intentionally narrow.
+ * Writers to /admin. Anyone with session.role === 'Admin' gets write
+ * access to mutate customer records (create, delete, billing changes).
+ * Today (2026-05-22) that's Poorab + Mansi + Jigar.
+ *
+ * History: was hardcoded to poorab@rejig.ai-only, widened to all Admins
+ * once Mansi + Jigar were promoted and needed to add customers.
  */
-const ADMIN_WRITE_EMAIL = 'poorab@rejig.ai';
-
 export function isAdminWriter(session: SessionPayload): boolean {
-  return session.email.toLowerCase() === ADMIN_WRITE_EMAIL;
+  return session.role === 'Admin';
 }
 
 /**
