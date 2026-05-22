@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // No app-level overrides today; intentionally empty.
+  // Touch this file to invalidate Vercel build cache when needed.
 };
 
 export default nextConfig;
