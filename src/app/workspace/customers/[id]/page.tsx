@@ -252,11 +252,18 @@ function TaskActionPanel({
           currentlySent={customer.designProof}
         />
       ) : isInternal ? (
+        // proofRequired=true: server-side already requires >=1 file (see
+        // src/app/api/workspace/design-proof/route.ts), but the client used
+        // to allow Mark Complete with 0 files via the markTaskComplete
+        // shortcut. That let Kaushal "complete" Create Designs / Revise
+        // rounds without attaching anything — surfaced 2026-05-22 on Chris
+        // Fosgate (3 silent zero-file completions; Jigar caught 2 of 3).
+        // Flipping to true disables the button until a file is picked.
         <ProofTaskAction
           customerId={customerId}
           taskId={task.id}
           hasExistingProof={false}
-          proofRequired={false}
+          proofRequired={true}
           ctaLabel={ctaLabelForTask(task.taskName)}
         />
       ) : task.taskName === 'Review Designs' ? (
