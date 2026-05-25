@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { upload } from '@vercel/blob/client';
 import { markTaskComplete } from './actions';
 
 const MAX_FILE_SIZE = 3_500_000;
@@ -24,6 +25,7 @@ export default function ProofTaskAction({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pickedFiles, setPickedFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ uploaded: number; total: number } | null>(null);
   const [pendingTransition, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -66,23 +68,44 @@ export default function ProofTaskAction({
 
     if (pickedFiles.length > 0) {
       setBusy(true);
+      setProgress({ uploaded: 0, total: pickedFiles.length });
       try {
-        const fd = new FormData();
-        for (const file of pickedFiles) fd.append('file', file);
-        fd.append('customerId', customerId);
-        fd.append('taskId', taskId);
+        // Browser → Vercel Blob direct, one file at a time so we can show
+        // accurate progress + so a single failure doesn't poison the others.
+        // Sequential (not Promise.all) keeps the UX honest about which file
+        // is up next; bandwidth is rarely the bottleneck.
+        const clientPayload = JSON.stringify({ taskId, customerId });
+        const uploaded: Array<{ url: string; filename: string; size: number; contentType: string }> = [];
+        for (const file of pickedFiles) {
+          const blob = await upload(file.name, file, {
+            access: 'public',
+            handleUploadUrl: '/api/workspace/design-proof/sign',
+            clientPayload,
+          });
+          uploaded.push({
+            url: blob.url,
+            filename: file.name,
+            size: file.size,
+            contentType: file.type,
+          });
+          setProgress((p) => (p ? { ...p, uploaded: p.uploaded + 1 } : p));
+        }
+
+        // Finalize — persist metadata + mark complete on the server.
         const res = await fetch('/api/workspace/design-proof', {
           method: 'POST',
-          body: fd,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerId, taskId, uploaded }),
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(data.error ?? 'Upload failed');
+          throw new Error(data.error ?? 'Finalize failed');
         }
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Upload failed');
         setBusy(false);
+        setProgress(null);
       }
       return;
     }
@@ -166,9 +189,11 @@ export default function ProofTaskAction({
         className="w-full rounded-full bg-[#05C68E] px-4 py-2 text-sm font-medium text-white hover:bg-[#04946A] disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {pending
-          ? fileCount > 0
-            ? `Uploading ${fileCount} file${fileCount === 1 ? '' : 's'}…`
-            : 'Saving…'
+          ? progress
+            ? `Uploading ${progress.uploaded} / ${progress.total}…`
+            : fileCount > 0
+              ? `Uploading ${fileCount} file${fileCount === 1 ? '' : 's'}…`
+              : 'Saving…'
           : fileCount > 0
             ? `Upload ${fileCount} file${fileCount === 1 ? '' : 's'} & ${ctaLabel}`
             : ctaLabel}

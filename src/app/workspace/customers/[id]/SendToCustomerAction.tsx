@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { upload } from '@vercel/blob/client';
 import type { AirtableAttachment } from '@/types';
 
 const MAX_FILE_SIZE = 3_500_000;
@@ -86,6 +87,7 @@ function SendModal({
   const [selected, setSelected] = useState<Set<string>>(initialSelected);
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ uploaded: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -143,13 +145,34 @@ function SendModal({
   async function handleSend() {
     setError(null);
     setBusy(true);
+    setProgress(newFiles.length > 0 ? { uploaded: 0, total: newFiles.length } : null);
     try {
-      const fd = new FormData();
-      fd.append('customerId', customerId);
-      fd.append('taskId', taskId);
-      for (const id of selected) fd.append('selectedDraftId', id);
-      for (const f of newFiles) fd.append('file', f);
-      const res = await fetch('/api/workspace/design-proof', { method: 'POST', body: fd });
+      // Upload net-new files browser → Blob direct (bypasses Vercel's 4.5MB
+      // serverless function payload cap). Sequential per-file for accurate
+      // progress + isolated failures.
+      const clientPayload = JSON.stringify({ taskId, customerId });
+      const uploaded: Array<{ url: string; filename: string; size: number; contentType: string }> = [];
+      for (const f of newFiles) {
+        const blob = await upload(f.name, f, {
+          access: 'public',
+          handleUploadUrl: '/api/workspace/design-proof/sign',
+          clientPayload,
+        });
+        uploaded.push({ url: blob.url, filename: f.name, size: f.size, contentType: f.type });
+        setProgress((p) => (p ? { ...p, uploaded: p.uploaded + 1 } : p));
+      }
+
+      // Finalize: persist drafts + curated proof set + mark task complete.
+      const res = await fetch('/api/workspace/design-proof', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId,
+          taskId,
+          uploaded,
+          selectedDraftIds: [...selected],
+        }),
+      });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? 'Send failed');
@@ -158,6 +181,7 @@ function SendModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Send failed');
       setBusy(false);
+      setProgress(null);
     }
   }
 
@@ -320,7 +344,11 @@ function SendModal({
               disabled={!canSend}
               className="rounded-full bg-[#05C68E] px-5 py-2 text-sm font-semibold text-white hover:bg-[#04946A] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {busy ? 'Sending…' : 'Send to customer'}
+              {busy
+                ? progress
+                  ? `Uploading ${progress.uploaded} / ${progress.total}…`
+                  : 'Sending…'
+                : 'Send to customer'}
             </button>
           </div>
         </footer>
