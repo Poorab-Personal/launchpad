@@ -16,8 +16,7 @@ import LogCallButton, { type CSMOption } from './LogCallButton';
 import CreateAccountAction from './CreateAccountAction';
 import SendCredentialsAction from './SendCredentialsAction';
 import { tempPasswordFromName } from '@/lib/temp-password';
-
-const BIO_COLLAPSE_THRESHOLD = 180;
+import CopyableField from './CopyableField';
 
 /**
  * Internal upload tasks — designer adds work-in-progress to Design Drafts.
@@ -104,15 +103,24 @@ function AssetThumb({ attachment, label }: { attachment?: AirtableAttachment; la
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+/**
+ * Thin labeled divider inside the Intake Form Details card. Tagged with a
+ * small uppercase title above the fields it groups. First sub-section omits
+ * the top border so the section header doesn't get double-underlined.
+ */
+function SubSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div>
-      <dt className="text-xs uppercase tracking-wide text-[#1B2E35]/50 font-medium">
-        {label}
-      </dt>
-      <dd className="text-sm text-[#1B2E35] mt-1 whitespace-pre-wrap">
-        {value || <span className="text-[#1B2E35]/40 italic">Not provided</span>}
-      </dd>
+    <div className="mt-6 first:mt-0 first:border-t-0 border-t border-[#E0DEE4] pt-5 first:pt-0">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-[#1B2E35]/45 mb-3">
+        {title}
+      </p>
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">{children}</dl>
     </div>
   );
 }
@@ -132,31 +140,6 @@ function relativeUpdatedLabel(iso: string): string | null {
   if (days === 1) return 'Updated yesterday';
   if (days < 14) return `Updated ${days} days ago`;
   return `Updated on ${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-}
-
-function BioField({ value }: { value: string }) {
-  if (!value) {
-    return <Field label="Bio" value={value} />;
-  }
-  if (value.length <= BIO_COLLAPSE_THRESHOLD) {
-    return <Field label="Bio" value={value} />;
-  }
-  return (
-    <details>
-      <summary className="cursor-pointer list-none">
-        <dt className="text-xs uppercase tracking-wide text-[#1B2E35]/50 font-medium flex items-center justify-between">
-          Bio
-          <span className="text-[10px] text-[#6C4AB6] uppercase tracking-wider">
-            tap to expand
-          </span>
-        </dt>
-        <dd className="text-sm text-[#1B2E35] mt-1 line-clamp-3 whitespace-pre-wrap">
-          {value}
-        </dd>
-      </summary>
-      <dd className="text-sm text-[#1B2E35] mt-1 whitespace-pre-wrap">{value}</dd>
-    </details>
-  );
 }
 
 function TaskActionPanel({
@@ -542,29 +525,43 @@ export default async function CustomerDetailPage({
           </section>
 
           <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70 mb-4">
-              Brand Inputs
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70 mb-5">
+              Intake Form Details
             </h2>
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-              <Field label="Business Name" value={customer.businessName} />
-              <Field label="Website" value={customer.website} />
-              <Field label="Phone" value={customer.phone} />
-              <Field label="License Number" value={customer.licenseNumber} />
-              <Field label="GMB Name" value={customer.gmbName} />
-              <Field label="MLS IDs" value={customer.mlsIds} />
-              <div className="sm:col-span-2">
-                <BioField value={customer.bio} />
-              </div>
-              <Field label="Service Areas" value={customer.serviceAreas} />
-              <Field label="Local Content Areas" value={customer.localContentAreas} />
-              <Field label="Topics" value={customer.topics} />
-              <Field label="Hashtags" value={customer.hashtags} />
-              {customer.specialInstructions && (
-                <div className="sm:col-span-2">
-                  <Field label="Special Instructions" value={customer.specialInstructions} />
-                </div>
-              )}
-            </dl>
+
+            <SubSection title="Business & Contact">
+              <CopyableField label="Business Name" value={customer.businessName} />
+              <CopyableField label="Website" value={customer.website} />
+              <CopyableField label="Phone" value={customer.phone} />
+              <CopyableField label="Business Address" value={customer.businessAddress} />
+              <CopyableField label="Signin Email" value={customer.contactEmail} />
+              <CopyableField label="Platform Email" value={customer.platformEmail} />
+              <CopyableField label="Other Emails" value={customer.otherEmails} />
+              <CopyableField label="License Number" value={customer.licenseNumber} />
+              <CopyableField label="GMB Name" value={customer.gmbName} />
+              <CopyableField label="MLS IDs" value={customer.mlsIds} />
+            </SubSection>
+
+            <SubSection title="Bio">
+              <CopyableField label="Bio" value={customer.bio} expandable className="sm:col-span-2" />
+            </SubSection>
+
+            <SubSection title="Content Direction">
+              <CopyableField label="Service Areas" value={customer.serviceAreas} />
+              <CopyableField label="Local Content Areas" value={customer.localContentAreas} />
+              <CopyableField label="Topics" value={customer.topics} />
+              <CopyableField label="Hashtags" value={customer.hashtags} />
+            </SubSection>
+
+            {customer.specialInstructions && (
+              <SubSection title="Special Instructions">
+                <CopyableField
+                  label="Special Instructions"
+                  value={customer.specialInstructions}
+                  className="sm:col-span-2"
+                />
+              </SubSection>
+            )}
           </section>
 
           {canEditCalls && (
