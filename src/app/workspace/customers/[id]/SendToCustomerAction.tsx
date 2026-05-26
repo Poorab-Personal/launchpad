@@ -23,12 +23,14 @@ const MAX_FILE_SIZE = 3_500_000;
 export default function SendToCustomerAction({
   customerId,
   taskId,
+  taskName,
   ctaLabel,
   drafts,
   currentlySent,
 }: {
   customerId: string;
   taskId: string;
+  taskName: string;
   ctaLabel: string;
   drafts: AirtableAttachment[];
   currentlySent: AirtableAttachment[];
@@ -49,6 +51,7 @@ export default function SendToCustomerAction({
         <SendModal
           customerId={customerId}
           taskId={taskId}
+          taskName={taskName}
           drafts={drafts}
           currentlySent={currentlySent}
           onClose={() => setOpen(false)}
@@ -65,6 +68,7 @@ export default function SendToCustomerAction({
 function SendModal({
   customerId,
   taskId,
+  taskName,
   drafts,
   currentlySent,
   onClose,
@@ -72,18 +76,36 @@ function SendModal({
 }: {
   customerId: string;
   taskId: string;
+  taskName: string;
   drafts: AirtableAttachment[];
   currentlySent: AirtableAttachment[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  // Pre-tick anything currently in Design Proof (matched by URL — stable identifier).
+  // Smart pre-tick by task intent:
+  //   - "Upload Proof to Customer" (initial send): pre-tick anything currently
+  //     in Design Proof (matched by URL). For first sends, designProof is
+  //     usually empty so nothing is ticked.
+  //   - "Upload Revised Proof (Round N)" (revision send): pre-tick only the
+  //     matching round's drafts (uploadTask === 'Revise Design (Round N)').
+  //     Avoids the footgun of re-sending the original set the customer just
+  //     rejected when the intent is to ship the new revisions.
+  //   Designer can still toggle anything off/on; this is just the default.
   const initialSelected = useMemo(() => {
+    const revMatch = taskName.match(/^Upload Revised Proof \(Round (\d+)\)$/i);
+    if (revMatch) {
+      const targetTask = `Revise Design (Round ${revMatch[1]})`;
+      return new Set(
+        drafts
+          .filter((d) => d.id && d.uploadTask === targetTask)
+          .map((d) => d.id as string),
+      );
+    }
     const sentUrls = new Set(currentlySent.map((a) => a.url));
     return new Set(
       drafts.filter((d) => d.id && sentUrls.has(d.url)).map((d) => d.id as string),
     );
-  }, [drafts, currentlySent]);
+  }, [drafts, currentlySent, taskName]);
 
   const [selected, setSelected] = useState<Set<string>>(initialSelected);
   const [newFiles, setNewFiles] = useState<File[]>([]);

@@ -231,6 +231,7 @@ function TaskActionPanel({
         <SendToCustomerAction
           customerId={customerId}
           taskId={task.id}
+          taskName={task.taskName}
           ctaLabel={ctaLabelForTask(task.taskName)}
           drafts={customer.designDrafts}
           currentlySent={customer.designProof}
