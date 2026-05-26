@@ -36,6 +36,13 @@ export interface AirtableAttachment {
   id?: string;
   url: string;
   filename?: string;
+  /** ISO timestamp set by the design-proof finalize route. Older entries
+   *  (pre-2026-05-26) lack this — UI groups them as "Pre-tag" / "Untagged". */
+  uploadedAt?: string;
+  /** Task name that produced this upload — e.g. "Create Designs" or
+   *  "Revise Design (Round 1)". Used to group the Drafts panel + Send modal
+   *  by round so designers can tell which files belong to which iteration. */
+  uploadTask?: string;
 }
 
 // ─── Table 1: Customers ─────────────────────────────────────────────

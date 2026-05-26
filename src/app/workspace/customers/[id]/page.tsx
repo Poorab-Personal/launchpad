@@ -17,6 +17,7 @@ import CreateAccountAction from './CreateAccountAction';
 import SendCredentialsAction from './SendCredentialsAction';
 import { tempPasswordFromName } from '@/lib/temp-password';
 import CopyableField from './CopyableField';
+import { groupDrafts, formatGroupStamp } from './draft-groups';
 
 /**
  * Internal upload tasks — designer adds work-in-progress to Design Drafts.
@@ -475,16 +476,32 @@ export default async function CustomerDetailPage({
                 No drafts uploaded yet.
               </p>
             ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 max-w-md">
-                {[...customer.designDrafts].reverse().map((a, i) => {
-                  const total = customer.designDrafts.length;
-                  const versionNum = total - i;
+              <div className="space-y-6">
+                {groupDrafts(customer.designDrafts).map((g, gi) => {
+                  const stamp = formatGroupStamp(g.newestAt);
                   return (
-                    <AssetThumb
-                      key={`draft-${i}`}
-                      attachment={a}
-                      label={i === 0 ? `Draft ${versionNum} · Latest` : `Draft ${versionNum}`}
-                    />
+                    <div key={`g-${gi}`}>
+                      <div className="mb-2 flex items-center gap-2 text-xs">
+                        <span className="font-semibold text-[#1B2E35]">
+                          {g.label}
+                        </span>
+                        <span className="text-[#1B2E35]/40">
+                          · {g.drafts.length} file{g.drafts.length === 1 ? '' : 's'}
+                        </span>
+                        {stamp && (
+                          <span className="text-[#1B2E35]/40">· {stamp}</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 max-w-md">
+                        {g.drafts.map((a, i) => (
+                          <AssetThumb
+                            key={`g-${gi}-${i}`}
+                            attachment={a}
+                            label={a.filename ?? `File ${i + 1}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   );
                 })}
               </div>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { upload } from '@vercel/blob/client';
 import type { AirtableAttachment } from '@/types';
+import { groupDrafts, formatGroupStamp } from './draft-groups';
 
 const MAX_FILE_SIZE = 3_500_000;
 
@@ -217,8 +218,8 @@ function SendModal({
               No internal drafts yet — upload the files you want to send to the customer below.
             </div>
           ) : (
-            <section>
-              <div className="flex items-center justify-between mb-3">
+            <section className="space-y-5">
+              <div className="flex items-center justify-between">
                 <h3 className="text-xs uppercase tracking-wide font-semibold text-[#1B2E35]/60">
                   Internal Drafts ({drafts.length})
                 </h3>
@@ -233,45 +234,84 @@ function SendModal({
                   {selected.size === drafts.length ? 'Deselect all' : 'Select all'}
                 </button>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {drafts.map((d) => {
-                  if (!d.id) return null;
-                  const isPicked = selected.has(d.id);
-                  return (
-                    <button
-                      type="button"
-                      key={d.id}
-                      onClick={() => toggle(d.id as string)}
-                      className={`group relative overflow-hidden rounded-lg border-2 transition-all text-left ${
-                        isPicked
-                          ? 'border-[#6C4AB6] ring-2 ring-[#6C4AB6]/20'
-                          : 'border-[#E0DEE4] hover:border-[#6C4AB6]/40'
-                      }`}
-                    >
-                      <div className="aspect-[4/3] bg-[#F7F4EB] relative">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={d.url}
-                          alt={d.filename ?? 'Draft'}
-                          className="absolute inset-0 w-full h-full object-contain"
-                        />
-                        <div
-                          className={`absolute top-2 left-2 h-5 w-5 rounded border-2 flex items-center justify-center text-white text-xs ${
-                            isPicked ? 'bg-[#6C4AB6] border-[#6C4AB6]' : 'bg-white/80 border-[#1B2E35]/30'
-                          }`}
-                        >
-                          {isPicked && '✓'}
-                        </div>
+              {groupDrafts(drafts).map((g, gi) => {
+                const stamp = formatGroupStamp(g.newestAt);
+                const groupIds = g.drafts.filter((d) => d.id).map((d) => d.id as string);
+                const groupAllSelected = groupIds.length > 0 && groupIds.every((id) => selected.has(id));
+                return (
+                  <div key={`g-${gi}`}>
+                    <div className="mb-2 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-[#1B2E35]">{g.label}</span>
+                        <span className="text-[#1B2E35]/40">
+                          · {g.drafts.length} file{g.drafts.length === 1 ? '' : 's'}
+                        </span>
+                        {stamp && <span className="text-[#1B2E35]/40">· {stamp}</span>}
                       </div>
-                      {d.filename && (
-                        <div className="px-2 py-1.5 border-t border-[#E0DEE4]">
-                          <p className="text-[11px] text-[#1B2E35]/70 truncate">{d.filename}</p>
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (groupAllSelected) {
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              for (const id of groupIds) next.delete(id);
+                              return next;
+                            });
+                          } else {
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              for (const id of groupIds) next.add(id);
+                              return next;
+                            });
+                          }
+                        }}
+                        className="text-xs text-[#6C4AB6] hover:underline"
+                      >
+                        {groupAllSelected ? 'Deselect group' : 'Select group'}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {g.drafts.map((d) => {
+                        if (!d.id) return null;
+                        const isPicked = selected.has(d.id);
+                        return (
+                          <button
+                            type="button"
+                            key={d.id}
+                            onClick={() => toggle(d.id as string)}
+                            className={`group relative overflow-hidden rounded-lg border-2 transition-all text-left ${
+                              isPicked
+                                ? 'border-[#6C4AB6] ring-2 ring-[#6C4AB6]/20'
+                                : 'border-[#E0DEE4] hover:border-[#6C4AB6]/40'
+                            }`}
+                          >
+                            <div className="aspect-[4/3] bg-[#F7F4EB] relative">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={d.url}
+                                alt={d.filename ?? 'Draft'}
+                                className="absolute inset-0 w-full h-full object-contain"
+                              />
+                              <div
+                                className={`absolute top-2 left-2 h-5 w-5 rounded border-2 flex items-center justify-center text-white text-xs ${
+                                  isPicked ? 'bg-[#6C4AB6] border-[#6C4AB6]' : 'bg-white/80 border-[#1B2E35]/30'
+                                }`}
+                              >
+                                {isPicked && '✓'}
+                              </div>
+                            </div>
+                            {d.filename && (
+                              <div className="px-2 py-1.5 border-t border-[#E0DEE4]">
+                                <p className="text-[11px] text-[#1B2E35]/70 truncate">{d.filename}</p>
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </section>
           )}
 

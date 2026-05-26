@@ -59,6 +59,11 @@ function mapAttachments(raw: unknown): AirtableAttachment[] {
     type: String(a.contentType ?? a.type ?? ''),
     width: Number(a.width ?? 0),
     height: Number(a.height ?? 0),
+    // Pass through the round-tagging fields added 2026-05-26 (design-proof
+    // finalize route stamps them). Older entries lack these — UI groups
+    // them under an "Untagged" header.
+    uploadedAt: typeof a.uploadedAt === 'string' ? a.uploadedAt : undefined,
+    uploadTask: typeof a.uploadTask === 'string' ? a.uploadTask : undefined,
   }));
 }
 

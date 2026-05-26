@@ -46,6 +46,11 @@ type AttachmentJson = {
   filename?: string;
   size?: number;
   contentType?: string;
+  /** ISO timestamp set at finalize time. Older entries (pre-2026-05-26) lack this. */
+  uploadedAt?: string;
+  /** Task name that produced this upload (Create Designs / Revise Design (Round N) / etc.).
+   *  Used to group the Drafts panel and the Send-to-Customer modal by round. */
+  uploadTask?: string;
 };
 
 type FinalizeBody = {
@@ -120,7 +125,16 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Customer not found.' }, { status: 404 });
   }
   const existingDrafts = (customer.designDrafts ?? []) as unknown as AttachmentJson[];
-  const draftsAfterUpload = [...existingDrafts, ...uploaded];
+  // Stamp each newly-uploaded entry with the upload session metadata so the
+  // Drafts panel + Send modal can group by round (Create Designs vs Revise
+  // Round N) and sort newest-first. Old entries pre-2026-05-26 lack these
+  // fields; UI treats them as a single "Pre-tag" group.
+  const stampedNew: AttachmentJson[] = uploaded.map((u) => ({
+    ...u,
+    uploadedAt: new Date().toISOString(),
+    uploadTask: taskName,
+  }));
+  const draftsAfterUpload = [...existingDrafts, ...stampedNew];
 
   if (!isSendToCustomer) {
     await updateCustomerFields(customerId, { designDrafts: draftsAfterUpload });
@@ -128,8 +142,15 @@ export async function POST(request: NextRequest) {
     const selectedSet = new Set(selectedDraftIds);
     const selectedDrafts = existingDrafts.filter((d) => d.id && selectedSet.has(d.id));
     const customerFacingSet: AttachmentJson[] = [
-      ...selectedDrafts.map((d) => ({ url: d.url, filename: d.filename, size: d.size, contentType: d.contentType })),
-      ...uploaded,
+      ...selectedDrafts.map((d) => ({
+        url: d.url,
+        filename: d.filename,
+        size: d.size,
+        contentType: d.contentType,
+        uploadedAt: d.uploadedAt,
+        uploadTask: d.uploadTask,
+      })),
+      ...stampedNew,
     ];
 
     if (customerFacingSet.length === 0) {
