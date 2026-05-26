@@ -9,11 +9,17 @@ export default function ProofTask({
   task,
   customerId,
   customer,
+  revisionInFlight = false,
   onComplete,
 }: {
   task: Task;
   customerId: string;
   customer?: Customer;
+  /** True when a customer-facing revision round is Active server-side.
+   *  Customer sees "designer is working on your revisions" instead of the
+   *  approve/request-changes buttons. Survives page refresh (vs. the local
+   *  `mode='changes-sent'` which only persists for the current render). */
+  revisionInFlight?: boolean;
   onComplete: () => void;
 }) {
   const [mode, setMode] = useState<Mode>('idle');
@@ -86,8 +92,29 @@ export default function ProofTask({
 
   return (
     <div className="space-y-5">
-      {task.instructions && (
-        <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+      {revisionInFlight ? (
+        <div className="rounded-lg bg-[#05C68E]/5 border border-[#05C68E]/20 px-5 py-4 space-y-2">
+          <p className="text-sm font-medium text-[#1B2E35]">
+            We got your feedback. Our designer is working on the revisions you requested.
+          </p>
+          <p className="text-sm text-[#1B2E35]/70">
+            We&apos;ll email you the moment the updated proof is ready to review.
+          </p>
+          {customer?.designFeedback && (
+            <div className="mt-3 rounded-md bg-white border border-[#05C68E]/20 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-[#1B2E35]/50 mb-1">
+                Your feedback
+              </p>
+              <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">
+                {customer.designFeedback}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : (
+        task.instructions && (
+          <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+        )
       )}
 
       {/* Proof gallery */}
@@ -239,6 +266,10 @@ export default function ProofTask({
             </button>
           </div>
         </div>
+      ) : revisionInFlight ? (
+        // Action buttons hidden while designer is mid-revision. The new proof
+        // will replace what's shown above; only then do the buttons return.
+        null
       ) : (
         <div className="flex flex-wrap gap-3">
           <button

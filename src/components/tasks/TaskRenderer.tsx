@@ -13,11 +13,17 @@ export default function TaskRenderer({
   task,
   customerId,
   customer,
+  revisionInFlight = false,
   onComplete,
 }: {
   task: Task;
   customerId: string;
   customer?: Customer;
+  /** True when a customer-facing revision round (Revise / Review Revision /
+   *  Upload Revised Proof) is Active. Only ProofTask uses it today — surfaces
+   *  a "designer is working on your revisions" acknowledgment in place of
+   *  the standard approve/request-changes buttons. */
+  revisionInFlight?: boolean;
   onComplete: () => void;
 }) {
   // Special-case by task name (template Attachment Type is None for these,
@@ -34,7 +40,7 @@ export default function TaskRenderer({
     case 'Embed':
       return <EmbedTask task={task} onComplete={onComplete} />;
     case 'Proof':
-      return <ProofTask task={task} customerId={customerId} customer={customer} onComplete={onComplete} />;
+      return <ProofTask task={task} customerId={customerId} customer={customer} revisionInFlight={revisionInFlight} onComplete={onComplete} />;
     case 'Payment Setup':
       return (
         <PaymentSetupTask

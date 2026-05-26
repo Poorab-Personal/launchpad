@@ -360,6 +360,19 @@ export default function TaskList({
   // Core client-visible tasks for main section
   const coreVisibleTasks = coreTasks.filter((t) => t.visibleToClient);
 
+  // True when designer is mid-revision after the customer requested changes.
+  // Detect via Active customer-facing-revision tasks (NOT the Internal senior
+  // loops — those happen pre-customer-proof). Plan-agent verified the state
+  // machine: exactly one of the 3 Round-N tasks is Active throughout the
+  // revision flow; all 3 flip to Completed when the designer ships the
+  // Upload Revised Proof. Scoped to Core (only Core has the revision pattern
+  // today; defensive against future Voice/Avatar revision extensions).
+  const revisionInFlight = coreTasks.some(
+    (t) =>
+      t.status === 'Active' &&
+      /^(Revise Design|Review Revision|Upload Revised Proof) \(Round \d+\)$/.test(t.taskName),
+  );
+
   // ALL unique stages sorted by stageOrder (for progress bar)
   // Build stage order map — use the highest non-zero stageOrder for each stage
   // (revision tasks have stageOrder=0, so we skip those to avoid misordering)
@@ -666,6 +679,7 @@ export default function TaskList({
                           task={task}
                           customerId={customerId}
                           customer={customer}
+                          revisionInFlight={revisionInFlight}
                           onComplete={() => handleTaskComplete(task.id)}
                         />
                       </div>
@@ -896,6 +910,7 @@ export default function TaskList({
                               task={task}
                               customerId={customerId}
                               customer={customer}
+                              revisionInFlight={revisionInFlight}
                               onComplete={() => handleTaskComplete(task.id)}
                             />
                           </div>
