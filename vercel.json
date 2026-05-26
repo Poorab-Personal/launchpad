@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/import-rejig",
+      "schedule": "0 5 * * 0"
+    },
+    {
       "path": "/api/cron/bi",
       "schedule": "0 6 * * 0"
     },
@@ -11,6 +15,9 @@
   ],
   "functions": {
     "src/app/api/cron/bi/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/cron/import-rejig/route.ts": {
       "maxDuration": 300
     }
   }
