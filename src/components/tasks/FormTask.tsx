@@ -864,40 +864,37 @@ export default function FormTask({
             <DropZone
               label="Agent Photo"
               required
-              multiple
               files={files.agentPhoto}
               onFiles={(fl) => {
+                // Single-file field — latest pick replaces. Customer who clicks
+                // browse twice (e.g. to re-confirm) ends up with one file, not two.
+                const arr = Array.from(fl);
                 setFiles((prev) => ({
                   ...prev,
-                  agentPhoto: [...prev.agentPhoto, ...Array.from(fl)],
+                  agentPhoto: arr.slice(-1),
                 }));
                 setTouched((prev) => new Set(prev).add('file:agentPhoto'));
               }}
-              onRemove={(i) =>
-                setFiles((prev) => ({
-                  ...prev,
-                  agentPhoto: prev.agentPhoto.filter((_, idx) => idx !== i),
-                }))
+              onRemove={() =>
+                setFiles((prev) => ({ ...prev, agentPhoto: [] }))
               }
               error={touched.has('file:agentPhoto') && files.agentPhoto.length === 0}
             />
             <DropZone
               label="Business Logo"
               required
-              multiple
               files={files.businessLogo}
               onFiles={(fl) => {
+                // Single-file field — latest pick replaces.
+                const arr = Array.from(fl);
                 setFiles((prev) => ({
                   ...prev,
-                  businessLogo: [...prev.businessLogo, ...Array.from(fl)],
+                  businessLogo: arr.slice(-1),
                 }));
                 setTouched((prev) => new Set(prev).add('file:businessLogo'));
               }}
-              onRemove={(i) =>
-                setFiles((prev) => ({
-                  ...prev,
-                  businessLogo: prev.businessLogo.filter((_, idx) => idx !== i),
-                }))
+              onRemove={() =>
+                setFiles((prev) => ({ ...prev, businessLogo: [] }))
               }
               error={touched.has('file:businessLogo') && files.businessLogo.length === 0}
             />
@@ -906,10 +903,17 @@ export default function FormTask({
               multiple
               files={files.otherAssets}
               onFiles={(fl) =>
-                setFiles((prev) => ({
-                  ...prev,
-                  otherAssets: [...prev.otherAssets, ...Array.from(fl)],
-                }))
+                setFiles((prev) => {
+                  // Dedup by file identity (name+size+lastModified) so the
+                  // customer can't accidentally double-add the same file.
+                  const seen = new Set(
+                    prev.otherAssets.map((f) => `${f.name}::${f.size}::${f.lastModified}`),
+                  );
+                  const fresh = Array.from(fl).filter(
+                    (f) => !seen.has(`${f.name}::${f.size}::${f.lastModified}`),
+                  );
+                  return { ...prev, otherAssets: [...prev.otherAssets, ...fresh] };
+                })
               }
               onRemove={(i) =>
                 setFiles((prev) => ({
