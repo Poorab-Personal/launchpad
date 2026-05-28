@@ -6,9 +6,11 @@
  * Sibling of the prod EmailForm — reuses the same styled inputs, hCaptcha
  * widget, and brand theme, but exposes TWO fields for internal testers:
  *
- *   1. Agent email to load — a real brokerage agent's email. Used for the
- *      roster lookup, so the created test customer carries that agent's real
- *      pre-pop data (name, bio, MLS, etc.).
+ *   1. Agent to simulate — a dropdown of the brokerage's roster agents
+ *      (name → lookup email), since the tester doesn't know real agent emails.
+ *      The selected option's value (the agent email) is sent as `agentEmail`
+ *      for the roster lookup, so the created test customer carries that agent's
+ *      real pre-pop data (name, bio, MLS, etc.).
  *   2. Your email (receives test emails) — the tester's own inbox. Becomes the
  *      created customer's contact + platform email, so EVERY downstream stage
  *      email (welcome / design / credentials / …) routes to the tester and
@@ -53,6 +55,12 @@ interface Support {
   phone: string | null;
 }
 
+/** One roster agent for the simulate-agent dropdown: value = lookup email. */
+export interface AgentOption {
+  value: string;
+  label: string;
+}
+
 type LookupResponse =
   | { match: true; redirect: string }
   | { match: false; support: Support }
@@ -85,13 +93,16 @@ export default function TestEmailForm({
   slug,
   siteKey,
   theme,
+  agents,
 }: {
   slug: string;
   siteKey: string;
   theme: LandingTheme;
+  /** Brokerage roster agents for the simulate-agent dropdown. */
+  agents: AgentOption[];
 }) {
   const router = useRouter();
-  const [agentEmail, setAgentEmail] = useState('');
+  const [agentEmail, setAgentEmail] = useState(''); // selected roster agent's lookup email
   const [receiveEmail, setReceiveEmail] = useState(''); // cleared by default — never pre-fill the agent's email here
   const [token, setToken] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -142,7 +153,7 @@ export default function TestEmailForm({
     setNoMatch(null);
 
     if (!agentEmail.trim()) {
-      setError('Please enter the agent email to load.');
+      setError('Please select an agent to simulate.');
       return;
     }
     if (!receiveEmail.trim()) {
@@ -193,20 +204,18 @@ export default function TestEmailForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Field 1 — agent email to load (real roster data source) */}
+      {/* Field 1 — agent to simulate (real roster data source) */}
       <div>
         <label
           htmlFor="agentEmail"
           className="block text-xs font-semibold uppercase"
           style={{ color: theme.ink, letterSpacing: '0.08em', opacity: 0.7 }}
         >
-          Agent email to load
+          Agent to simulate
         </label>
-        <input
+        <select
           id="agentEmail"
           name="agentEmail"
-          type="email"
-          autoComplete="off"
           required
           value={agentEmail}
           onChange={(e) => {
@@ -216,15 +225,25 @@ export default function TestEmailForm({
           }}
           onFocus={() => setAgentFocused(true)}
           onBlur={() => setAgentFocused(false)}
-          placeholder="real.agent@brokerage.com"
           className="mt-1.5 w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none"
           style={{
-            color: theme.ink,
+            color: agentEmail ? theme.ink : `${theme.ink}99`,
             backgroundColor: theme.surface,
             borderColor: agentFocused ? theme.primary : `${theme.accent}80`,
             boxShadow: agentFocused ? `0 0 0 1px ${theme.primary}` : 'none',
           }}
-        />
+        >
+          <option value="" disabled>
+            {agents.length
+              ? 'Select an agent…'
+              : 'No roster agents available'}
+          </option>
+          {agents.map((a) => (
+            <option key={a.value} value={a.value} style={{ color: theme.ink }}>
+              {a.label}
+            </option>
+          ))}
+        </select>
         <p className="mt-1 text-[11px]" style={{ color: theme.ink, opacity: 0.55 }}>
           Loads this agent&apos;s real roster pre-pop data.
         </p>

@@ -53,7 +53,8 @@ export default function LandingShell({
           borderColor: `${theme.accent}66`,
         }}
       >
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 flex items-center justify-between">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
+          {/* Brokerage logo — left */}
           {brokerage.masterLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -66,9 +67,15 @@ export default function LandingShell({
               {brokerage.name}
             </span>
           )}
-          <span className="text-xs" style={{ color: theme.ink, opacity: 0.5 }}>
-            Powered by Rejig.ai
-          </span>
+          {/* Rejig.ai co-brand logo — top-right. Plain <img> (mirrors the
+              brokerage logo above); h-8/w-auto fixes one dimension only, so
+              no aspect-ratio console warning. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://rejig.ai/wp-content/themes/rejigchild/assets/images/rejig-logo-1.png"
+            alt="Rejig.ai"
+            className="h-8 w-auto max-w-[140px] object-contain"
+          />
         </div>
       </header>
 

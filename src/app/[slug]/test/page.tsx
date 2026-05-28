@@ -18,13 +18,13 @@
  * See docs/integrations/dmg-roster-plan.md §4.2 + the B2B test-route plan.
  */
 import { notFound } from 'next/navigation';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { getSetting } from '@/lib/db';
 import LandingShell from '../LandingShell';
 import { themeForSlug } from '../theme';
-import TestEmailForm from './TestEmailForm';
+import TestEmailForm, { type AgentOption } from './TestEmailForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +51,46 @@ export default async function BrokerageTestLandingPage(
   const siteKey = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '';
   const tagline =
     brokerage.pricingTagline?.replace(/\{Name\}/g, brokerage.name) ?? '';
+
+  // Roster agents for the simulate-agent dropdown. The tester doesn't know
+  // real agent emails, so we surface the brokerage's alive agent roster with a
+  // human label and the lookup email as the option value. Server-side only —
+  // no new API endpoint; this page is already a server component.
+  const rosterRows = await db
+    .select({
+      firstName: schema.brokerageRoster.firstName,
+      lastName: schema.brokerageRoster.lastName,
+      displayName: schema.brokerageRoster.displayName,
+      publicEmail: schema.brokerageRoster.publicEmail,
+      privateEmail: schema.brokerageRoster.privateEmail,
+    })
+    .from(schema.brokerageRoster)
+    .where(
+      and(
+        eq(schema.brokerageRoster.brokerageId, brokerage.id),
+        isNull(schema.brokerageRoster.deletedAt),
+        eq(schema.brokerageRoster.accountType, 'agent'),
+      ),
+    )
+    .orderBy(
+      asc(schema.brokerageRoster.lastName),
+      asc(schema.brokerageRoster.firstName),
+    );
+
+  const agents: AgentOption[] = rosterRows.flatMap((r) => {
+    // Lookup email is the option value — prefer public, else private. Skip
+    // agents with neither (can't be looked up).
+    const value = (r.publicEmail ?? r.privateEmail ?? '').trim();
+    if (!value) return [];
+
+    const fullName = [r.firstName, r.lastName]
+      .filter((p) => p && p.trim())
+      .join(' ')
+      .trim();
+    const label = fullName || r.displayName?.trim() || value;
+
+    return [{ value, label }];
+  });
 
   const banner = (
     <div
@@ -81,7 +121,14 @@ export default async function BrokerageTestLandingPage(
       }}
       theme={theme}
       banner={banner}
-      form={<TestEmailForm slug={slug} siteKey={siteKey} theme={theme} />}
+      form={
+        <TestEmailForm
+          slug={slug}
+          siteKey={siteKey}
+          theme={theme}
+          agents={agents}
+        />
+      }
     />
   );
 }
