@@ -44,6 +44,14 @@ export interface RosterCustomerInput {
   businessAddress: string | null;
   serviceAreas: string | null;
   otherEmails: string | null;
+
+  /**
+   * Optional environment tags stamped on `customers.environment` (text[]).
+   * Used by the /[slug]/test route to mark test records (`['test']`) so they
+   * are cleanly removable: `DELETE … WHERE environment @> '{test}'`. Omitted on
+   * the real landing path → column stays NULL, behavior unchanged.
+   */
+  environment?: string[];
 }
 
 export interface RosterCustomerResult {
@@ -104,6 +112,9 @@ export async function createRosterCustomer(
         rosterRecordId: rosterBridge.id,
         currentStage: 'Getting Started',
         createdVia: 'b2b_landing',
+        // Test-mode tag (e.g. ['test']) when provided by the caller; NULL on
+        // the real landing path. Purely additive — no business-logic branch.
+        ...(input.environment ? { environment: input.environment } : {}),
       })
       .returning();
 
@@ -120,10 +131,19 @@ export async function createRosterCustomer(
     });
 
     // 4. Close the loop: bridge bulk-roster row → customer.
-    await tx
-      .update(schema.brokerageRoster)
-      .set({ customerId: customer.id })
-      .where(eq(schema.brokerageRoster.id, input.brokerageRosterId));
+    //    Skipped for test records (environment @> {test}): the bulk-roster
+    //    row belongs to a REAL agent and its customer_id powers the prod
+    //    idempotency redirect + the "unboarded agents" partial index. A test
+    //    session must not clobber that link — recovery instead keys on the
+    //    test customer's contact_email (the tester's inbox). Prod path is
+    //    unaffected: with no environment, this update runs exactly as before.
+    const isTestRecord = input.environment?.includes('test') ?? false;
+    if (!isTestRecord) {
+      await tx
+        .update(schema.brokerageRoster)
+        .set({ customerId: customer.id })
+        .where(eq(schema.brokerageRoster.id, input.brokerageRosterId));
+    }
 
     // 5. Backfill the bridge row's customer_id too (mirrors the FK on customers).
     await tx

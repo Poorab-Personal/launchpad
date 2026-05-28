@@ -15,10 +15,11 @@
  *      200 { match: true, redirect: '/r/<accessToken>' }
  */
 import { NextRequest } from 'next/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { verifyHCaptcha } from '@/lib/captcha';
+import { getSetting } from '@/lib/db';
 import { lookupByEmail } from '@/lib/roster/lookup';
 import { createRosterCustomer } from '@/lib/automations/create-roster-customer';
 import { importRosterCustomerAssets } from '@/lib/roster/import-assets';
@@ -92,11 +93,25 @@ function channelCodeForWorkflow(workflowKey: string): string {
 }
 
 export async function POST(request: NextRequest) {
-  let body: { email?: unknown; slug?: unknown; hcaptchaToken?: unknown };
+  let body: {
+    email?: unknown;
+    slug?: unknown;
+    hcaptchaToken?: unknown;
+    // Test-mode-only fields (see handleTestMode). Ignored on the prod path.
+    testMode?: unknown;
+    agentEmail?: unknown;
+    receiveEmail?: unknown;
+  };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  // Test-mode branch — purely additive. Dispatch BEFORE any prod field parsing
+  // so the real path below stays byte-for-byte behaviorally identical.
+  if (body.testMode === true) {
+    return handleTestMode(request, body);
   }
 
   const email = typeof body.email === 'string' ? body.email.trim() : '';
@@ -205,6 +220,146 @@ export async function POST(request: NextRequest) {
   // Fire-and-forget: async photo + logo download → Blob. Do NOT await — the
   // verification round-trip must stay fast. The customer + tasks already
   // landed atomically; assets fill in after the redirect.
+  void importRosterCustomerAssets({
+    customerId: result.id,
+    photoUrl: rosterRow.photoUrl ?? null,
+    masterLogoUrl: brokerage.masterLogoUrl ?? null,
+  });
+
+  return Response.json({ match: true, redirect: `/r/${result.accessToken}` });
+}
+
+/**
+ * Test-mode handler for /[slug]/test — additive sibling of the prod POST path.
+ *
+ * Loads a REAL agent's roster pre-pop data (agentEmail) but creates the
+ * customer with the tester's own inbox (receiveEmail) as contact + platform
+ * email, marks it `LP TEST — {name}` + `environment: ['test']`, and returns
+ * the same `{ match, redirect }` contract the prod path uses.
+ *
+ * Differences from prod: the server-side `b2b_test_route_enabled='on'` gate,
+ * the email swap, the LP TEST marking, and the re-entry recovery (find an
+ * existing test customer whose contact_email = receiveEmail). hCaptcha is the
+ * SAME real gate. Everything downstream (lookup, atomic create, asset import)
+ * reuses the prod helpers.
+ */
+async function handleTestMode(
+  request: NextRequest,
+  body: {
+    slug?: unknown;
+    hcaptchaToken?: unknown;
+    agentEmail?: unknown;
+    receiveEmail?: unknown;
+  },
+): Promise<Response> {
+  const slug = typeof body.slug === 'string' ? body.slug.trim() : '';
+  const agentEmail =
+    typeof body.agentEmail === 'string' ? body.agentEmail.trim() : '';
+  const receiveEmail =
+    typeof body.receiveEmail === 'string' ? body.receiveEmail.trim() : '';
+  const hcaptchaToken =
+    typeof body.hcaptchaToken === 'string' ? body.hcaptchaToken : '';
+
+  if (!slug || !agentEmail || !receiveEmail) {
+    return Response.json(
+      { error: 'Missing required fields: slug, agentEmail, receiveEmail' },
+      { status: 400 },
+    );
+  }
+
+  // Server-side route gate — never trust the client's testMode flag alone.
+  const testEnabled = (await getSetting('b2b_test_route_enabled')) === 'on';
+  if (!testEnabled) {
+    return Response.json({ error: 'Test mode is not enabled.' }, { status: 403 });
+  }
+
+  // hCaptcha gate (same real verify as prod). Fails closed on any error.
+  const remoteip =
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || undefined;
+  const captchaOk = await verifyHCaptcha(hcaptchaToken, remoteip);
+  if (!captchaOk) {
+    return Response.json(
+      { error: 'Captcha verification failed. Please try again.' },
+      { status: 400 },
+    );
+  }
+
+  // Resolve brokerage by slug (active + soft auth), same as prod.
+  const brokerage = await db.query.brokerages.findFirst({
+    where: and(
+      eq(schema.brokerages.landingPageSlug, slug),
+      eq(schema.brokerages.active, true),
+    ),
+  });
+  if (!brokerage) {
+    return Response.json({ error: 'Unknown brokerage' }, { status: 404 });
+  }
+  if (brokerage.verificationMode !== 'soft') {
+    return Response.json(
+      { error: 'This brokerage requires a different verification method.' },
+      { status: 409 },
+    );
+  }
+
+  const support = {
+    name: brokerage.supportContactName ?? null,
+    email: brokerage.supportContactEmail ?? null,
+    phone: brokerage.supportContactPhone ?? null,
+  };
+
+  // Recovery / re-entry: if this tester already has a test customer on this
+  // receive email, return its portal so they can pick the session back up.
+  // Edge case: the same receive email used across multiple agents returns the
+  // FIRST test customer found — acceptable for testing.
+  const existingTest = await db.query.customers.findFirst({
+    where: and(
+      eq(schema.customers.contactEmail, receiveEmail),
+      sql`${schema.customers.environment} @> '{test}'`,
+    ),
+    columns: { accessToken: true },
+  });
+  if (existingTest) {
+    return Response.json({
+      match: true,
+      redirect: `/r/${existingTest.accessToken}`,
+    });
+  }
+
+  // Cache-only roster match on the AGENT email (the data source).
+  const hit = await lookupByEmail(brokerage.id, agentEmail);
+  if (!hit) {
+    console.warn(
+      `[agent-lookup:test] miss brokerage=${brokerage.landingPageSlug} emailHash=${hashEmail(agentEmail)}`,
+    );
+    return Response.json({ match: false, support });
+  }
+
+  const rosterRow = hit.row;
+  const sourceData = (rosterRow.sourceData ?? {}) as RosterSourceData;
+  const channelCode = channelCodeForWorkflow(brokerage.defaultWorkflowKey);
+  const realName = rosterRow.displayName ?? agentEmail;
+
+  // Create the test customer: real roster data, BUT the tester's receive email
+  // as contact + platform email, an LP TEST name prefix, and environment=test.
+  const result = await createRosterCustomer({
+    brokerageRosterId: rosterRow.id,
+    brokerageId: brokerage.id,
+    channelCode,
+    matchedEmail: receiveEmail, // → contact_email + platform_email (tester's inbox)
+    name: `LP TEST — ${realName}`,
+    businessName: rosterRow.displayName ?? null,
+    phone: rosterRow.cellPhone ?? null,
+    website: rosterRow.website ?? null,
+    bio: stripHtml(rosterRow.bio),
+    licenseNumber: rosterRow.license ?? null,
+    mlsIds: rosterRow.mlsIds ?? null,
+    businessAddress: formatOfficeAddress(sourceData.office),
+    serviceAreas: formatServiceAreas(sourceData.user?.Regions),
+    otherEmails: null,
+    environment: ['test'],
+  });
+
+  // Same fire-and-forget asset import as prod.
   void importRosterCustomerAssets({
     customerId: result.id,
     photoUrl: rosterRow.photoUrl ?? null,
