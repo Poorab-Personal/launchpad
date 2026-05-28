@@ -7,9 +7,10 @@ import { updateCustomerFields } from '@/lib/db';
 
 // Per-field append limits. null = no limit. Fields not in this map are rejected.
 // Keys are the request fieldName values; mapped to schema camelCase fields below.
+// Single-file fields (limit=1) REPLACE rather than append (see logic below).
 const FIELD_LIMITS: Record<string, number | null> = {
-  'Agent Photo': 10,
-  'Business Logo': 10,
+  'Agent Photo': 1,
+  'Business Logo': 1,
   'Other Assets': null,
 };
 
@@ -63,24 +64,50 @@ export async function POST(request: NextRequest) {
   }
   const existing = (row[column] ?? []) as Array<Record<string, unknown>>;
   const limit = FIELD_LIMITS[fieldName];
-  if (limit !== null && existing.length >= limit) {
-    return Response.json(
-      { error: `Maximum of ${limit} files reached for ${fieldName}. Remove some before adding more.` },
-      { status: 409 },
-    );
+
+  // Idempotency: same filename + size already in the array → skip the upload
+  // entirely. Catches the "customer hit submit twice" / "navigated back and
+  // re-submitted" / "double-click race" cases that produced 2-4 copies of the
+  // same headshot or logo before this guard (Christina 2026-05-26, Dani 2026-05-27).
+  const existingByKey = new Map<string, Record<string, unknown>>();
+  for (const e of existing) {
+    existingByKey.set(`${e.filename ?? ''}::${e.size ?? 0}`, e);
+  }
+  const dupeKey = `${file.name}::${file.size}`;
+  if (existingByKey.has(dupeKey)) {
+    const dupe = existingByKey.get(dupeKey)!;
+    return Response.json({
+      url: dupe.url,
+      filename: dupe.filename,
+      field: fieldName,
+      count: existing.length,
+      deduped: true,
+    });
   }
 
   const blob = await put(file.name, file, { access: 'public', addRandomSuffix: true });
 
-  // jsonb shape (matches Drizzle schema notes in customers.ts): an array of
-  // { url, filename, size, contentType } objects.
   const newAttachment = {
     url: blob.url,
     filename: file.name,
     size: file.size,
     contentType: file.type,
   };
-  const attachmentArray = [...existing, newAttachment];
+
+  // Single-file fields (limit=1): REPLACE the array (latest pick wins).
+  // Avoids accumulation when the customer re-uploads a different headshot
+  // or logo through a second submission.
+  // Multi-file fields (limit=null): APPEND.
+  // Mid-limits (limit > 1) currently don't exist but if added, the > limit
+  // check below still fires before write.
+  const attachmentArray = limit === 1 ? [newAttachment] : [...existing, newAttachment];
+
+  if (limit !== null && limit > 1 && attachmentArray.length > limit) {
+    return Response.json(
+      { error: `Maximum of ${limit} files reached for ${fieldName}. Remove some before adding more.` },
+      { status: 409 },
+    );
+  }
 
   await updateCustomerFields(customerId, { [column]: attachmentArray });
 
