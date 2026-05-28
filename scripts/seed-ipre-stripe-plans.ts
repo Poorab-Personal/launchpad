@@ -35,42 +35,35 @@ type PlanSeed = {
   displayOrder: number | null;
 };
 
+// Mirrors the live B2B-Keyes stripe_plans shape (Monthly + Quarterly Prepay).
+// Price IDs created in the Stripe SANDBOX by
+// scripts/create-ipre-stripe-products.ts (product prod_UbJvP2vApO2dWq):
+//   IPRE Monthly:          price_1Tc7HnFhzZTRrtCySH6UreYs  ($119/mo)
+//   IPRE Quarterly Prepay: price_1Tc7HoFhzZTRrtCy9kVrBP9O  ($300 / 3mo, shown $100/mo)
 const PLANS: PlanSeed[] = [
   {
-    planName: 'Standard',
-    stripePriceId: 'price_TBD_ipre_standard', // TODO(user): fill in real Stripe price ID before running
+    planName: 'IPRE Monthly',
+    stripePriceId: 'price_1Tc7HnFhzZTRrtCySH6UreYs',
     active: true,
     description: null,
-    priceDisplay: null,
-    pricePeriod: null,
+    priceDisplay: '$119',
+    pricePeriod: '/mo',
     billingDetail: null,
     footnote: null,
     highlight: null,
     displayOrder: 1,
   },
   {
-    planName: 'Premium',
-    stripePriceId: 'price_TBD_ipre_premium', // TODO(user): fill in real Stripe price ID before running
+    planName: 'IPRE Quarterly Prepay',
+    stripePriceId: 'price_1Tc7HoFhzZTRrtCy9kVrBP9O',
     active: true,
     description: null,
-    priceDisplay: null,
-    pricePeriod: null,
+    priceDisplay: '$100',
+    pricePeriod: '/mo',
     billingDetail: null,
     footnote: null,
     highlight: null,
     displayOrder: 2,
-  },
-  {
-    planName: 'Luxury',
-    stripePriceId: 'price_TBD_ipre_luxury', // TODO(user): fill in real Stripe price ID before running
-    active: true,
-    description: null,
-    priceDisplay: null,
-    pricePeriod: null,
-    billingDetail: null,
-    footnote: null,
-    highlight: null,
-    displayOrder: 3,
   },
 ];
 
