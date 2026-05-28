@@ -43,6 +43,20 @@ interface Support {
   phone: string | null;
 }
 
+/**
+ * Resolved per-brokerage landing palette. Owned by the [slug] page's theme
+ * map; passed in so the form's input / button / states match the brand.
+ */
+export interface LandingTheme {
+  bg: string;
+  surface: string;
+  primary: string;
+  primaryHover: string;
+  ink: string;
+  accent: string;
+  serifHeadline: boolean;
+}
+
 type LookupResponse =
   | { match: true; redirect: string }
   | { match: false; support: Support }
@@ -74,9 +88,11 @@ function loadHCaptchaScript(): Promise<void> {
 export default function EmailForm({
   slug,
   siteKey,
+  theme,
 }: {
   slug: string;
   siteKey: string;
+  theme: LandingTheme;
 }) {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -84,6 +100,8 @@ export default function EmailForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [noMatch, setNoMatch] = useState<Support | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [buttonHovered, setButtonHovered] = useState(false);
 
   const widgetRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
@@ -168,7 +186,11 @@ export default function EmailForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label htmlFor="email" className="block text-sm font-medium text-[#1B2E35]">
+        <label
+          htmlFor="email"
+          className="block text-xs font-semibold uppercase"
+          style={{ color: theme.ink, letterSpacing: '0.08em', opacity: 0.7 }}
+        >
           Work email
         </label>
         <input
@@ -183,8 +205,16 @@ export default function EmailForm({
             setNoMatch(null);
             setError(null);
           }}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           placeholder="you@brokerage.com"
-          className="mt-1 w-full rounded-lg border border-[#E0DEE4] px-3 py-2 text-sm text-[#1B2E35] focus:border-[#6C4AB6] focus:outline-none focus:ring-1 focus:ring-[#6C4AB6]"
+          className="mt-1.5 w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none"
+          style={{
+            color: theme.ink,
+            backgroundColor: theme.surface,
+            borderColor: inputFocused ? theme.primary : `${theme.accent}80`,
+            boxShadow: inputFocused ? `0 0 0 1px ${theme.primary}` : 'none',
+          }}
         />
       </div>
 
@@ -206,7 +236,14 @@ export default function EmailForm({
       )}
 
       {noMatch && (
-        <div className="rounded-lg bg-[#F7F4EB] border border-[#E0DEE4] px-3 py-3 text-sm text-[#1B2E35]/80">
+        <div
+          className="rounded-lg border px-3 py-3 text-sm"
+          style={{
+            backgroundColor: `${theme.accent}1f`,
+            borderColor: `${theme.accent}80`,
+            color: theme.ink,
+          }}
+        >
           <p>
             We don&apos;t see you in this brokerage&apos;s roster. If your office
             uses a secondary email for you, try that
@@ -216,7 +253,11 @@ export default function EmailForm({
               <>
                 {' '}
                 at{' '}
-                <a className="text-[#6C4AB6] underline" href={`mailto:${noMatch.email}`}>
+                <a
+                  className="underline"
+                  style={{ color: theme.primary }}
+                  href={`mailto:${noMatch.email}`}
+                >
                   {noMatch.email}
                 </a>
               </>
@@ -230,7 +271,12 @@ export default function EmailForm({
       <button
         type="submit"
         disabled={submitting}
-        className="w-full rounded-lg bg-[#6C4AB6] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#5a3d9c] disabled:opacity-50"
+        onMouseEnter={() => setButtonHovered(true)}
+        onMouseLeave={() => setButtonHovered(false)}
+        className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-colors disabled:opacity-50"
+        style={{
+          backgroundColor: buttonHovered ? theme.primaryHover : theme.primary,
+        }}
       >
         {submitting ? 'Checking…' : 'Continue'}
       </button>
