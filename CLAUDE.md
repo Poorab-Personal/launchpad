@@ -100,7 +100,7 @@ src/
     auth/                     -- Magic-link auth + view-as switcher for /workspace
   app/
     r/[token]/page.tsx        -- Customer portal (server component; portal_token lookup)
-    b/[slug]/                 -- B2B brokerage landing page
+    [slug]/                   -- B2B brokerage landing page (bare top-level slug, e.g. /ipre)
     workspace/                -- Internal team UI (Designer / CSM / Account Creator / Admin)
     admin/                    -- Lightweight admin pages (customer list, add)
     api/
