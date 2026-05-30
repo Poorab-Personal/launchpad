@@ -77,11 +77,18 @@ export default async function BrokerageTestLandingPage(
       asc(schema.brokerageRoster.firstName),
     );
 
+  const seenEmails = new Set<string>();
   const agents: AgentOption[] = rosterRows.flatMap((r) => {
     // Lookup email is the option value — prefer public, else private. Skip
     // agents with neither (can't be looked up).
     const value = (r.publicEmail ?? r.privateEmail ?? '').trim();
     if (!value) return [];
+
+    // Dedup by lookup email: distinct roster rows can share one email, and the
+    // lookup resolves the same agent either way, so collapse to one option.
+    const dedupKey = value.toLowerCase();
+    if (seenEmails.has(dedupKey)) return [];
+    seenEmails.add(dedupKey);
 
     const fullName = [r.firstName, r.lastName]
       .filter((p) => p && p.trim())
@@ -91,6 +98,12 @@ export default async function BrokerageTestLandingPage(
 
     return [{ value, label }];
   });
+
+  // Sort by the displayed label (first name first) so the dropdown reads
+  // alphabetically — the SQL order is by last name, which looks unsorted here.
+  agents.sort((a, b) =>
+    a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+  );
 
   const banner = (
     <div

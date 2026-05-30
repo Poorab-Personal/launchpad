@@ -19,6 +19,12 @@ import { tempPasswordFromName } from '@/lib/temp-password';
 import CopyableField from './CopyableField';
 import { groupDrafts, formatGroupStamp } from './draft-groups';
 
+const REVIEW_SOURCE_LABELS: Record<string, string> = {
+  google: 'Google',
+  zillow: 'Zillow',
+  testimonial_tree: 'Testimonial Tree',
+};
+
 /**
  * Internal upload tasks — designer adds work-in-progress to Design Drafts.
  * Uses the inline ProofTaskAction (multi-file picker, marks task complete on submit).
@@ -556,7 +562,6 @@ export default async function CustomerDetailPage({
               <CopyableField label="Platform Email" value={customer.platformEmail} />
               <CopyableField label="Other Emails" value={customer.otherEmails} />
               <CopyableField label="License Number" value={customer.licenseNumber} />
-              <CopyableField label="GMB Name" value={customer.gmbName} />
               <CopyableField label="MLS IDs" value={customer.mlsIds} />
             </SubSection>
 
@@ -565,10 +570,21 @@ export default async function CustomerDetailPage({
             </SubSection>
 
             <SubSection title="Content Direction">
-              <CopyableField label="Service Areas" value={customer.serviceAreas} />
-              <CopyableField label="Local Content Areas" value={customer.localContentAreas} />
+              <CopyableField label="Monthly Market Reports" value={customer.serviceAreas} />
+              <CopyableField label="Neighborhood News" value={customer.localContentAreas} />
               <CopyableField label="Topics" value={customer.topics} />
               <CopyableField label="Hashtags" value={customer.hashtags} />
+            </SubSection>
+
+            <SubSection title="Review Sources">
+              <CopyableField
+                label="Sources"
+                value={customer.reviewSources
+                  .map((s) => REVIEW_SOURCE_LABELS[s] ?? s)
+                  .join(', ')}
+              />
+              <CopyableField label="Google Business Name" value={customer.gmbName} />
+              <CopyableField label="Zillow" value={customer.zillowProfile} />
             </SubSection>
 
             {customer.specialInstructions && (

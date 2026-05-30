@@ -11,8 +11,18 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
+import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
 
 const REVIEW_BRAND_KIT_TASK = 'Review & Approve Your Brand Kit';
+
+// Commitment-moment trigger per workflow: when this task completes for a
+// self-serve customer, create the HubSpot Pre-Onboarding ticket. The post-
+// schedule chain at line 259 then pushes it to "Onboarding Scheduled" when the
+// customer books. D2C-Standard is intentionally absent (admin path creates the
+// ticket; self-serve D2C does not exist). Keyes/BW are out of scope for now.
+const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
+  'B2B-IPRE': 'Capture Payment Method',
+};
 
 const NEXT_STAGE_BY_PRODUCT: Record<'Core' | 'Voice' | 'Avatar', { stageField: 'currentStage' | 'voiceStage' | 'avatarStage'; workflowKeyForCustomer: (custType: 'D2C' | 'B2B', channel: string) => string }> = {
   Core: {
@@ -343,6 +353,32 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
       if (t.taskName === REVIEW_BRAND_KIT_TASK) {
         void triggerCustomerEmail('design-ready', customerId);
       }
+    }
+  }
+
+  // ── HS ticket creation on the commitment-moment task ────────────────
+  // B2B self-serve flows don't create their HubSpot ticket at landing —
+  // they create it when the customer commits (Capture Payment for IPRE).
+  // Idempotent via intake-handler's hubspotTicketId-already-set short-circuit.
+  // Awaited (best-effort; matches admin path — voiding risks dropped promises
+  // per the 2026-05-14 incident). Best-effort: failures are logged, never thrown.
+  const cust = await db.query.customers.findFirst({
+    where: eq(schema.customers.id, customerId),
+    columns: { workflowKey: true },
+  });
+  const triggerTaskName = cust ? INTAKE_PUSH_TRIGGER_TASK[cust.workflowKey] : undefined;
+  if (triggerTaskName && completedTask.taskName === triggerTaskName) {
+    try {
+      const result = await pushCustomerIntakeToHubSpot(customerId);
+      if (result.kind === 'error') {
+        console.error('[Auto 2] HS intake push error:', result.error);
+      } else if (result.kind === 'skipped') {
+        console.log('[Auto 2] HS intake push skipped:', result.reason);
+      } else {
+        console.log('[Auto 2] HS intake push: pushed', { ticketId: result.ticketId });
+      }
+    } catch (err) {
+      console.error('[Auto 2] HS intake push threw (non-blocking):', err);
     }
   }
 }

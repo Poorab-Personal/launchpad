@@ -30,12 +30,14 @@
 import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
-// TODO(user): fill these in before running.
-const IPRE_SUPPORT_CONTACT_NAME = 'TBD_IPRE_SUPPORT_NAME';
-const IPRE_SUPPORT_CONTACT_EMAIL = 'TBD_IPRE_SUPPORT_EMAIL';
-const IPRE_SUPPORT_CONTACT_PHONE = 'TBD_IPRE_SUPPORT_PHONE';
-const IPRE_MASTER_LOGO_URL = 'TBD_IPRE_MASTER_LOGO_URL';
-const IPRE_DEFAULT_CALENDLY_URL = 'TBD_IPRE_CALENDLY_URL';
+// Filled 2026-05-26 from product owner. Support name/phone not provided → null.
+const IPRE_SUPPORT_CONTACT_NAME: string | null = null;
+const IPRE_SUPPORT_CONTACT_EMAIL: string | null = 'support@rejig.ai';
+const IPRE_SUPPORT_CONTACT_PHONE: string | null = null;
+const IPRE_MASTER_LOGO_URL: string | null =
+  'https://z0rxtnzxdkzzt5wn.public.blob.vercel-storage.com/brokerage-logos/ipre-jade.svg';
+const IPRE_DEFAULT_CALENDLY_URL: string | null =
+  'https://meetings-na2.hubspot.com/mario-giron/onboarding-meeting-link';
 
 const SOURCE_WORKFLOW_KEY = 'B2B-Keyes';
 const TARGET_WORKFLOW_KEY = 'B2B-IPRE';

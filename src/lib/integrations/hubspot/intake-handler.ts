@@ -48,6 +48,7 @@ import {
 const CHANNEL_CODE_TO_HUBSPOT_ENUM: Record<string, string> = {
   Keyes: 'b2b_keyes',
   BW: 'b2b_bw',
+  IPRE: 'b2b_ipre',
   Standard: 'd2c',
 };
 
@@ -81,15 +82,16 @@ export async function pushCustomerIntakeToHubSpot(customerId: string): Promise<I
     };
   }
 
-  // B2B-only: resolve brokerage Company. D2C skips this entirely.
+  // B2B-only: resolve brokerage Company + (optional) master Deal. D2C skips.
   let companyId: string | undefined;
+  let dealId: string | undefined;
   if (customer.type === 'B2B') {
     if (!customer.brokerageId) {
       return { kind: 'error', error: 'B2B customer has no brokerageId — cannot resolve target Company' };
     }
     const brokerage = await db.query.brokerages.findFirst({
       where: eq(schema.brokerages.id, customer.brokerageId),
-      columns: { id: true, name: true, hubspotCompanyId: true },
+      columns: { id: true, name: true, hubspotCompanyId: true, hubspotDealId: true },
     });
     if (!brokerage) return { kind: 'error', error: `Brokerage ${customer.brokerageId} not found` };
     if (!brokerage.hubspotCompanyId) {
@@ -99,6 +101,9 @@ export async function pushCustomerIntakeToHubSpot(customerId: string): Promise<I
       };
     }
     companyId = brokerage.hubspotCompanyId;
+    // Optional: associate to the brokerage's master Deal when set, so all agent
+    // tickets roll up under it. Brokerages without a Deal still get Company-only.
+    dealId = brokerage.hubspotDealId ?? undefined;
   }
 
   // Payment mode (drives HS Workflow A's trial-activation branch)
@@ -164,8 +169,8 @@ export async function pushCustomerIntakeToHubSpot(customerId: string): Promise<I
       stageLabel: 'Pre-Onboarding',
       contactId,
       companyId,                                // B2B only; undefined for D2C
-                                                // NO dealId — both paths skip Deal association
-                                                // (closedwon-handler associates to Deal separately)
+      dealId,                                   // B2B only when brokerages.hubspotDealId set
+                                                // (closedwon-handler still associates D2C to its closed-won Deal separately)
     });
     ticketId = created.ticketId;
   } catch (err) {

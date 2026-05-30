@@ -17,6 +17,12 @@ import { deleteCustomerAction, updateBillingRelationshipAction } from './actions
 import { requireSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
 import DeleteCustomerButton from './delete-customer-button';
 
+const REVIEW_SOURCE_LABELS: Record<string, string> = {
+  google: 'Google',
+  zillow: 'Zillow',
+  testimonial_tree: 'Testimonial Tree',
+};
+
 const CHANGE_SOURCE_BADGE: Record<string, string> = {
   hubspot_workflow: 'bg-[#6C4AB6]/10 text-[#6C4AB6]',
   hubspot_csm_ui:   'bg-[#05C68E]/10 text-[#05C68E]',
@@ -418,9 +424,21 @@ export default async function CustomerDetailPage({
           <Field label="Business Name" value={customer.businessName} />
           <Field label="Website" value={customer.website} />
           <Field label="Business Address" value={customer.businessAddress} />
-          <Field label="Service Areas" value={customer.serviceAreas} />
+          <Field label="Monthly Market Reports" value={customer.serviceAreas} />
           <Field label="Bio" value={customer.bio} />
           <Field label="License Number" value={customer.licenseNumber} />
+        </Section>
+      )}
+
+      {/* Review Sources */}
+      {(customer.reviewSources.length > 0 || customer.gmbName || customer.zillowProfile) && (
+        <Section title="Review Sources">
+          <Field
+            label="Sources"
+            value={customer.reviewSources.map((s) => REVIEW_SOURCE_LABELS[s] ?? s).join(', ')}
+          />
+          <Field label="Google Business Name" value={customer.gmbName} />
+          <Field label="Zillow" value={customer.zillowProfile} />
         </Section>
       )}
 

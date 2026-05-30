@@ -72,6 +72,8 @@ export interface Customer {
   gmbName: string;
   mlsIds: string;
   specialInstructions: string;
+  reviewSources: string[];
+  zillowProfile: string;
 
   // Assets
   agentPhoto: AirtableAttachment[];

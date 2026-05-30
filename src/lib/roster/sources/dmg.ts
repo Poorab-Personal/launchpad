@@ -155,7 +155,10 @@ function formatMlsIds(
   lookup: Map<string, string>,
 ): string | null {
   if (!Array.isArray(mlsIds) || mlsIds.length === 0) return null;
-  const lines: string[] = [];
+  // Group unique ids per MLS name. DMG often repeats the same id (once per
+  // office membership) and can split one MLS across multiple entries — dedup
+  // within AND across entries so the agent sees "Beaches MLS: 12345" once.
+  const bySource = new Map<string, Set<string>>();
   for (const entry of mlsIds) {
     if (!entry || typeof entry !== 'object') continue;
     const sourceId = String((entry as { MlsSourceId?: unknown }).MlsSourceId ?? '');
@@ -163,9 +166,38 @@ function formatMlsIds(
     const ids = idStr.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
     if (ids.length === 0) continue;
     const name = lookup.get(sourceId) ?? `MLS#${sourceId}`;
-    lines.push(`${name}: ${ids.join(', ')}`);
+    if (!bySource.has(name)) bySource.set(name, new Set());
+    const set = bySource.get(name)!;
+    for (const id of ids) set.add(id);
   }
-  return lines.length > 0 ? lines.join('\n') : null;
+  if (bySource.size === 0) return null;
+  return [...bySource.entries()]
+    .map(([name, ids]) => `${name}: ${[...ids].join(', ')}`)
+    .join('\n');
+}
+
+/**
+ * Scrub a string for safe Postgres insertion: drop NULL bytes (text/jsonb
+ * reject U+0000) and normalize invalid UTF-8 / lone surrogates to U+FFFD via a
+ * Buffer round-trip (the pg wire encoder rejects them with error 22021). DMG
+ * bios are HTML and occasionally carry bytes that aren't valid UTF-8.
+ */
+function scrubString(s: string): string {
+  return Buffer.from(s, 'utf8').toString('utf8').replace(new RegExp(String.fromCharCode(0), 'g'), '');
+}
+
+/** Recursively scrub every string in a value (objects / arrays / strings). */
+function deepScrub<T>(value: T): T {
+  if (typeof value === 'string') return scrubString(value) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => deepScrub(v)) as unknown as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = deepScrub(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
 }
 
 function normalizeUser(
@@ -190,7 +222,10 @@ function normalizeUser(
   // is locked: "MLS Name: id, id\n..." (see memory/mls_ids_display_format.md).
   const mlsIds = formatMlsIds(user.MlsIds, mlsSourceMap);
 
-  return {
+  // deepScrub: DMG payloads occasionally carry invalid UTF-8 / NULL bytes
+  // (esp. in HTML Bio) that Postgres rejects on insert (error 22021). Scrub
+  // every string — promoted columns AND the raw sourceData JSONB.
+  return deepScrub({
     sourceUserId: String(user.UserId),
     accountType,
     status: user.Status ?? null,
@@ -219,7 +254,7 @@ function normalizeUser(
       mlsIdsRaw: Array.isArray(user.MlsIds) ? user.MlsIds : null,
     },
     sourceSchemaVersion: DMG_SOURCE_SCHEMA_VERSION,
-  };
+  });
 }
 
 function buildOfficeMap(offices: DmgOffice[]): Map<string, DmgOffice> {

@@ -16,7 +16,7 @@
  * Replaces the two earlier cards (EngagementCard for Contact + BiTicketCard
  * for Ticket) — same data, one place, one experience.
  */
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   hubspot,
   Text,
@@ -30,7 +30,7 @@ import {
   Statistics,
   StatisticsItem,
 } from '@hubspot/ui-extensions';
-import { useCrmProperties } from '@hubspot/ui-extensions/crm';
+import { useCrmProperties, useAssociations } from '@hubspot/ui-extensions/crm';
 
 const CONTACT_PROPS = [
   'rejig_engagement_profile',
@@ -181,54 +181,20 @@ function RejigCustomerCard({ context }) {
   const propsToRead = isContactView ? CONTACT_PROPS : TICKET_PROPS;
   const { properties: currentProps, isLoading: currentLoading } = useCrmProperties(propsToRead);
 
-  const [otherProps, setOtherProps] = useState(null);
-  const [otherLoading, setOtherLoading] = useState(true);
+  // Fetch the OTHER object's props via the association hook. The hook
+  // resolves the association + reads properties in one shot; works in
+  // both directions because it always operates relative to the current
+  // record (set by hubspot.extend's context).
+  const otherType = isContactView ? 'tickets' : 'contacts';
+  const otherPropsToFetch = isContactView ? TICKET_PROPS : CONTACT_PROPS;
+  const { results: assocResults, isLoading: assocLoading } = useAssociations({
+    toObjectType: otherType,
+    properties: otherPropsToFetch,
+    pageLength: 5,
+  });
+  const otherProps = assocResults?.[0]?.properties ?? {};
 
-  useEffect(() => {
-    if (!objectId) return;
-    let cancelled = false;
-
-    async function fetchOtherSide() {
-      try {
-        const fromType = isContactView ? 'contacts' : 'tickets';
-        const toType = isContactView ? 'tickets' : 'contacts';
-        const assocRes = await hubspot.fetch(
-          `https://api.hubapi.com/crm/v4/objects/${fromType}/${objectId}/associations/${toType}?limit=10`,
-          { method: 'GET' },
-        );
-        if (!assocRes.ok) {
-          if (!cancelled) { setOtherProps({}); setOtherLoading(false); }
-          return;
-        }
-        const assocJson = await assocRes.json();
-        const otherId = assocJson?.results?.[0]?.toObjectId;
-        if (!otherId) {
-          if (!cancelled) { setOtherProps({}); setOtherLoading(false); }
-          return;
-        }
-        const otherPropsToFetch = isContactView ? TICKET_PROPS : CONTACT_PROPS;
-        const propsRes = await hubspot.fetch(
-          `https://api.hubapi.com/crm/v3/objects/${toType}/${otherId}?properties=${otherPropsToFetch.join(',')}`,
-          { method: 'GET' },
-        );
-        if (!propsRes.ok) {
-          if (!cancelled) { setOtherProps({}); setOtherLoading(false); }
-          return;
-        }
-        const propsJson = await propsRes.json();
-        if (!cancelled) {
-          setOtherProps(propsJson.properties || {});
-          setOtherLoading(false);
-        }
-      } catch (err) {
-        if (!cancelled) { setOtherProps({}); setOtherLoading(false); }
-      }
-    }
-    fetchOtherSide();
-    return () => { cancelled = true; };
-  }, [objectId, isContactView]);
-
-  if (currentLoading || otherLoading) {
+  if (currentLoading || assocLoading) {
     return <LoadingSpinner label="Loading Rejig dashboard…" />;
   }
 
@@ -438,7 +404,9 @@ function RejigCustomerCard({ context }) {
         ) : null}
 
         <Text variant="microcopy">
-          Rejig data as of {formatFreshness(signalsObservedAt)}
+          {daysUntilExpiry != null && daysUntilExpiry < 0
+            ? 'Rejig data not updating — plan expired (see Stripe for current status)'
+            : `Rejig data as of ${formatFreshness(signalsObservedAt)}`}
         </Text>
       </Flex>
     </Tile>

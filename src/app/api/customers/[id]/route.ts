@@ -21,6 +21,8 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'gmbName',
   'mlsIds',
   'specialInstructions',
+  'reviewSources',
+  'zillowProfile',
   'hubspotDealId',
   'stripePaymentId',
   'addOnStripePaymentId',
@@ -69,9 +71,20 @@ export async function PATCH(
     return Response.json({ error: 'Request body must contain fields to update' }, { status: 400 });
   }
 
+  const VALID_REVIEW_SOURCES = new Set(['google', 'zillow', 'testimonial_tree']);
   const fields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body)) {
-    if (ALLOWED.has(key)) fields[key] = value;
+    if (!ALLOWED.has(key)) continue;
+    if (key === 'reviewSources') {
+      // Coerce to the known closed set; drop non-array input entirely.
+      if (Array.isArray(value)) {
+        fields.reviewSources = [
+          ...new Set(value.filter((v) => typeof v === 'string' && VALID_REVIEW_SOURCES.has(v))),
+        ];
+      }
+      continue;
+    }
+    fields[key] = value;
   }
 
   if (Object.keys(fields).length === 0) {

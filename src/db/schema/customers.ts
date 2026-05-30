@@ -69,6 +69,11 @@ export const customers = pgTable(
     gmbName: text('gmb_name'),
     mlsIds: text('mls_ids'),
     specialInstructions: text('special_instructions'),
+    // Review sources the agent collects reviews on (Rejig auto-pulls these).
+    // text[] (matches `environment`); Google rides on gmb_name, Zillow on
+    // zillow_profile, Testimonial Tree needs only array membership.
+    reviewSources: text('review_sources').array(),
+    zillowProfile: text('zillow_profile'),
 
     // Assets — JSONB arrays preserving Airtable attachment metadata
     // shape: [{ url, filename, size, contentType }, ...]

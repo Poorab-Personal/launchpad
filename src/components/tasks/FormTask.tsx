@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import type { Task, Customer } from '@/types';
+import type { Task, Customer, AirtableAttachment } from '@/types';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -15,6 +15,7 @@ interface FormData {
   licenseNumber: string;
   mlsIds: string;
   gmbName: string;
+  zillowProfile: string;
 
   // Step 2 — You & Your Brand
   bio: string;
@@ -31,10 +32,16 @@ interface FormData {
   platformEmail: string;
 }
 
+// A file slot is either an asset already on the customer row (imported to Blob
+// at B2B create, persisted) or a newly-picked browser File (not yet uploaded).
+type ExistingAsset = { kind: 'existing'; url: string; filename: string };
+type PickedFile = { kind: 'file'; file: File };
+type FileSlot = ExistingAsset | PickedFile;
+
 interface FileState {
-  agentPhoto: File[];
-  businessLogo: File[];
-  otherAssets: File[];
+  agentPhoto: FileSlot[];
+  businessLogo: FileSlot[];
+  otherAssets: FileSlot[];
 }
 
 interface StepDef {
@@ -64,6 +71,12 @@ const REQUIRED_FILES: Record<number, (keyof FileState)[]> = {
 const MAX_AREAS = 5;
 const ACCEPTED_FORMATS = '.png,.svg,.jpg,.jpeg,.pdf';
 
+const REVIEW_SOURCE_LABELS: Record<string, string> = {
+  google: 'Google',
+  zillow: 'Zillow',
+  testimonial_tree: 'Testimonial Tree',
+};
+
 function emptyForm(): FormData {
   return {
     businessName: '',
@@ -73,6 +86,7 @@ function emptyForm(): FormData {
     licenseNumber: '',
     mlsIds: '',
     gmbName: '',
+    zillowProfile: '',
     bio: '',
     specialInstructions: '',
     otherEmails: '',
@@ -126,6 +140,7 @@ const TEST_STUB: FormData = {
   licenseNumber: 'TEST-12345',
   mlsIds: 'Test MLS — TM00001',
   gmbName: 'Test Realty Group',
+  zillowProfile: 'https://www.zillow.com/profile/testrealty',
   bio: 'Miami-based agent specializing in residential real estate. 10+ years experience helping clients find homes across South Florida. Bilingual English/Spanish.',
   specialInstructions: 'Brand should feel modern and approachable. Use coastal-inspired tones.',
   otherEmails: '',
@@ -145,14 +160,32 @@ function prefillFromCustomer(customer: Customer): FormData {
     licenseNumber: customer.licenseNumber || '',
     mlsIds: customer.mlsIds || '',
     gmbName: customer.gmbName || '',
+    zillowProfile: customer.zillowProfile || '',
     bio: customer.bio || '',
     specialInstructions: customer.specialInstructions || '',
     otherEmails: customer.otherEmails || '',
     serviceAreas: customer.serviceAreas || '',
-    localContentAreas: customer.localContentAreas || '',
+    // Default Neighborhood News to their service areas (often the same) so it's
+    // not empty — independent from then on (no runtime mirroring).
+    localContentAreas: customer.localContentAreas || customer.serviceAreas || '',
     topics: customer.topics || '',
     hashtags: customer.hashtags || '',
     platformEmail: customer.platformEmail || '',
+  };
+}
+
+// Seed file slots from assets already on the customer row (B2B: agent photo +
+// brokerage logo imported at create). D2C customers have empty asset arrays, so
+// this returns empty slots and the required-file check stays in force for them.
+function prefillFilesFromCustomer(customer: Customer): FileState {
+  const toSlots = (assets: AirtableAttachment[] | undefined): FileSlot[] =>
+    (assets ?? [])
+      .filter((a) => a && a.url)
+      .map((a) => ({ kind: 'existing', url: a.url, filename: a.filename || 'asset' }));
+  return {
+    agentPhoto: toSlots(customer.agentPhoto),
+    businessLogo: toSlots(customer.businessLogo),
+    otherAssets: toSlots(customer.otherAssets),
   };
 }
 
@@ -213,43 +246,124 @@ function HelperText({ children }: { children: React.ReactNode }) {
   return <p className="mt-1 text-xs text-[#1B2E35]/50">{children}</p>;
 }
 
-function FilePreview({ file, onRemove }: { file: File; onRemove?: () => void }) {
-  const isImage = file.type.startsWith('image/');
+/**
+ * Amber "please review" wrapper for fields pre-filled from the brokerage roster
+ * that agents commonly skim past (website = broker site, photo, logo). Amber —
+ * not red — so it reads as a heads-up, not an error. Only render this around a
+ * field when it was actually broker-prefilled (so D2C, which enters from
+ * scratch, never sees it).
+ */
+function ReviewNudge({
+  note,
+  active = true,
+  children,
+}: {
+  note: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  if (!active) return <div>{children}</div>;
+  return (
+    <div className="rounded-lg border border-[#E0A93B]/60 bg-[#FBF3E2] px-4 py-3">
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[#9A6700]">
+        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5" />
+        </svg>
+        Please double-check
+      </span>
+      <div className="mt-2">{children}</div>
+      <p className="mt-2 text-xs font-medium text-[#9A6700]">{note}</p>
+    </div>
+  );
+}
+
+function FilePreview({
+  slot,
+  onRemove,
+  large,
+  onEnlarge,
+}: {
+  slot: FileSlot;
+  onRemove?: () => void;
+  // Larger preview tile for single-file fields (photo/logo) so they don't read
+  // as low quality in a tiny grid cell.
+  large?: boolean;
+  // Open the full-size image in a lightbox.
+  onEnlarge?: (url: string, name: string) => void;
+}) {
+  const name = slot.kind === 'file' ? slot.file.name : slot.filename;
+  // Existing (imported) assets are images in practice — the importer only
+  // accepts image/* content types — so render them via <img> unless the name
+  // is clearly a PDF. Picked files use their MIME type.
+  const isImage =
+    slot.kind === 'existing'
+      ? !/\.pdf$/i.test(slot.filename)
+      : slot.file.type.startsWith('image/');
   // Object URLs MUST be created/revoked in an effect (not useMemo) — strict
   // mode runs effects twice in dev and would revoke the URL while the memo
   // still references it, leaving a broken <img> src. The setState below
   // triggers one extra render, but that's correct and necessary here.
-  const [url, setUrl] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(
+    slot.kind === 'existing' ? slot.url : null,
+  );
+  // Captured from the loaded image — a concrete "this is high-res" signal.
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   useEffect(() => {
-    if (!isImage) {
+    if (slot.kind === 'existing') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUrl(slot.url);
+      return;
+    }
+    if (!slot.file.type.startsWith('image/')) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setUrl(null);
       return;
     }
-    const u = URL.createObjectURL(file);
+    const u = URL.createObjectURL(slot.file);
     setUrl(u);
     return () => URL.revokeObjectURL(u);
-  }, [file, isImage]);
+  }, [slot]);
+
+  const canEnlarge = Boolean(isImage && url && onEnlarge);
 
   return (
-    <div className="relative rounded-lg border border-[#E0DEE4] overflow-hidden bg-white">
-      <div className="aspect-square bg-[#F7F4EB] flex items-center justify-center p-1">
+    <div
+      className={`relative rounded-lg border border-[#E0DEE4] overflow-hidden bg-white ${large ? 'w-44' : ''}`}
+    >
+      <div
+        className={`${large ? 'h-44' : 'aspect-square'} bg-[#F7F4EB] flex items-center justify-center p-1`}
+      >
         {isImage && url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={url}
-            alt={file.name}
-            className="max-w-full max-h-full object-contain"
+            alt={name}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth) {
+                setDims({ w: img.naturalWidth, h: img.naturalHeight });
+              }
+            }}
+            onClick={canEnlarge ? () => onEnlarge!(url!, name) : undefined}
+            className={`max-w-full max-h-full object-contain ${canEnlarge ? 'cursor-zoom-in' : ''}`}
           />
         ) : (
           <div className="text-xs font-medium text-[#1B2E35]/50 px-1 text-center">
-            {file.name.split('.').pop()?.toUpperCase() ?? 'FILE'}
+            {name.split('.').pop()?.toUpperCase() ?? 'FILE'}
           </div>
         )}
       </div>
-      <p className="text-[10px] text-[#1B2E35]/70 px-1.5 py-1 truncate" title={file.name}>
-        {file.name}
-      </p>
+      <div className="px-1.5 py-1">
+        <p className="text-[10px] text-[#1B2E35]/70 truncate" title={name}>
+          {name}
+        </p>
+        {dims && (
+          <p className="text-[10px] text-[#1B2E35]/45">
+            {dims.w}×{dims.h}
+            {canEnlarge ? ' · click to enlarge' : ''}
+          </p>
+        )}
+      </div>
       {onRemove && (
         <button
           type="button"
@@ -257,7 +371,7 @@ function FilePreview({ file, onRemove }: { file: File; onRemove?: () => void }) 
             e.stopPropagation();
             onRemove();
           }}
-          aria-label={`Remove ${file.name}`}
+          aria-label={`Remove ${name}`}
           className="absolute top-1 right-1 rounded-full bg-white/95 px-1.5 text-xs leading-5 text-[#1B2E35]/70 hover:text-[#EC531A] shadow-sm"
         >
           ×
@@ -274,20 +388,29 @@ function DropZone({
   files,
   onFiles,
   onRemove,
+  allowRemoveExisting,
   error,
 }: {
   label: string;
   required?: boolean;
   multiple?: boolean;
-  files: File[];
+  files: FileSlot[];
   onFiles: (files: FileList) => void;
   onRemove?: (index: number) => void;
+  // When false (default), the remove "×" is hidden on existing (already-imported)
+  // assets — a persisted delete isn't supported, so required single-file fields
+  // offer replace-only. Picked (not-yet-uploaded) files are always removable.
+  allowRemoveExisting?: boolean;
   error?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [lightbox, setLightbox] = useState<{ url: string; name: string } | null>(null);
 
   const fileList = files;
+  // Single-file field that already has an asset → lead with the preview and
+  // demote upload to a small "Replace" control instead of a big empty dropzone.
+  const filledSingle = !multiple && fileList.length > 0;
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
@@ -298,46 +421,117 @@ function DropZone({
   return (
     <div>
       <FieldLabel label={label} required={required} />
-      <div
-        className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${
-          error
-            ? 'border-[#EC531A] bg-[#EC531A]/5'
-            : dragOver
-              ? 'border-[#6C4AB6] bg-[#6C4AB6]/5'
-              : 'border-[#E0DEE4] hover:border-[#6C4AB6]/50'
-        }`}
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-      >
-        <svg className="mb-2 h-8 w-8 text-[#E0DEE4]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-        </svg>
-        <p className="text-sm text-[#1B2E35]/60">
-          Drag & drop or <span className="font-medium text-[#1B2E35] underline">browse</span>
-        </p>
-        <input
-          ref={inputRef}
-          type="file"
-          className="hidden"
-          accept={ACCEPTED_FORMATS}
-          multiple={multiple}
-          onChange={(e) => { if (e.target.files?.length) onFiles(e.target.files); }}
-        />
-      </div>
-      {error && (
-        <p className="mt-1 text-xs text-[#EC531A]">Please upload a file to continue.</p>
+      {/* Hidden input shared by the big dropzone AND the compact Replace button. */}
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        accept={ACCEPTED_FORMATS}
+        multiple={multiple}
+        onChange={(e) => { if (e.target.files?.length) onFiles(e.target.files); }}
+      />
+
+      {filledSingle ? (
+        // Already have this asset: preview is the hero, upload shrinks to Replace.
+        <div className="flex items-start gap-4">
+          {(() => {
+            const f = fileList[0];
+            const removable =
+              onRemove && (f.kind === 'file' || allowRemoveExisting);
+            return (
+              <FilePreview
+                slot={f}
+                large
+                onEnlarge={(url, name) => setLightbox({ url, name })}
+                onRemove={removable ? () => onRemove(0) : undefined}
+              />
+            );
+          })()}
+          <div className="flex flex-col items-start gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-full border border-[#E0DEE4] px-5 py-2.5 text-sm font-medium text-[#1B2E35] transition-colors hover:border-[#6C4AB6]/50 hover:text-[#6C4AB6]"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+              </svg>
+              Replace
+            </button>
+            <span className="text-xs text-[#1B2E35]/45">PNG, SVG, JPG · up to 3.5MB</span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div
+            className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${
+              error
+                ? 'border-[#EC531A] bg-[#EC531A]/5'
+                : dragOver
+                  ? 'border-[#6C4AB6] bg-[#6C4AB6]/5'
+                  : 'border-[#E0DEE4] hover:border-[#6C4AB6]/50'
+            }`}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+          >
+            <svg className="mb-2 h-8 w-8 text-[#E0DEE4]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+            </svg>
+            <p className="text-sm text-[#1B2E35]/60">
+              Drag & drop or <span className="font-medium text-[#1B2E35] underline">browse</span>
+            </p>
+          </div>
+          {error && (
+            <p className="mt-1 text-xs text-[#EC531A]">Please upload a file to continue.</p>
+          )}
+          {fileList.length > 0 && (
+            // Multi-file (Other Assets) — compact grid of previews below the dropzone.
+            <div className="mt-3 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+              {fileList.map((f, i) => {
+                const removable =
+                  onRemove && (f.kind === 'file' || allowRemoveExisting);
+                return (
+                  <FilePreview
+                    key={f.kind === 'existing' ? `e-${f.url}` : `f-${f.file.name}-${i}`}
+                    slot={f}
+                    onEnlarge={(url, name) => setLightbox({ url, name })}
+                    onRemove={removable ? () => onRemove(i) : undefined}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
-      {fileList.length > 0 && (
-        <div className="mt-3 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
-          {fileList.map((f, i) => (
-            <FilePreview
-              key={`${f.name}-${i}`}
-              file={f}
-              onRemove={onRemove ? () => onRemove(i) : undefined}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setLightbox(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Preview: ${lightbox.name}`}
+        >
+          <div className="relative w-[90vw] max-w-2xl" onClick={(e) => e.stopPropagation()}>
+            {/* w-full forces small vector logos to scale UP to fill the box;
+                max-h caps tall photos and object-contain letterboxes them. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox.url}
+              alt={lightbox.name}
+              className="max-h-[85vh] w-full rounded-lg bg-white object-contain p-3"
             />
-          ))}
+            <button
+              type="button"
+              onClick={() => setLightbox(null)}
+              aria-label="Close preview"
+              className="absolute -top-3 -right-3 rounded-full bg-white px-2 leading-7 text-lg text-[#1B2E35] shadow-md hover:text-[#EC531A]"
+            >
+              ×
+            </button>
+            <p className="mt-2 text-center text-xs text-white/80">{lightbox.name}</p>
+          </div>
         </div>
       )}
     </div>
@@ -363,32 +557,30 @@ function AreasTextarea({
 }) {
   const parsed = parseAreas(value);
   const count = parsed.length;
-  const overLimit = count > MAX_AREAS;
-
-  let counterClass = 'text-[#1B2E35]/50';
-  if (overLimit) counterClass = 'text-[#EC531A] font-medium';
-  else if (count > 0) counterClass = 'text-[#05C68E]';
+  // Soft suggestion — never blocks. Rejig caps at MAX_AREAS for best results,
+  // but agents can list more and trim later.
+  const overSuggested = count > MAX_AREAS;
 
   return (
     <div>
       <FieldLabel label={label} required={required} />
+      {/* Helper above the field (like the Review Sources intro) so the guidance
+          is read before typing; the count nudge stays below as feedback. */}
+      <p className="mb-1.5 text-xs text-[#1B2E35]/55">{helper}</p>
       <textarea
         rows={5}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={`block w-full rounded-lg border bg-white px-3 py-2 text-sm text-[#1B2E35] placeholder:text-[#1B2E35]/40 focus:outline-none focus:ring-2 focus:ring-[#6C4AB6]/20 focus:border-[#6C4AB6] resize-y ${
-          overLimit || invalid ? 'border-[#EC531A]' : 'border-[#E0DEE4]'
+          invalid ? 'border-[#EC531A]' : 'border-[#E0DEE4]'
         }`}
       />
-      <div className="mt-1 flex items-start justify-between gap-3">
-        <p className="text-xs text-[#1B2E35]/50 flex-1">{helper}</p>
-        <p className={`shrink-0 text-xs ${counterClass}`}>
-          {overLimit
-            ? `${count} of ${MAX_AREAS} — please trim ${count - MAX_AREAS} to continue`
-            : `${count} of ${MAX_AREAS}`}
+      {overSuggested && (
+        <p className="mt-1 text-xs font-medium text-[#9A6700]">
+          You&apos;ve added {count} — we suggest up to {MAX_AREAS} for the best results.
         </p>
-      </div>
+      )}
     </div>
   );
 }
@@ -452,14 +644,44 @@ export default function FormTask({
   const [form, setForm] = useState<FormData>(
     customer ? prefillFromCustomer(customer) : emptyForm,
   );
-  const [files, setFiles] = useState<FileState>({
-    agentPhoto: [],
-    businessLogo: [],
-    otherAssets: [],
-  });
+  // Hydrate file slots from existing customer assets once. Kept in a ref too so
+  // removing a replacement on a single-file field can revert to the original
+  // imported asset (or empty for D2C, which has none).
+  const initialFilesRef = useRef<FileState | null>(null);
+  if (initialFilesRef.current === null) {
+    initialFilesRef.current = customer
+      ? prefillFilesFromCustomer(customer)
+      : { agentPhoto: [], businessLogo: [], otherAssets: [] };
+  }
+  const [files, setFiles] = useState<FileState>(initialFilesRef.current);
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // "Please double-check" nudges show ONLY for B2B (the only path where we
+  // pre-fill from the brokerage roster) AND only when the field actually carries
+  // a broker-provided value. D2C enters from scratch → never B2B-typed here →
+  // never sees any nudge. (Gating on type, not just value, matters for website:
+  // an admin-created D2C customer could have a website but no brokerage.)
+  const isB2B = customer?.type === 'B2B';
+  const websitePrefilled = isB2B && Boolean(customer?.website);
+  const photoPrefilled = isB2B && (customer?.agentPhoto?.length ?? 0) > 0;
+  const brokerLogoPresent = isB2B && (customer?.businessLogo?.length ?? 0) > 0;
+
+  // Review-source multi-select — its own state (not part of `form`). Seed from
+  // the saved set, and auto-include a platform when its identifier is already on
+  // file so a prefilled value surfaces under its checkbox.
+  const [reviewSources, setReviewSources] = useState<string[]>(() => {
+    const seed = new Set(customer?.reviewSources ?? []);
+    if (customer?.gmbName) seed.add('google');
+    if (customer?.zillowProfile) seed.add('zillow');
+    return [...seed];
+  });
+  const toggleSource = useCallback((src: string) => {
+    setReviewSources((prev) =>
+      prev.includes(src) ? prev.filter((s) => s !== src) : [...prev, src],
+    );
+  }, []);
 
   // Dev-only: ?test=fill on the portal URL exposes an "Auto-fill" button
   // that populates all form fields with stub data. Real customers won't
@@ -475,10 +697,11 @@ export default function FormTask({
     });
     setTouched(new Set(Object.keys(TEST_STUB)));
     setFiles({
-      agentPhoto: [makeStubImage('Agent')],
-      businessLogo: [makeStubImage('Logo')],
+      agentPhoto: [{ kind: 'file', file: makeStubImage('Agent') }],
+      businessLogo: [{ kind: 'file', file: makeStubImage('Logo') }],
       otherAssets: [],
     });
+    setReviewSources(['google', 'zillow', 'testimonial_tree']);
     // Jump to last step so the user can submit immediately
     setStep(STEPS.length - 1);
   }, [customer]);
@@ -640,30 +863,11 @@ export default function FormTask({
       if (requiredFiles.some(isFileMissing)) return;
     }
 
-    // Max-5 area textareas: block if over limit on Content step
-    if (step === 2) {
-      if (parseAreas(form.serviceAreas).length > MAX_AREAS) return;
-      if (parseAreas(form.localContentAreas).length > MAX_AREAS) return;
-    }
+    // Area counts are a soft suggestion now — no hard block, and Neighborhood
+    // News is its own list (defaulted at prefill), not auto-mirrored from
+    // Market Reports — so the two are clearly meant to differ.
 
     const nextStep = Math.min(step + 1, STEPS.length - 1);
-
-    // Pre-fill Local Content Areas from Service Areas when entering Step 3
-    // for the first time (user hasn't touched it, and it's empty).
-    // Normalize through parseAreas so comma- AND newline-separated input
-    // both pre-fill correctly as one-per-line.
-    if (
-      nextStep === 2 &&
-      !touched.has('localContentAreas') &&
-      !form.localContentAreas.trim() &&
-      form.serviceAreas.trim()
-    ) {
-      const parsed = parseAreas(form.serviceAreas).slice(0, MAX_AREAS);
-      if (parsed.length > 0) {
-        setForm((prev) => ({ ...prev, localContentAreas: parsed.join('\n') }));
-      }
-    }
-
     setStep(nextStep);
   }
 
@@ -680,12 +884,8 @@ export default function FormTask({
     // Re-check ALL required files
     const allRequiredFiles = Object.values(REQUIRED_FILES).flat();
     const missingFiles = allRequiredFiles.filter(isFileMissing);
-    // Re-check area limits
-    const overAreas =
-      parseAreas(form.serviceAreas).length > MAX_AREAS ||
-      parseAreas(form.localContentAreas).length > MAX_AREAS;
 
-    if (missingText.length || missingFiles.length || overAreas) {
+    if (missingText.length || missingFiles.length) {
       setTouched((prev) => {
         const next = new Set(prev);
         for (const f of missingText) next.add(f);
@@ -715,25 +915,39 @@ export default function FormTask({
         }
       };
 
-      for (const photo of files.agentPhoto) {
-        await uploadFile(photo, 'Agent Photo');
+      // Only upload newly-picked files. Existing (already-imported) assets are
+      // already in Blob + on the customer row, so skip them.
+      for (const slot of files.agentPhoto) {
+        if (slot.kind === 'file') await uploadFile(slot.file, 'Agent Photo');
       }
-      for (const logo of files.businessLogo) {
-        await uploadFile(logo, 'Business Logo');
+      for (const slot of files.businessLogo) {
+        if (slot.kind === 'file') await uploadFile(slot.file, 'Business Logo');
       }
-      for (const asset of files.otherAssets) {
-        await uploadFile(asset, 'Other Assets');
+      for (const slot of files.otherAssets) {
+        if (slot.kind === 'file') await uploadFile(slot.file, 'Other Assets');
       }
 
       // Build payload — normalize area textareas to comma-separated, trim everything
       const payload: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(form)) {
+        // gmbName / zillowProfile are review-source identifiers — handled below,
+        // gated on the source being selected (not by the generic non-empty rule).
+        if (key === 'gmbName' || key === 'zillowProfile') continue;
         if (key === 'serviceAreas' || key === 'localContentAreas') {
           const parsed = parseAreas(value);
           if (parsed.length) payload[key] = parsed.join(', ');
         } else if (value.trim()) {
           payload[key] = value.trim();
         }
+      }
+
+      // Review sources (own state) + identifiers, sent only when selected.
+      payload.reviewSources = reviewSources;
+      if (reviewSources.includes('google') && form.gmbName.trim()) {
+        payload.gmbName = form.gmbName.trim();
+      }
+      if (reviewSources.includes('zillow') && form.zillowProfile.trim()) {
+        payload.zillowProfile = form.zillowProfile.trim();
       }
 
       const custRes = await fetch(`/api/customers/${customerId}`, {
@@ -803,7 +1017,10 @@ export default function FormTask({
                 onChange={(e) => update('businessAddress', e.target.value)}
               />
             </div>
-            <div>
+            <ReviewNudge
+              active={websitePrefilled}
+              note="This is your brokerage's website. If you have your own site, replace it here."
+            >
               <FieldLabel label="Website" required />
               <input
                 type="url"
@@ -812,7 +1029,7 @@ export default function FormTask({
                 value={form.website}
                 onChange={(e) => update('website', e.target.value)}
               />
-            </div>
+            </ReviewNudge>
             <div>
               <FieldLabel label="License Number" />
               <input
@@ -834,16 +1051,6 @@ export default function FormTask({
               />
               <HelperText>Enter both the MLS name and your ID. If you have more than one, list each.</HelperText>
             </div>
-            <div>
-              <FieldLabel label="Google My Business Name" />
-              <input
-                type="text"
-                className={inputClass('gmbName')}
-                placeholder="Name as it appears on Google"
-                value={form.gmbName}
-                onChange={(e) => update('gmbName', e.target.value)}
-              />
-            </div>
           </div>
         );
 
@@ -861,67 +1068,75 @@ export default function FormTask({
                 onChange={(e) => update('bio', e.target.value)}
               />
             </div>
-            <DropZone
-              label="Agent Photo"
-              required
-              files={files.agentPhoto}
-              onFiles={(fl) => {
-                // Single-file field — latest pick replaces. Customer who clicks
-                // browse twice (e.g. to re-confirm) ends up with one file, not two.
-                const arr = Array.from(fl);
-                setFiles((prev) => ({
-                  ...prev,
-                  agentPhoto: arr.slice(-1),
-                }));
-                setTouched((prev) => new Set(prev).add('file:agentPhoto'));
-              }}
-              onRemove={() =>
-                setFiles((prev) => ({ ...prev, agentPhoto: [] }))
-              }
-              error={touched.has('file:agentPhoto') && files.agentPhoto.length === 0}
-            />
+            <ReviewNudge
+              active={photoPrefilled}
+              note="This is the photo we have on file. Upload a different one if you'd prefer."
+            >
+              <DropZone
+                label="Agent Photo"
+                required
+                files={files.agentPhoto}
+                onFiles={(fl) => {
+                  // Single-file field — latest pick replaces (an existing imported
+                  // asset too). Browsing twice ends up with one file, not two.
+                  const arr = Array.from(fl).map((file) => ({ kind: 'file' as const, file }));
+                  setFiles((prev) => ({ ...prev, agentPhoto: arr.slice(-1) }));
+                  setTouched((prev) => new Set(prev).add('file:agentPhoto'));
+                }}
+                onRemove={() =>
+                  // Removing a replacement reverts to the original imported asset
+                  // (or empty for D2C, which had none → required re-applies).
+                  setFiles((prev) => ({ ...prev, agentPhoto: initialFilesRef.current!.agentPhoto }))
+                }
+                error={touched.has('file:agentPhoto') && files.agentPhoto.length === 0}
+              />
+            </ReviewNudge>
             <DropZone
               label="Business Logo"
               required
               files={files.businessLogo}
               onFiles={(fl) => {
                 // Single-file field — latest pick replaces.
-                const arr = Array.from(fl);
-                setFiles((prev) => ({
-                  ...prev,
-                  businessLogo: arr.slice(-1),
-                }));
+                const arr = Array.from(fl).map((file) => ({ kind: 'file' as const, file }));
+                setFiles((prev) => ({ ...prev, businessLogo: arr.slice(-1) }));
                 setTouched((prev) => new Set(prev).add('file:businessLogo'));
               }}
               onRemove={() =>
-                setFiles((prev) => ({ ...prev, businessLogo: [] }))
+                setFiles((prev) => ({ ...prev, businessLogo: initialFilesRef.current!.businessLogo }))
               }
               error={touched.has('file:businessLogo') && files.businessLogo.length === 0}
             />
-            <DropZone
-              label="Other Brand Assets"
-              multiple
-              files={files.otherAssets}
-              onFiles={(fl) =>
-                setFiles((prev) => {
-                  // Dedup by file identity (name+size+lastModified) so the
-                  // customer can't accidentally double-add the same file.
-                  const seen = new Set(
-                    prev.otherAssets.map((f) => `${f.name}::${f.size}::${f.lastModified}`),
-                  );
-                  const fresh = Array.from(fl).filter(
-                    (f) => !seen.has(`${f.name}::${f.size}::${f.lastModified}`),
-                  );
-                  return { ...prev, otherAssets: [...prev.otherAssets, ...fresh] };
-                })
-              }
-              onRemove={(i) =>
-                setFiles((prev) => ({
-                  ...prev,
-                  otherAssets: prev.otherAssets.filter((_, idx) => idx !== i),
-                }))
-              }
-            />
+            <ReviewNudge
+              active={brokerLogoPresent}
+              note="Have your own or a team logo to use alongside the brokerage logo above? Upload it here."
+            >
+              <DropZone
+                label="Other Brand Assets"
+                multiple
+                files={files.otherAssets}
+                onFiles={(fl) =>
+                  setFiles((prev) => {
+                    // Dedup picked files by identity (name+size+lastModified) so the
+                    // customer can't accidentally double-add the same file.
+                    const seen = new Set(
+                      prev.otherAssets
+                        .filter((s): s is PickedFile => s.kind === 'file')
+                        .map((s) => `${s.file.name}::${s.file.size}::${s.file.lastModified}`),
+                    );
+                    const fresh = Array.from(fl)
+                      .filter((f) => !seen.has(`${f.name}::${f.size}::${f.lastModified}`))
+                      .map((file) => ({ kind: 'file' as const, file }));
+                    return { ...prev, otherAssets: [...prev.otherAssets, ...fresh] };
+                  })
+                }
+                onRemove={(i) =>
+                  setFiles((prev) => ({
+                    ...prev,
+                    otherAssets: prev.otherAssets.filter((_, idx) => idx !== i),
+                  }))
+                }
+              />
+            </ReviewNudge>
             <p className="text-xs text-[#1B2E35]/40">
               Accepted formats: PNG, SVG, JPG, PDF
             </p>
@@ -935,17 +1150,22 @@ export default function FormTask({
                 onChange={(e) => update('specialInstructions', e.target.value)}
               />
             </div>
-            <div>
-              <FieldLabel label="Other Emails" />
-              <input
-                type="text"
-                className={inputClass('otherEmails')}
-                placeholder="comma-separated"
-                value={form.otherEmails}
-                onChange={(e) => update('otherEmails', e.target.value)}
-              />
-              <HelperText>Anyone else who should be CC&apos;d on design proofs.</HelperText>
-            </div>
+            {/* "CC'd on design proofs" only applies to D2C — B2B has no design
+                proof/approval workflow (design is team-created, never sent for
+                approval), so hide this field for B2B. */}
+            {!isB2B && (
+              <div>
+                <FieldLabel label="Other Emails" />
+                <input
+                  type="text"
+                  className={inputClass('otherEmails')}
+                  placeholder="comma-separated"
+                  value={form.otherEmails}
+                  onChange={(e) => update('otherEmails', e.target.value)}
+                />
+                <HelperText>Anyone else who should be CC&apos;d on design proofs.</HelperText>
+              </div>
+            )}
           </div>
         );
 
@@ -954,36 +1174,26 @@ export default function FormTask({
         return (
           <div className="space-y-5">
             <AreasTextarea
-              label="Service Areas"
+              label="Monthly Market Reports"
               required
               value={form.serviceAreas}
-              onChange={(v) => {
-                // Live-sync into Local Content Areas if user hasn't customized
-                // it yet. Stops as soon as they touch the Local Content field.
-                setForm((prev) => {
-                  const next: FormData = { ...prev, serviceAreas: v };
-                  if (!touched.has('localContentAreas')) {
-                    next.localContentAreas = parseAreas(v)
-                      .slice(0, MAX_AREAS)
-                      .join('\n');
-                  }
-                  return next;
-                });
-                setTouched((prev) => new Set(prev).add('serviceAreas'));
-              }}
+              onChange={(v) => update('serviceAreas', v)}
               placeholder={'One per line\ne.g.\nBrickell\nCoral Gables\nCoconut Grove'}
-              helper="Our AI creates monthly market reports for these areas. Max 5."
+              helper="Choose up to 5 counties, cities, or neighborhoods you'd like monthly AI market reports for. These can be smaller, specific neighborhoods."
               invalid={isInvalid('serviceAreas')}
             />
             <AreasTextarea
-              label="Local Content Areas"
+              label="Neighborhood News"
               value={form.localContentAreas}
               onChange={(v) => update('localContentAreas', v)}
-              placeholder={'One per line, max 5'}
-              helper="Where we'll source local stories and trends. Pre-filled from your service areas — edit if different. Max 5."
+              placeholder={'One per line\ne.g.\nMiami\nFort Lauderdale'}
+              helper="Choose up to 5 areas for AI to curate local news posts. Tip: broader, higher-population areas (cities or counties) give richer content."
             />
             <div>
               <FieldLabel label="Topics" required />
+              <p className="mb-1.5 text-xs text-[#1B2E35]/55">
+                Our AI curates and creates content for you based on these topics of interest — and we&apos;ll also draw topics from your bio.
+              </p>
               <textarea
                 className={textareaClass('topics')}
                 rows={3}
@@ -991,7 +1201,6 @@ export default function FormTask({
                 value={form.topics}
                 onChange={(e) => update('topics', e.target.value)}
               />
-              <HelperText>What kinds of posts should we create for you?</HelperText>
             </div>
             <div>
               <FieldLabel label="Hashtags" />
@@ -1002,6 +1211,64 @@ export default function FormTask({
                 value={form.hashtags}
                 onChange={(e) => update('hashtags', e.target.value)}
               />
+            </div>
+
+            <div className="border-t border-[#E0DEE4] pt-5">
+              <h3 className="text-sm font-semibold text-[#1B2E35]/87">Review Sources</h3>
+              <p className="mt-1 mb-1.5 text-xs text-[#1B2E35]/55">
+                Where do you collect client reviews? Rejig can automatically pull
+                these and turn new reviews into posts.
+              </p>
+              <div className="mt-3 space-y-2">
+                {[
+                  { id: 'google', label: 'Google' },
+                  { id: 'zillow', label: 'Zillow' },
+                  { id: 'testimonial_tree', label: 'Testimonial Tree' },
+                ].map((src) => (
+                  <label
+                    key={src.id}
+                    className="flex cursor-pointer items-center gap-2.5 text-sm text-[#1B2E35]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={reviewSources.includes(src.id)}
+                      onChange={() => toggleSource(src.id)}
+                      className="h-4 w-4 rounded border-[#E0DEE4] text-[#6C4AB6] focus:ring-[#6C4AB6]/30"
+                    />
+                    {src.label}
+                  </label>
+                ))}
+              </div>
+              {reviewSources.includes('google') && (
+                <div className="mt-4">
+                  <FieldLabel label="Google My Business Name" />
+                  <p className="mb-1.5 text-xs text-[#1B2E35]/55">
+                    The name as it appears on Google — we&apos;ll find your reviews from it.
+                  </p>
+                  <input
+                    type="text"
+                    className={inputClass('gmbName')}
+                    placeholder="Name as it appears on Google"
+                    value={form.gmbName}
+                    onChange={(e) => update('gmbName', e.target.value)}
+                  />
+                </div>
+              )}
+              {reviewSources.includes('zillow') && (
+                <div className="mt-4">
+                  <FieldLabel label="Zillow profile (URL or your name on Zillow)" />
+                  <p className="mb-1.5 text-xs text-[#1B2E35]/55">
+                    Optional — if you&apos;re not sure, leave it blank and we&apos;ll find it.
+                  </p>
+                  <input
+                    type="text"
+                    className={inputClass('zillowProfile')}
+                    placeholder="Paste your Zillow profile link, or your name on Zillow"
+                    value={form.zillowProfile}
+                    onChange={(e) => update('zillowProfile', e.target.value)}
+                  />
+                </div>
+              )}
             </div>
           </div>
         );
@@ -1044,7 +1311,6 @@ export default function FormTask({
                 { label: 'Website', value: form.website },
                 { label: 'License Number', value: form.licenseNumber },
                 { label: 'MLS Name & ID', value: form.mlsIds },
-                { label: 'Google My Business', value: form.gmbName },
               ]}
             />
             <ReviewSection
@@ -1054,7 +1320,8 @@ export default function FormTask({
               fields={[
                 { label: 'Bio', value: form.bio },
                 { label: 'Special Instructions', value: form.specialInstructions },
-                { label: 'Other Emails', value: form.otherEmails },
+                // Hidden for B2B (no design-proof workflow); empty → row hidden.
+                { label: 'Other Emails', value: isB2B ? '' : form.otherEmails },
               ]}
             />
             <div className="rounded-lg border border-[#E0DEE4] p-4">
@@ -1073,19 +1340,19 @@ export default function FormTask({
                   {files.agentPhoto.map((f, i) => (
                     <li key={`p-${i}`} className="flex items-center gap-2">
                       <CheckIcon className="h-3.5 w-3.5 text-[#05C68E] shrink-0" />
-                      Agent Photo: {f.name}
+                      Agent Photo: {f.kind === 'file' ? f.file.name : f.filename}
                     </li>
                   ))}
                   {files.businessLogo.map((f, i) => (
                     <li key={`l-${i}`} className="flex items-center gap-2">
                       <CheckIcon className="h-3.5 w-3.5 text-[#05C68E] shrink-0" />
-                      Business Logo: {f.name}
+                      Business Logo: {f.kind === 'file' ? f.file.name : f.filename}
                     </li>
                   ))}
                   {files.otherAssets.map((f, i) => (
                     <li key={`o-${i}`} className="flex items-center gap-2">
                       <CheckIcon className="h-3.5 w-3.5 text-[#05C68E] shrink-0" />
-                      {f.name}
+                      {f.kind === 'file' ? f.file.name : f.filename}
                     </li>
                   ))}
                 </ul>
@@ -1098,10 +1365,31 @@ export default function FormTask({
               stepIndex={2}
               onEdit={setStep}
               fields={[
-                { label: 'Service Areas', value: form.serviceAreas },
-                { label: 'Local Content Areas', value: form.localContentAreas },
+                { label: 'Monthly Market Reports', value: form.serviceAreas },
+                { label: 'Neighborhood News', value: form.localContentAreas },
                 { label: 'Topics', value: form.topics },
                 { label: 'Hashtags', value: form.hashtags },
+              ]}
+            />
+            <ReviewSection
+              title="Review Sources"
+              stepIndex={2}
+              onEdit={setStep}
+              fields={[
+                {
+                  label: 'Sources',
+                  value: reviewSources
+                    .map((s) => REVIEW_SOURCE_LABELS[s] ?? s)
+                    .join(', '),
+                },
+                {
+                  label: 'Google Business Name',
+                  value: reviewSources.includes('google') ? form.gmbName : '',
+                },
+                {
+                  label: 'Zillow',
+                  value: reviewSources.includes('zillow') ? form.zillowProfile : '',
+                },
               ]}
             />
             <ReviewSection

@@ -203,7 +203,7 @@ function PricingPage({
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
             </svg>
-            No charge today · {trialDays}-day free trial
+            No charge today · trial starts at your onboarding call
           </p>
         )}
       </header>
@@ -219,6 +219,8 @@ function PricingPage({
           />
         ))}
       </div>
+
+      <TrialCallout trialDays={trialDays} />
 
       {features.length > 0 && (
         <div className="rounded-xl border border-[#E0DEE4] bg-white p-6">
@@ -244,8 +246,6 @@ function PricingPage({
           </ul>
         </div>
       )}
-
-      <TrialCallout trialDays={trialDays} />
 
       <p className="text-center text-xs text-[#1B2E35]/50">
         Powered by Stripe. {brokerageName === 'Rejig.ai' ? 'Rejig.ai' : `${brokerageName} × Rejig.ai`}
@@ -290,13 +290,21 @@ function PlanCard({
         <p className="mt-1 text-sm text-[#1B2E35]/70">{plan.billingDetail}</p>
       )}
       {plan.footnote && (
-        <p className="mt-1 text-xs text-[#1B2E35]/50">{plan.footnote}</p>
+        <div className="mt-2">
+          <span className="inline-flex items-center rounded-full bg-[#05C68E]/12 px-2.5 py-0.5 text-xs font-semibold text-[#05C68E]">
+            {plan.footnote}
+          </span>
+        </div>
       )}
+      {/* Wrapper: mt-auto pushes the button to the bottom (CTAs align across
+          cards regardless of content), pt-6 guarantees breathing room above
+          the button even when both cards have similar content heights. */}
+      <div className="mt-auto pt-6">
       <button
         type="button"
         onClick={onPick}
         disabled={loading || disabled}
-        className={`mt-6 inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           isHighlighted
             ? 'bg-[#6C4AB6] text-white hover:bg-[#5A3DA5]'
             : 'bg-[#1B2E35] text-white hover:bg-[#1B2E35]/90'
@@ -311,15 +319,12 @@ function PlanCard({
           'Choose this plan'
         )}
       </button>
+      </div>
     </div>
   );
 }
 
 function TrialCallout({ trialDays }: { trialDays: number }) {
-  const message =
-    trialDays > 0
-      ? `Your ${trialDays}-day free trial starts the day of your onboarding call — you won't be charged until ${trialDays} days after that.`
-      : `Your subscription starts the day of your onboarding call. We're saving your card now so we can activate billing then.`;
   return (
     <div className="rounded-xl border border-[#EC531A]/20 bg-[#EC531A]/5 px-6 py-5">
       <div className="flex items-start gap-3">
@@ -331,15 +336,42 @@ function TrialCallout({ trialDays }: { trialDays: number }) {
           stroke="currentColor"
           aria-hidden="true"
         >
+          {/* lock-closed — reassurance, not the prior warning triangle */}
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
-            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+            d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 0h10.5a2.25 2.25 0 0 1 2.25 2.25v6.75a2.25 2.25 0 0 1-2.25 2.25H6.75a2.25 2.25 0 0 1-2.25-2.25v-6.75a2.25 2.25 0 0 1 2.25-2.25Z"
           />
         </svg>
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-[#1B2E35]">No charge today</p>
-          <p className="text-sm text-[#1B2E35]/80 leading-relaxed">{message}</p>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-[#1B2E35]">
+            No charge today — here&apos;s how it works
+          </p>
+          <ul className="space-y-1.5 text-sm leading-relaxed text-[#1B2E35]/80">
+            <li>
+              Your{' '}
+              <strong className="font-semibold text-[#1B2E35]">
+                {trialDays > 0
+                  ? `${trialDays}-day free trial begins the day of your onboarding call`
+                  : 'subscription begins the day of your onboarding call'}
+              </strong>{' '}
+              — not today.
+            </li>
+            <li>
+              We save your card now, but{' '}
+              <strong className="font-semibold text-[#1B2E35]">
+                {trialDays > 0
+                  ? 'you won’t be charged until the trial ends.'
+                  : 'you won’t be charged until then.'}
+              </strong>
+            </li>
+            <li>
+              Adding your card{' '}
+              <strong className="font-semibold text-[#1B2E35]">
+                kicks off your account setup.
+              </strong>
+            </li>
+          </ul>
         </div>
       </div>
     </div>
@@ -368,12 +400,21 @@ function CardEntryStage({
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <header className="space-y-1">
-        <h2 className="text-2xl font-semibold text-[#1B2E35]">Add your payment method</h2>
+        <h2 className="text-2xl font-semibold text-[#1B2E35]">Save your card to create your account</h2>
         <p className="text-sm text-[#1B2E35]/70">
-          We&apos;ll save your card securely with Stripe.{' '}
-          {trialDays > 0
-            ? `You won't be charged until ${trialDays} days after your onboarding call.`
-            : `You won't be charged until your onboarding call is complete.`}
+          We&apos;ll save it securely with Stripe —{' '}
+          <strong className="font-semibold text-[#1B2E35]">no charge today.</strong>{' '}
+          {trialDays > 0 ? (
+            <>
+              Your{' '}
+              <strong className="font-semibold text-[#1B2E35]">
+                {trialDays}-day free trial starts the day of your onboarding call,
+              </strong>{' '}
+              and you won&apos;t be charged until it ends.
+            </>
+          ) : (
+            `You won't be charged until your onboarding call is complete.`
+          )}
         </p>
       </header>
 
@@ -414,7 +455,7 @@ function DoneState({ planName, trialDays }: { planName: string; trialDays: numbe
     <div className="space-y-3">
       <div className="rounded-lg border border-[#05C68E]/30 bg-[#05C68E]/5 px-4 py-3 text-sm text-[#1B2E35]">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-[#05C68E]">✓ Payment method saved</span>
+          <span className="font-medium text-[#05C68E]">✓ You&apos;re in — we&apos;re creating your account</span>
         </div>
         {planName && (
           <div className="mt-1 text-[#1B2E35]/70">
@@ -423,8 +464,8 @@ function DoneState({ planName, trialDays }: { planName: string; trialDays: numbe
         )}
         <div className="mt-1 text-xs text-[#1B2E35]/60">
           {trialDays > 0
-            ? `Your ${trialDays}-day free trial starts after your onboarding call. You won't be charged during the trial.`
-            : `Your subscription starts after your onboarding call.`}
+            ? `Your ${trialDays}-day free trial starts the day of your onboarding call — you won't be charged before then. We've started getting your personalized AI ready.`
+            : `Your subscription starts the day of your onboarding call. We've started getting your personalized AI ready.`}
         </div>
       </div>
       <p className="text-xs text-[#1B2E35]/50">
@@ -512,9 +553,15 @@ function CardForm({
             Saving…
           </>
         ) : (
-          'Save payment method'
+          'Save card & create my account'
         )}
       </button>
+      <p className="flex items-center justify-center gap-1.5 text-xs text-[#1B2E35]/55">
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 0h10.5a2.25 2.25 0 0 1 2.25 2.25v6.75a2.25 2.25 0 0 1-2.25 2.25H6.75a2.25 2.25 0 0 1-2.25-2.25v-6.75a2.25 2.25 0 0 1 2.25-2.25Z" />
+        </svg>
+        Secure &amp; encrypted via Stripe. No charge today.
+      </p>
     </form>
   );
 }

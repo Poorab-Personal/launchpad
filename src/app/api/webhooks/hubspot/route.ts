@@ -1,10 +1,12 @@
 import crypto from 'crypto';
 import { NextRequest } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { customers } from '@/db/schema/customers';
 import { customerStateTransitions } from '@/db/schema/customerStateTransitions';
 import { hubspotInboundEvents } from '@/db/schema/hubspotInboundEvents';
+import { tasks } from '@/db/schema/tasks';
+import { updateTaskFields } from '@/lib/db';
 import { processDealClosedWon } from '@/lib/integrations/hubspot/closedwon-handler';
 import { getStageLabelById } from '@/lib/integrations/hubspot/client';
 import { createTrialSubscriptionForCustomer } from '@/lib/automations/handle-call-completed';
@@ -358,6 +360,46 @@ async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhoo
     console.error('[hubspot webhook] transition log failed', msg);
     await markProcessed(eventIdStr, 'error', `transition log failed: ${msg}`);
     return;
+  }
+
+  // ─── LP Schedule-task auto-complete (belt C) — on stage → Onboarding Scheduled ──
+  // The HS Workflow "CSM Meeting Onboarding Created via LaunchPad" moves the
+  // ticket to Onboarding Scheduled when the customer books a meeting via the
+  // embedded HS Meetings scheduler. Mirror that into LP by completing the
+  // Active Schedule task — routes through updateTaskFields → handleTaskCompleted
+  // so dependents activate and the LP customer state advances. Idempotent:
+  // handleTaskCompleted early-returns if the task isn't Active.
+  if (stageLabel === 'Onboarding Scheduled') {
+    const scheduleTask = await db.query.tasks.findFirst({
+      where: and(
+        eq(tasks.customerId, customer.id),
+        eq(tasks.status, 'Active'),
+        inArray(tasks.taskName, [
+          'Schedule Your Onboarding Call',
+          'Reschedule Your Onboarding Call',
+        ]),
+      ),
+    });
+    if (scheduleTask) {
+      try {
+        await updateTaskFields(scheduleTask.id, {
+          status: 'Completed',
+          completedAt: new Date(),
+        });
+        console.log('[hubspot webhook] auto-completed LP Schedule task', {
+          taskId: scheduleTask.id,
+          taskName: scheduleTask.taskName,
+          customerId: customer.id,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[hubspot webhook] auto-complete Schedule task failed (non-blocking)', msg);
+      }
+    } else {
+      console.log('[hubspot webhook] no Active Schedule task to auto-complete', {
+        customerId: customer.id,
+      });
+    }
   }
 
   // ─── B2B trial activation (belt A) — only on stage → Active ────────────

@@ -31,6 +31,9 @@ export const brokerages = pgTable(
     // Populated manually per brokerage (one-time). NULL means LP can't push
     // a Ticket for this brokerage's agents until the ID is set.
     hubspotCompanyId: text('hubspot_company_id'),
+    // Master Deal for the brokerage — one Deal, many agent tickets associate to
+    // it. Optional; B2B intake passes this to createCustomerJourneyTicket when set.
+    hubspotDealId: text('hubspot_deal_id'),
     active: boolean('active').notNull().default(true),
     includesVoice: boolean('includes_voice').notNull().default(false),
     includesAvatar: boolean('includes_avatar').notNull().default(false),

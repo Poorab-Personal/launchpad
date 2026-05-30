@@ -102,7 +102,17 @@ export default function EmbedTask({
     task.taskName.toLowerCase().includes('watch');
 
   const isCalendly = task.embedUrl?.includes('calendly.com') ?? false;
-  const isHubSpotMeetings = task.embedUrl?.includes('meetings.hubspot.com') ?? false;
+  // Hostname-aware so regional subdomains match (meetings.hubspot.com AND
+  // meetings-na2.hubspot.com / meetings-eu1.hubspot.com / etc).
+  const isHubSpotMeetings = (() => {
+    if (!task.embedUrl) return false;
+    try {
+      const host = new URL(task.embedUrl).hostname;
+      return /^meetings(-[a-z0-9]+)?\.hubspot\.com$/.test(host);
+    } catch {
+      return false;
+    }
+  })();
   const isLoom = task.embedUrl?.includes('loom.com') ?? false;
   const isBookingEmbed = isCalendly || isHubSpotMeetings;
 
