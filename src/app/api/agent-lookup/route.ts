@@ -307,24 +307,6 @@ async function handleTestMode(
     phone: brokerage.supportContactPhone ?? null,
   };
 
-  // Recovery / re-entry: if this tester already has a test customer on this
-  // receive email, return its portal so they can pick the session back up.
-  // Edge case: the same receive email used across multiple agents returns the
-  // FIRST test customer found — acceptable for testing.
-  const existingTest = await db.query.customers.findFirst({
-    where: and(
-      eq(schema.customers.contactEmail, receiveEmail),
-      sql`${schema.customers.environment} @> '{test}'`,
-    ),
-    columns: { accessToken: true },
-  });
-  if (existingTest) {
-    return Response.json({
-      match: true,
-      redirect: `/r/${existingTest.accessToken}`,
-    });
-  }
-
   // Cache-only roster match on the AGENT email (the data source).
   const hit = await lookupByEmail(brokerage.id, agentEmail);
   if (!hit) {
@@ -338,6 +320,26 @@ async function handleTestMode(
   const sourceData = (rosterRow.sourceData ?? {}) as RosterSourceData;
   const channelCode = channelCodeForWorkflow(brokerage.defaultWorkflowKey);
   const realName = rosterRow.displayName ?? agentEmail;
+  const targetName = `LP TEST — ${realName}`;
+
+  // Recovery / re-entry: per-(receiveEmail, agent). Picking a DIFFERENT agent
+  // with the same receive email now creates a new test customer instead of
+  // resuming the prior one. Match is on the deterministic test-customer name
+  // (LP TEST — {displayName}) which is constructed identically below.
+  const existingTest = await db.query.customers.findFirst({
+    where: and(
+      eq(schema.customers.contactEmail, receiveEmail),
+      eq(schema.customers.name, targetName),
+      sql`${schema.customers.environment} @> '{test}'`,
+    ),
+    columns: { accessToken: true },
+  });
+  if (existingTest) {
+    return Response.json({
+      match: true,
+      redirect: `/r/${existingTest.accessToken}`,
+    });
+  }
 
   // Create the test customer: real roster data, BUT the tester's receive email
   // as contact + platform email, an LP TEST name prefix, and environment=test.
