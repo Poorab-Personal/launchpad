@@ -15,6 +15,7 @@ import {
 } from '@/lib/db';
 import { processDealClosedWon } from '@/lib/integrations/hubspot/closedwon-handler';
 import {
+  ensureMeetingTicketAssociation,
   getOnboardingMeetingForTicket,
   getStageLabelById,
 } from '@/lib/integrations/hubspot/client';
@@ -388,6 +389,18 @@ async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhoo
     try {
       const meeting = await getOnboardingMeetingForTicket(ticketId);
       if (meeting) {
+        // Associate Meeting ↔ Ticket in HubSpot. HS Meetings only auto-
+        // associates meetings to Contacts; our HS Workflow can't create
+        // this association (enrolled on Contact, "from" is locked). Without
+        // this, CSMs viewing the ticket in HS don't see the onboarding
+        // meeting on the ticket card. Idempotent (409 = already linked).
+        try {
+          await ensureMeetingTicketAssociation(meeting.meetingId, ticketId);
+        } catch (assocErr) {
+          const m = assocErr instanceof Error ? assocErr.message : String(assocErr);
+          console.warn('[hubspot webhook] meeting↔ticket association failed (non-blocking)', m);
+        }
+
         const existing = await getCallByHubspotMeetingId(meeting.meetingId);
         if (existing) {
           await updateCall(existing.id, {

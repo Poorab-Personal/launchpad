@@ -310,6 +310,38 @@ export async function ensureContactCompanyAssociation(
 }
 
 /**
+ * Associate a HubSpot Meeting to a Ticket so CSMs see the meeting on the
+ * ticket card in HS. HubSpot's HS Meetings booking flow auto-associates
+ * meetings to Contacts only; the workflow that moves the ticket stage
+ * can't create this association (it's enrolled on Contact, "from" is
+ * locked). So our webhook handler does it via API after capturing the
+ * meeting datetime.
+ *
+ * Idempotent: 409 = already associated → swallow. Other errors bubble.
+ * Uses Meeting → Ticket type id 222 (HS-defined).
+ */
+export async function ensureMeetingTicketAssociation(
+  meetingId: string,
+  ticketId: string,
+): Promise<void> {
+  const hs = client();
+  try {
+    await hs.crm.associations.v4.basicApi.create(
+      'meetings',
+      meetingId,
+      'tickets',
+      ticketId,
+      [{ associationCategory: HS_DEFINED, associationTypeId: 222 }],
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('already exists') && !msg.includes('409')) {
+      throw err;
+    }
+  }
+}
+
+/**
  * Move an existing Customer Journey ticket to a new pipeline stage.
  * Used by Auto 2's "Launched" terminal branch to hand off post-launch
  * state management to HubSpot (LaunchPad pushes the ticket from
