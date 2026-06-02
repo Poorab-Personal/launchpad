@@ -466,7 +466,7 @@ function DropZone({
           <div
             className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${
               error
-                ? 'border-[#EC531A] bg-[#EC531A]/5'
+                ? 'border-[#EC531A] bg-[#EC531A]/5 lp-invalid'
                 : dragOver
                   ? 'border-[#6C4AB6] bg-[#6C4AB6]/5'
                   : 'border-[#E0DEE4] hover:border-[#6C4AB6]/50'
@@ -825,8 +825,14 @@ export default function FormTask({
   }
 
   function inputClass(field: keyof FormData) {
+    // The "lp-invalid" sentinel class is a no-op visually (no styles attached) —
+    // it exists purely so handleNext/handleSubmit can DOM-query the first
+    // invalid field and scroll it into view. Without that, agents could click
+    // Next and see no visible change because the missing field is above the
+    // fold (e.g., Bio at the top while they're scrolled to "Special
+    // Instructions" at the bottom of Step 2).
     return `block w-full rounded-lg border bg-white px-3 py-2 text-sm text-[#1B2E35] placeholder:text-[#1B2E35]/40 focus:outline-none focus:ring-2 focus:ring-[#6C4AB6]/20 focus:border-[#6C4AB6] ${
-      isInvalid(field) ? 'border-[#EC531A]' : 'border-[#E0DEE4]'
+      isInvalid(field) ? 'border-[#EC531A] lp-invalid' : 'border-[#E0DEE4]'
     }`;
   }
 
@@ -840,6 +846,22 @@ export default function FormTask({
 
   // ── Navigation ──
 
+  // Scroll the first invalid field into view + focus it. Called on validation
+  // failure so the agent isn't left clicking Next/Submit with no visible
+  // feedback when the missing field is above (or below) the fold. Waits one
+  // animation frame so the lp-invalid class is in the DOM after setTouched.
+  function scrollToFirstInvalid() {
+    if (typeof window === 'undefined') return;
+    requestAnimationFrame(() => {
+      const first = document.querySelector<HTMLElement>('.lp-invalid');
+      if (!first) return;
+      first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (first.matches('input, textarea, select')) {
+        first.focus({ preventScroll: true });
+      }
+    });
+  }
+
   function handleNext() {
     // Required text fields for current step
     const required = REQUIRED_FIELDS[step];
@@ -849,7 +871,10 @@ export default function FormTask({
         for (const f of required) next.add(f);
         return next;
       });
-      if (required.some((f) => !form[f].trim())) return;
+      if (required.some((f) => !form[f].trim())) {
+        scrollToFirstInvalid();
+        return;
+      }
     }
 
     // Required files for current step
@@ -860,7 +885,10 @@ export default function FormTask({
         for (const f of requiredFiles) next.add(`file:${f}`);
         return next;
       });
-      if (requiredFiles.some(isFileMissing)) return;
+      if (requiredFiles.some(isFileMissing)) {
+        scrollToFirstInvalid();
+        return;
+      }
     }
 
     // Area counts are a soft suggestion now — no hard block, and Neighborhood
@@ -893,6 +921,7 @@ export default function FormTask({
         return next;
       });
       setError('Please fix the highlighted fields before submitting.');
+      scrollToFirstInvalid();
       return;
     }
 
