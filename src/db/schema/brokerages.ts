@@ -34,6 +34,12 @@ export const brokerages = pgTable(
     // Master Deal for the brokerage — one Deal, many agent tickets associate to
     // it. Optional; B2B intake passes this to createCustomerJourneyTicket when set.
     hubspotDealId: text('hubspot_deal_id'),
+    // Short display name for agent-facing copy ("IPRE", "Keyes", "B&W"). The
+    // `name` field is the full legal name; `short_name` is what shows up in
+    // sentences like "Your {shortName} account" or "Custom {shortName}-branded
+    // posts". Tokens `{Name}` and `{shortName}` are substituted in
+    // pricing_tagline + workflow_templates.plan_features at API render time.
+    shortName: text('short_name'),
     active: boolean('active').notNull().default(true),
     includesVoice: boolean('includes_voice').notNull().default(false),
     includesAvatar: boolean('includes_avatar').notNull().default(false),

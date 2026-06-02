@@ -120,6 +120,13 @@
       "when": 1780100000000,
       "tag": "0016_brokerage_hubspot_deal_id",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1780200000000,
+      "tag": "0017_brokerage_short_name",
+      "breakpoints": true
     }
   ]
 }

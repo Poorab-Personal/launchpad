@@ -308,6 +308,8 @@ function mapDbBrokerage(row: BrokerageRow): Brokerage {
     includesVoice: row.includesVoice,
     includesAvatar: row.includesAvatar,
     pricingTagline: row.pricingTagline ?? '',
+    masterLogoUrl: row.masterLogoUrl ?? '',
+    shortName: row.shortName ?? '',
     createdAt: iso(row.createdAt),
   };
 }

@@ -238,6 +238,10 @@ export interface Brokerage {
   includesAvatar: boolean;
   /** Pricing-page subhead. Supports `{Name}` substitution. Empty = caller falls back to default. */
   pricingTagline: string;
+  /** Brokerage master logo (Vercel Blob). Empty = no co-brand available. */
+  masterLogoUrl: string;
+  /** Short display name ("IPRE", "Keyes", "B&W") for agent-facing copy. Empty = caller falls back to `name`. */
+  shortName: string;
   createdAt: string;
 }
 

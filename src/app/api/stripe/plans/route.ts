@@ -46,17 +46,44 @@ export async function GET(request: NextRequest) {
   const features = parseFeatures(templates[0]?.planFeatures ?? '');
 
   const brokerageName = brokerage?.name ?? 'Rejig.ai';
+  // Short name for agent-facing copy. Falls back to brokerageName when not set
+  // — so D2C / unconfigured brokerages still get a sensible value in templated
+  // strings rather than an empty token.
+  const brokerageShortName =
+    brokerage?.shortName && brokerage.shortName.length > 0
+      ? brokerage.shortName
+      : brokerageName;
+
+  // Templating: substitute {Name} and {shortName} tokens in EVERY brokerage-
+  // facing string we ship — tagline, features, plan_name, billing_detail,
+  // footnote, highlight. One row in workflow_templates / stripe_plans now
+  // works for every brokerage; new brokerages need only their `brokerages`
+  // record (with shortName + name) — the per-brokerage payment page renders
+  // correctly without copy duplication.
+  const subst = (s: string) =>
+    s.replace(/\{shortName\}/g, brokerageShortName).replace(/\{Name\}/g, brokerageName);
+  const substMaybe = (s: string | null | undefined) => (s ? subst(s) : s);
   const taglineTemplate =
     brokerage?.pricingTagline ??
     'Your AI social media assistant, exclusively for {Name} agents.';
-  const tagline = taglineTemplate.replace(/\{Name\}/g, brokerageName);
+  const tagline = subst(taglineTemplate);
+  const substitutedFeatures = features.map(subst);
+  const serializedPlans = plans.map(serializePlan).map((p) => ({
+    ...p,
+    planName: subst(p.planName),
+    billingDetail: substMaybe(p.billingDetail),
+    footnote: substMaybe(p.footnote),
+    highlight: substMaybe(p.highlight),
+  }));
 
   return Response.json({
     brokerageName,
+    brokerageShortName,
+    brokerageLogoUrl: brokerage?.masterLogoUrl || null,
     tagline,
-    features,
+    features: substitutedFeatures,
     trialDays,
-    plans: plans.map(serializePlan),
+    plans: serializedPlans,
   });
 }
 
