@@ -1203,7 +1203,10 @@ export default function FormTask({
               />
             </div>
             <div>
-              <FieldLabel label="Hashtags" />
+              <FieldLabel label="Preferred Hashtags, if any" />
+              <p className="mt-1 mb-1.5 text-xs text-[#1B2E35]/55">
+                Our AI picks hashtags tailored to each post — list any you want included every time (e.g., your brand, neighborhood, team).
+              </p>
               <input
                 type="text"
                 className={inputClass('hashtags')}
@@ -1368,7 +1371,7 @@ export default function FormTask({
                 { label: 'Monthly Market Reports', value: form.serviceAreas },
                 { label: 'Neighborhood News', value: form.localContentAreas },
                 { label: 'Topics', value: form.topics },
-                { label: 'Hashtags', value: form.hashtags },
+                { label: 'Preferred Hashtags', value: form.hashtags },
               ]}
             />
             <ReviewSection
