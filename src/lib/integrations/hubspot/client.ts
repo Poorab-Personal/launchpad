@@ -453,6 +453,12 @@ export async function getOnboardingMeetingForTicket(
   }
 
   // ── Strategy 2: ticket → contact → meetings (fallback) ─────────────────
+  // The /test contact (poorab@rejig.ai) accumulates dozens of historical
+  // meetings, and HS doesn't return contact→meeting associations in any
+  // guaranteed order. So we MUST inspect every meeting and filter strictly
+  // by recency relative to the ticket's createdate. Falling back to
+  // "latest future on this contact" picks the wrong meeting (we hit this
+  // 2026-06-02 with Amanda Pike — picked an unrelated May 30 meeting).
   const contactIds = ticket.associations?.contacts?.results?.map((r) => r.id) ?? [];
   if (contactIds.length === 0) return null;
   const contactId = contactIds[0];
@@ -466,9 +472,13 @@ export async function getOnboardingMeetingForTicket(
   const meetingIds = contact.associations?.meetings?.results?.map((r) => r.id) ?? [];
   if (meetingIds.length === 0) return null;
 
-  const recentIds = meetingIds.slice(0, 15);
+  // Fetch ALL meetings on this contact — no slice, because HS doesn't
+  // guarantee chronological order in the associations list. Cap at 100
+  // as a safety bound; real prod contacts have 0-2 meetings, /test contacts
+  // 20+ historical, never approaching 100.
+  const allIds = meetingIds.slice(0, 100);
   const contactMeetings = await Promise.all(
-    recentIds.map((id) =>
+    allIds.map((id) =>
       hs.crm.objects.basicApi.getById('meetings', id, [
         'hs_meeting_start_time',
         'hs_meeting_title',
@@ -477,23 +487,52 @@ export async function getOnboardingMeetingForTicket(
     ),
   );
 
-  // Filter to meetings that look booking-like for THIS ticket: created at or
-  // after the ticket's createdate (minus 60s slack), future start time.
+  // Strict recency filter: meeting created within ±10 minutes of the ticket
+  // existing, AND future start time. The ±10min window catches both
+  // ticket-before-meeting (typical: customer captures payment, ticket
+  // created, then schedules call within minutes) and edge cases where the
+  // booking flow might race. No "latest future overall" fallback — that
+  // picks stale meetings off shared contacts. Better to return null and
+  // let the webhook log "no associated meeting found" than to lie.
   const ticketCreatedMs = ticket.properties.createdate
     ? Date.parse(ticket.properties.createdate)
     : 0;
   const now = Date.now();
-  const recentFuture = contactMeetings.filter((m) => {
+  const TEN_MIN_MS = 10 * 60_000;
+  const candidates = contactMeetings.filter((m) => {
     const created = m.properties.hs_createdate ? Date.parse(m.properties.hs_createdate) : 0;
     const start = m.properties.hs_meeting_start_time
       ? Date.parse(m.properties.hs_meeting_start_time)
       : 0;
-    return created >= ticketCreatedMs - 60_000 && start > now;
+    return (
+      Math.abs(created - ticketCreatedMs) <= TEN_MIN_MS &&
+      start > now
+    );
   });
-  if (recentFuture.length > 0) return pickLatestFuture(recentFuture);
+  if (candidates.length === 0) return null;
 
-  // Last-ditch: any future meeting on this contact, latest by start_time.
-  return pickLatestFuture(contactMeetings);
+  // Among candidates (typically exactly one), pick the most-recently-created.
+  return pickLatestByCreated(candidates);
+}
+
+function pickLatestByCreated(
+  meetings: Array<{ id: string; properties: Record<string, string | null | undefined> }>,
+): { meetingId: string; startTime: string; title: string | null } | null {
+  const scored = meetings.map((m) => ({
+    id: m.id,
+    start: m.properties.hs_meeting_start_time
+      ? Date.parse(m.properties.hs_meeting_start_time)
+      : 0,
+    created: m.properties.hs_createdate ? Date.parse(m.properties.hs_createdate) : 0,
+    title: m.properties.hs_meeting_title ?? null,
+  }));
+  const pick = scored.sort((a, b) => b.created - a.created)[0];
+  if (!pick || !pick.start) return null;
+  return {
+    meetingId: pick.id,
+    startTime: new Date(pick.start).toISOString(),
+    title: pick.title,
+  };
 }
 
 function pickLatestFuture(
