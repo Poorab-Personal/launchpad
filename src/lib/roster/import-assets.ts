@@ -1,11 +1,14 @@
 /**
- * Async asset import — download a B2B agent's roster photo + the brokerage's
- * master logo to Vercel Blob and write the attachment metadata onto the
- * freshly-created customer row.
+ * Synchronous asset import — download a B2B agent's roster photo + the
+ * brokerage's master logo to Vercel Blob and write the attachment metadata
+ * onto the freshly-created customer row.
  *
- * Fire-and-forget from POST /api/agent-lookup AFTER the redirect response is
- * returned, so the verification round-trip stays fast (see
- * docs/integrations/dmg-roster-plan.md §4.2 + the agent_photo_strategy note).
+ * Called with `await` from POST /api/agent-lookup BEFORE the redirect is
+ * returned, so assets are guaranteed persisted by the time the agent loads
+ * /r/[token]. Was previously fire-and-forget; changed 2026-06-02 because the
+ * portal form captured an empty file state at first render and never
+ * re-hydrated when the background import finished — see
+ * docs/integrations/dmg-roster-plan.md §4.2 + agent_photo_strategy note.
  *
  * Source URLs (DMG photo CDN, brokerage master logo) are not durable, so we
  * copy them to Blob and serve the stable Blob URL in the portal. Result shape
@@ -28,6 +31,25 @@ interface BlobAttachment {
 
 const ALLOWED_IMAGE_PREFIX = 'image/';
 const MAX_ASSET_SIZE = 10_000_000; // 10MB — generous ceiling for a headshot/logo
+
+function extensionForContentType(contentType: string): string {
+  const base = contentType.split(';')[0].trim().toLowerCase();
+  switch (base) {
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/svg+xml':
+      return 'svg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    default:
+      return base.split('/')[1]?.split('+')[0] ?? 'bin';
+  }
+}
 
 /**
  * Download a single remote URL → Vercel Blob. Returns the attachment metadata
@@ -62,8 +84,11 @@ async function downloadToBlob(
       return null;
     }
 
-    // Derive a sensible extension from the content type.
-    const ext = contentType.split('/')[1]?.split(';')[0] ?? 'bin';
+    // Derive a sensible extension from the content type. Special-case the
+    // structured-suffix variants (image/svg+xml → svg) so we don't end up
+    // with filenames like "business-logo.svg+xml" (the + URL-encodes to %2B
+    // and confuses extension-based content-type sniffing downstream).
+    const ext = extensionForContentType(contentType);
     const filename = `${filenameHint}.${ext}`;
 
     const blob = await put(filename, Buffer.from(data), {

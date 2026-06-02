@@ -217,10 +217,13 @@ export async function POST(request: NextRequest) {
     otherEmails: otherEmail ?? null,
   });
 
-  // Fire-and-forget: async photo + logo download → Blob. Do NOT await — the
-  // verification round-trip must stay fast. The customer + tasks already
-  // landed atomically; assets fill in after the redirect.
-  void importRosterCustomerAssets({
+  // Await the photo + logo download → Blob BEFORE returning the redirect.
+  // Was previously fire-and-forget for speed, but that created a race: the
+  // form on /r/[token] captured an empty file state at first render and
+  // never re-hydrated when the async import completed. The 2026-06-02 fix
+  // pays a 2-5s verification cost to guarantee assets are persisted before
+  // the agent ever sees the form. `importRosterCustomerAssets` never throws.
+  await importRosterCustomerAssets({
     customerId: result.id,
     photoUrl: rosterRow.photoUrl ?? null,
     masterLogoUrl: brokerage.masterLogoUrl ?? null,
@@ -361,8 +364,8 @@ async function handleTestMode(
     environment: ['test'],
   });
 
-  // Same fire-and-forget asset import as prod.
-  void importRosterCustomerAssets({
+  // Same synchronous asset import as prod — assets persisted before redirect.
+  await importRosterCustomerAssets({
     customerId: result.id,
     photoUrl: rosterRow.photoUrl ?? null,
     masterLogoUrl: brokerage.masterLogoUrl ?? null,
