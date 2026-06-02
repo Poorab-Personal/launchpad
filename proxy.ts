@@ -51,16 +51,8 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // One broad matcher with internal filtering. Next 16's array-form
-  // matcher silently drops bare exact strings like '/keyes' or '/' when
-  // mixed with parameterized patterns like '/workspace/:path*' — empirically
-  // verified 2026-06-02 (only the parameterized entries fired). Switching
-  // to a single negative-lookahead pattern that catches everything EXCEPT
-  // Next internals + api + static-asset URLs, then letting the function
-  // do exact-path routing via LEGACY_REDIRECTS + the /workspace check.
-  //
-  // Pattern lifted from the Next 16 proxy.md docs, exact same shape.
-  matcher: [
-    '/((?!api/|_next/static|_next/image|favicon|.*\\..*).*)',
-  ],
+  // The legacy redirects join the /workspace gate via additional matchers.
+  // `/b&w` requires single-quote escaping in shell tests but Next routes the
+  // literal path fine.
+  matcher: ['/workspace/:path*', '/keyes', '/b&w', '/'],
 };
