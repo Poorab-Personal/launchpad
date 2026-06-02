@@ -141,7 +141,7 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
 
     // Design workflow (D2C)
     designApproval: row.designApproval as Customer['designApproval'],
-    designFeedback: row.designFeedback ?? '',
+    designNotes: Array.isArray(row.designNotes) ? (row.designNotes as Customer['designNotes']) : [],
     designRevisionCount: row.designRevisionCount,
     designProof: mapAttachments(row.designProof),
     designDrafts: mapAttachments(row.designDrafts),

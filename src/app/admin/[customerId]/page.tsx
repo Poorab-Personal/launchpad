@@ -13,6 +13,7 @@ import {
   getBrokerageById,
 } from '@/lib/db';
 import type { TaskStatus } from '@/types';
+import { latestNoteFrom } from '@/lib/design-notes';
 import { deleteCustomerAction, updateBillingRelationshipAction } from './actions';
 import { requireSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
 import DeleteCustomerButton from './delete-customer-button';
@@ -484,7 +485,8 @@ export default async function CustomerDetailPage({
       {customer.type === 'D2C' && customer.designApproval && (
         <Section title="Design">
           <Field label="Design Approval" value={customer.designApproval} />
-          <Field label="Design Feedback" value={customer.designFeedback} />
+          <Field label="Latest customer note" value={latestNoteFrom(customer, 'customer')?.note ?? ''} />
+          <Field label="Latest designer note" value={latestNoteFrom(customer, 'designer')?.note ?? ''} />
         </Section>
       )}
 

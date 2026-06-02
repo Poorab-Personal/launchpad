@@ -29,7 +29,6 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'productTier',
   'paymentStatus',
   'designApproval',
-  'designFeedback',
   'currentStage',
   'stageEnteredAt',
   'accountCreated',

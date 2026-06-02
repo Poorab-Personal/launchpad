@@ -31,6 +31,18 @@ export type TeamRole =
 
 export type ActorType = 'Customer' | 'Team Member' | 'System';
 
+/** One entry in customer.designNotes — a designer note sent with a proof,
+ *  or a customer note attached to a Request Changes submission. Append-only,
+ *  ordered chronologically. `uploadTask` is the task name of the round the
+ *  note belongs to (e.g. "Create Designs", "Revise Design (Round 1)") so
+ *  notes can be grouped by round in the UI. */
+export interface DesignNote {
+  from: 'designer' | 'customer';
+  note: string;
+  uploadTask: string | null;
+  at: string;
+}
+
 export interface AirtableAttachment {
   /** Airtable-assigned attachment id (`att...`). Present on reads, omitted when writing new attachments. */
   id?: string;
@@ -110,7 +122,10 @@ export interface Customer {
 
   // Design Workflow (D2C)
   designApproval: DesignApproval | null;
-  designFeedback: string;
+  /** Round-by-round designer↔customer note trail. Append-only.
+   *  Read via latestNoteFrom(customer, 'designer'|'customer') from
+   *  @/lib/design-notes. Replaces the legacy `designFeedback` string. */
+  designNotes: DesignNote[];
   designRevisionCount: number;
   designProof: AirtableAttachment[];
   /** Internal design work-in-progress. Append-only by internal upload tasks. Customer never sees this. */

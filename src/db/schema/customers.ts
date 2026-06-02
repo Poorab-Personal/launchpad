@@ -122,7 +122,12 @@ export const customers = pgTable(
 
     // Design workflow (D2C)
     designApproval: designApprovalEnum('design_approval'),
-    designFeedback: text('design_feedback'),
+    // Round-by-round note trail between designer and customer. Append-only.
+    // Each entry: { from: 'designer'|'customer', note, uploadTask, at }.
+    // Replaces the legacy single-value design_feedback column. The column
+    // itself is dropped in migration 0019; we already stopped reading from
+    // it here so schema and DB diverge harmlessly until that lands.
+    designNotes: jsonb('design_notes').default(sql`'[]'::jsonb`),
     designRevisionCount: integer('design_revision_count').notNull().default(0),
     designProof: jsonb('design_proof'),                                            // customer-facing curated set
     designDrafts: jsonb('design_drafts'),                                          // internal WIP, never customer-visible

@@ -23,10 +23,11 @@
  *   4. Increment Customer.designRevisionCount, reset designApproval = Pending
  *   5. Log Design Changes Requested event
  */
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { updateTaskStatus } from '@/lib/db';
+import { makeNote } from '@/lib/design-notes';
 
 const REVIEW_TASK = 'Review & Approve Your Brand Kit';
 const REVISION_TASK_PATTERN = /^(Revise Design|Review Revision|Upload Revised Proof) \((Internal )?Round /;
@@ -35,11 +36,21 @@ export async function handleDesignApproved(
   customerId: string,
   feedback?: string,
 ): Promise<{ taskCompleted: string | null }> {
-  // 1. Stamp customer fields
+  // 1. Stamp approval + append the customer's optional final note to the
+  //    designNotes trail (uploadTask = the proof round they're responding to).
   const customerUpdate: Partial<typeof schema.customers.$inferInsert> = {
     designApproval: 'Approved',
   };
-  if (feedback) customerUpdate.designFeedback = feedback;
+  if (feedback) {
+    const cust = await db.query.customers.findFirst({
+      where: eq(schema.customers.id, customerId),
+      columns: { designRevisionCount: true },
+    });
+    const count = cust?.designRevisionCount ?? 0;
+    const respondingTo = count === 0 ? 'Upload Proof to Customer' : `Upload Revised Proof (Round ${count})`;
+    const note = makeNote('customer', feedback, respondingTo);
+    customerUpdate.designNotes = sql`COALESCE(${schema.customers.designNotes}, '[]'::jsonb) || ${JSON.stringify([note])}::jsonb`;
+  }
   await db.update(schema.customers).set(customerUpdate).where(eq(schema.customers.id, customerId));
 
   // 2. Find "Review & Approve Your Brand Kit" task, mark Completed.
@@ -196,14 +207,21 @@ export async function handleDesignChangesRequested(
       { taskId: uploadTask.id, dependsOnTaskId: reviewTask.id },
     ]);
 
-    // 4. Increment revision count + reset approval
+    // 4. Increment revision count, reset approval, append the customer's
+    //    feedback to the designNotes trail (uploadTask = the proof they're
+    //    responding to, which is the round BEFORE this new one).
+    const customerSet: Partial<typeof schema.customers.$inferInsert> = {
+      designApproval: 'Pending',
+      designRevisionCount: round,
+    };
+    if (feedback) {
+      const respondingTo = round === 1 ? 'Upload Proof to Customer' : `Upload Revised Proof (Round ${round - 1})`;
+      const note = makeNote('customer', feedback, respondingTo);
+      customerSet.designNotes = sql`COALESCE(${schema.customers.designNotes}, '[]'::jsonb) || ${JSON.stringify([note])}::jsonb`;
+    }
     await tx
       .update(schema.customers)
-      .set({
-        designApproval: 'Pending',
-        designRevisionCount: round,
-        ...(feedback ? { designFeedback: feedback } : {}),
-      })
+      .set(customerSet)
       .where(eq(schema.customers.id, customerId));
 
     return { reviseTask, reviewTask, uploadTask };

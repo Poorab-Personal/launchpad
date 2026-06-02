@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { Task, Customer } from '@/types';
+import { latestNoteFrom } from '@/lib/design-notes';
 
 type Mode = 'idle' | 'confirming-approve' | 'requesting-changes' | 'changes-sent';
 
@@ -100,21 +101,43 @@ export default function ProofTask({
           <p className="text-sm text-[#1B2E35]/70">
             We&apos;ll email you the moment the updated proof is ready to review.
           </p>
-          {customer?.designFeedback && (
-            <div className="mt-3 rounded-md bg-white border border-[#05C68E]/20 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wider font-semibold text-[#1B2E35]/50 mb-1">
-                Your feedback
-              </p>
-              <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">
-                {customer.designFeedback}
-              </p>
-            </div>
-          )}
+          {(() => {
+            const lastCustomerNote = customer ? latestNoteFrom(customer, 'customer') : null;
+            return lastCustomerNote ? (
+              <div className="mt-3 rounded-md bg-white border border-[#05C68E]/20 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-wider font-semibold text-[#1B2E35]/50 mb-1">
+                  Your feedback
+                </p>
+                <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">
+                  {lastCustomerNote.note}
+                </p>
+              </div>
+            ) : null;
+          })()}
         </div>
       ) : (
-        task.instructions && (
-          <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
-        )
+        <>
+          {/* "From your designer" callout — the symmetric counterpart to
+              "Your feedback" the customer sees while revisions are in flight.
+              Shown when the customer is actively reviewing a proof (the round
+              the designer just sent). */}
+          {(() => {
+            const lastDesignerNote = customer ? latestNoteFrom(customer, 'designer') : null;
+            return lastDesignerNote ? (
+              <div className="rounded-lg bg-[#6C4AB6]/5 border border-[#6C4AB6]/20 px-5 py-4">
+                <p className="text-[10px] uppercase tracking-wider font-semibold text-[#6C4AB6] mb-1">
+                  From your designer
+                </p>
+                <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">
+                  {lastDesignerNote.note}
+                </p>
+              </div>
+            ) : null;
+          })()}
+          {task.instructions && (
+            <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+          )}
+        </>
       )}
 
       {/* Proof gallery */}

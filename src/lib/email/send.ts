@@ -22,9 +22,14 @@ interface CredentialsData extends BaseData {
   callDate: string;
 }
 
+interface DesignReadyData extends BaseData {
+  /** Latest designer note attached to the proof being sent. Optional. */
+  designerNote?: string | null;
+}
+
 type TemplateDataMap = {
   welcome: BaseData;
-  'design-ready': BaseData;
+  'design-ready': DesignReadyData;
   'credentials-sent': CredentialsData;
 };
 
@@ -42,7 +47,7 @@ function renderTemplate<T extends EmailTemplate>(
     case 'welcome':
       return React.createElement(WelcomeEmail, data as BaseData);
     case 'design-ready':
-      return React.createElement(DesignReadyEmail, data as BaseData);
+      return React.createElement(DesignReadyEmail, data as DesignReadyData);
     case 'credentials-sent':
       return React.createElement(CredentialsSentEmail, data as CredentialsData);
   }

@@ -12,6 +12,7 @@
  */
 import { getCustomerById } from '@/lib/db';
 import { sendEmail, type EmailTemplate } from '@/lib/email/send';
+import { latestNoteFrom } from '@/lib/design-notes';
 
 function firstName(fullName: string): string {
   const trimmed = fullName.trim();
@@ -59,11 +60,25 @@ export async function triggerCustomerEmail(
   const portalUrl = `${portalBase}/r/${customer.accessToken}`;
   const fname = firstName(customer.name);
 
+  // Design-ready emails carry the latest designer note (if any) so the
+  // customer can read it without opening the portal. Other templates ignore
+  // the field; sendEmail's typed switch handles per-template shape.
+  const data =
+    template === 'design-ready'
+      ? {
+          firstName: fname,
+          portalUrl,
+          designerNote: latestNoteFrom(customer, 'designer')?.note ?? null,
+        }
+      : { firstName: fname, portalUrl };
+
   try {
     await sendEmail({
       template,
       to: customer.contactEmail,
-      data: { firstName: fname, portalUrl },
+      // Casting here is safe — the data shape matches the template
+      // discriminant via the conditional above.
+      data: data as Parameters<typeof sendEmail<typeof template>>[0]['data'],
     });
   } catch (err) {
     console.error(`[triggerCustomerEmail] ${template} send failed for ${customerId}:`, err);

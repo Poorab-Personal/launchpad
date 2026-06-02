@@ -7,6 +7,7 @@ import {
   getTeamMembers,
 } from '@/lib/db';
 import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from '@/types';
+import { latestNoteFrom } from '@/lib/design-notes';
 import MarkCompleteButton from './MarkCompleteButton';
 import ProofTaskAction from './ProofTaskAction';
 import ReviewDesignsAction from './ReviewDesignsAction';
@@ -185,7 +186,8 @@ function TaskActionPanel({
     );
   }
 
-  const showFeedback = /Revis(e|ion)|Round/i.test(task.taskName) && customer.designFeedback;
+  const latestCustomerNote = latestNoteFrom(customer, 'customer');
+  const showFeedback = /Revis(e|ion)|Round/i.test(task.taskName) && latestCustomerNote;
   const isInternal = isInternalUploadTask(task.taskName);
   const isSendTask = isSendToCustomerTask(task.taskName);
   // For internal tasks (incl. Review Designs) the latest activity is in Drafts.
@@ -200,17 +202,17 @@ function TaskActionPanel({
 
   return (
     <div className="space-y-3">
-      {showFeedback && (
+      {showFeedback && latestCustomerNote && (
         <div className="rounded-lg bg-[#D97706]/5 border border-[#D97706]/20 p-3">
           <p className="text-xs uppercase tracking-wide text-[#D97706] font-semibold mb-1">
             Customer feedback
           </p>
           <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">
-            {customer.designFeedback}
+            {latestCustomerNote.note}
           </p>
         </div>
       )}
-      {task.notes && task.notes !== customer.designFeedback && (
+      {task.notes && task.notes !== latestCustomerNote?.note && (
         <div className="rounded-lg bg-[#F7F4EB] p-3">
           <p className="text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold mb-1">
             Task notes

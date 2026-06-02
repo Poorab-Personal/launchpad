@@ -109,6 +109,7 @@ function SendModal({
 
   const [selected, setSelected] = useState<Set<string>>(initialSelected);
   const [newFiles, setNewFiles] = useState<File[]>([]);
+  const [designerNote, setDesignerNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ uploaded: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -194,6 +195,7 @@ function SendModal({
           taskId,
           uploaded,
           selectedDraftIds: [...selected],
+          designerNote: designerNote.trim(),
         }),
       });
       if (!res.ok) {
@@ -378,6 +380,26 @@ function SendModal({
             >
               {newFiles.length > 0 ? '+ Add more files' : 'Choose files… (PNG, JPG, PDF · max 3.5MB each)'}
             </button>
+          </section>
+
+          {/* Optional note to the customer — appears as "FROM YOUR DESIGNER"
+              above the proofs in the customer portal + in the Design Ready
+              email. Symmetric counterpart to the customer's Request Changes
+              feedback. Append-only into customer.designNotes per round. */}
+          <section>
+            <h3 className="text-xs uppercase tracking-wide font-semibold text-[#1B2E35]/60 mb-1">
+              Note to customer <span className="font-normal normal-case text-[#1B2E35]/40">(optional)</span>
+            </h3>
+            <p className="text-xs text-[#1B2E35]/55 mb-2">
+              Visible above the proofs in their portal and in the Design Ready email.
+            </p>
+            <textarea
+              value={designerNote}
+              onChange={(e) => setDesignerNote(e.target.value)}
+              rows={3}
+              placeholder="e.g. We adjusted the color and added the equal-housing logo as requested. Let us know what you think!"
+              className="w-full rounded-lg border border-[#E0DEE4] bg-white px-3 py-2 text-sm text-[#1B2E35] placeholder:text-[#1B2E35]/35 focus:border-[#6C4AB6]/50 focus:outline-none focus:ring-1 focus:ring-[#6C4AB6]/20"
+            />
           </section>
 
           {error && (

@@ -1,5 +1,8 @@
 import { NextRequest } from 'next/server';
+import { eq, sql } from 'drizzle-orm';
 import { requireSession } from '@/lib/auth/dal';
+import { db } from '@/db';
+import * as schema from '@/db/schema';
 import {
   createEvent,
   getCustomerById,
@@ -8,6 +11,7 @@ import {
   updateTaskFields,
 } from '@/lib/db';
 import { sendEmail } from '@/lib/email/send';
+import { makeNote } from '@/lib/design-notes';
 
 /**
  * POST /api/workspace/design-proof  —  FINALIZE step for design uploads.
@@ -60,6 +64,9 @@ type FinalizeBody = {
   uploaded: AttachmentJson[];
   /** For send tasks only: ids of existing Drafts to include in the curated customer-facing set. */
   selectedDraftIds?: string[];
+  /** Send tasks only: optional designer note that surfaces in the customer
+   *  portal callout + Design Ready email. Appended to customer.designNotes. */
+  designerNote?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -72,7 +79,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
-  const { customerId, taskId, uploaded, selectedDraftIds = [] } = body;
+  const { customerId, taskId, uploaded, selectedDraftIds = [], designerNote } = body;
 
   if (!customerId || !taskId) {
     return Response.json(
@@ -165,6 +172,20 @@ export async function POST(request: NextRequest) {
       designProof: customerFacingSet,
       designProofsUpdatedAt: new Date(),
     });
+
+    // Append the designer's optional note to designNotes (tagged with the
+    // send task name, e.g. "Upload Proof to Customer" or "Upload Revised
+    // Proof (Round N)" — same round-tagging convention as the proof files).
+    const trimmedNote = typeof designerNote === 'string' ? designerNote.trim() : '';
+    if (trimmedNote) {
+      const note = makeNote('designer', trimmedNote, taskName);
+      await db
+        .update(schema.customers)
+        .set({
+          designNotes: sql`COALESCE(${schema.customers.designNotes}, '[]'::jsonb) || ${JSON.stringify([note])}::jsonb`,
+        })
+        .where(eq(schema.customers.id, customerId));
+    }
   }
 
   await updateTaskFields(taskId, {
@@ -197,10 +218,13 @@ export async function POST(request: NextRequest) {
         const portalBase = customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
         const portalUrl = `${portalBase}/r/${customer.accessToken}`;
         const fname = customer.name.trim().split(/\s+/)[0] || 'there';
+        // Use the trimmed note we just (potentially) appended. Avoids a
+        // re-read of the customer row.
+        const noteForEmail = typeof designerNote === 'string' ? designerNote.trim() : '';
         await sendEmail({
           template: 'design-ready',
           to: customer.contactEmail,
-          data: { firstName: fname, portalUrl },
+          data: { firstName: fname, portalUrl, designerNote: noteForEmail || null },
         });
       }
     } catch (err) {

@@ -83,7 +83,7 @@ function makeCustomer(opts: {
     rosterRecord: [],
     csmAssigned: [],
     designApproval: null,
-    designFeedback: '',
+    designNotes: [],
     designRevisionCount: 0,
     designProof: [],
     designDrafts: [],
