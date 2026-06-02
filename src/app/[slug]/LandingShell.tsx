@@ -30,17 +30,19 @@ interface LandingShellBrokerage {
 const COPY_BY_SLUG: Record<
   string,
   {
-    eyebrow: string;
     h1: string;
-    subheadHtml: string;
+    /** Two short lines, rendered with tight spacing. First is the value
+     *  promise, second is the call-to-action. */
+    subheadLines: [string, string];
     bullets: Array<{ strong: string; rest: string }>;
   }
 > = {
   ipre: {
-    eyebrow: 'ILLUSTRATED PROPERTIES × REJIG.AI',
     h1: 'Activate your Rejig.ai account',
-    subheadHtml:
-      'Your AI-powered social media assistant. Enter your work email to verify your IPRE profile and start your 30-day free trial.',
+    subheadLines: [
+      'Your AI-powered social media assistant.',
+      'Enter your work email to verify your IPRE profile and start your 30-day free trial.',
+    ],
     bullets: [
       { strong: 'Verify your IPRE profile', rest: '— quick, no password needed' },
       {
@@ -94,19 +96,9 @@ export default function LandingShell({
         }}
       >
         <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 flex items-center justify-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://rejig.ai/wp-content/themes/rejigchild/assets/images/rejig-logo-1.png"
-            alt="Rejig.ai"
-            className="h-8 w-auto max-w-[140px] object-contain"
-          />
-          <span
-            className="text-2xl font-light"
-            style={{ color: theme.ink, opacity: 0.35 }}
-            aria-hidden="true"
-          >
-            ×
-          </span>
+          {/* Brokerage logo first (the agent's home brand), then × Rejig.
+              Mirrors the marketing flyer's "ILLUSTRATED PROPERTIES × rejig.ai"
+              order so QR-scan continuity is preserved. */}
           {brokerage.masterLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -119,26 +111,45 @@ export default function LandingShell({
               {brokerage.name}
             </span>
           )}
+          <span
+            className="text-2xl font-light"
+            style={{ color: theme.ink, opacity: 0.35 }}
+            aria-hidden="true"
+          >
+            ×
+          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://rejig.ai/wp-content/themes/rejigchild/assets/images/rejig-logo-1.png"
+            alt="Rejig.ai"
+            className="h-8 w-auto max-w-[140px] object-contain"
+          />
         </div>
       </header>
 
       {/* Main */}
       <main className="flex-1 flex items-center justify-center px-4 py-12 sm:py-16">
         <div className="w-full max-w-md">
-          {/* Eyebrow — Termina substitute: uppercase + wide tracking */}
-          <p
-            className="text-center text-[11px] sm:text-xs font-semibold uppercase"
-            style={{
-              color: theme.primary,
-              letterSpacing: '0.18em',
-              fontFamily: 'var(--font-outfit), sans-serif',
-            }}
-          >
-            {copy?.eyebrow ?? brokerage.name}
-          </p>
+          {/* Eyebrow intentionally removed when a slug has wired copy — the
+              top-bar co-brand lockup already establishes the partnership.
+              For unknown slugs (Keyes / B&W until their entries are added),
+              render the brokerage name as the eyebrow so they still get
+              some visual hierarchy. */}
+          {!copy && (
+            <p
+              className="text-center text-[11px] sm:text-xs font-semibold uppercase"
+              style={{
+                color: theme.primary,
+                letterSpacing: '0.18em',
+                fontFamily: 'var(--font-outfit), sans-serif',
+              }}
+            >
+              {brokerage.name}
+            </p>
+          )}
 
           <h1
-            className="mt-3 text-center text-3xl sm:text-4xl leading-tight"
+            className={`text-center text-3xl sm:text-4xl leading-tight ${copy ? '' : 'mt-3'}`}
             style={{
               color: theme.ink,
               fontFamily: headlineFontFamily,
@@ -148,14 +159,21 @@ export default function LandingShell({
             {copy?.h1 ?? 'Welcome to your Rejig onboarding'}
           </h1>
 
-          <p
-            className="mt-3 text-center text-sm sm:text-base"
-            style={{ color: theme.ink, opacity: 0.7 }}
-          >
-            {copy?.subheadHtml ??
-              (brokerage.tagline ||
-                'Enter your work email to verify your agent profile and begin onboarding.')}
-          </p>
+          {copy ? (
+            // Two tight lines — value promise on top, CTA underneath.
+            <div className="mt-3 text-center text-sm sm:text-base" style={{ color: theme.ink, opacity: 0.7 }}>
+              <p>{copy.subheadLines[0]}</p>
+              <p className="mt-1">{copy.subheadLines[1]}</p>
+            </div>
+          ) : (
+            <p
+              className="mt-3 text-center text-sm sm:text-base"
+              style={{ color: theme.ink, opacity: 0.7 }}
+            >
+              {brokerage.tagline ||
+                'Enter your work email to verify your agent profile and begin onboarding.'}
+            </p>
+          )}
 
           {banner ? <div className="mt-6">{banner}</div> : null}
 
