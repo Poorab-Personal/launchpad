@@ -120,7 +120,9 @@ async function runHubspotIntakePush(customerId: string, customerName: string) {
 async function sendOpsAlert(customerId: string, customerName: string, reason: string) {
   try {
     await sendAlertEmail({
-      to: process.env.ALERTS_EMAIL ?? 'alerts@rejig.ai',
+      // Temporary: route HS-push failures to poorab@rejig.ai until there's a
+      // proper internal ops inbox. ALERTS_EMAIL env wins if set in Vercel.
+      to: process.env.ALERTS_EMAIL ?? 'poorab@rejig.ai',
       subject: `[LaunchPad] HS Ticket Push Failed: ${customerName}`,
       text: [
         `Customer: ${customerName}`,
