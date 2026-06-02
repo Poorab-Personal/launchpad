@@ -43,17 +43,21 @@ const COPY_BY_SLUG: Record<
     h1: 'Activate your Rejig.ai account',
     subhead: 'Your AI-powered social media assistant.',
     formIntro:
-      'Enter your work email to verify your IPRE profile and start your 30-day free trial.',
+      'Verify your IPRE email to access your pre-filled profile. 30-day free trial — no charge today.',
     bullets: [
-      { strong: 'Verify your IPRE profile', rest: '— quick, no password needed' },
+      // Sharpened to disambiguate "verify" (email-matching only) from
+      // "review" (the profile step). Bullet 2 makes the IPRE-roster pre-fill
+      // explicit at the moment it matters — when the agent is about to see
+      // their pre-populated form.
+      { strong: 'Verify your IPRE email', rest: '— no password, no signup' },
       {
-        strong: 'Confirm your details & save your card',
+        strong: 'Review your pre-filled IPRE profile & save your card',
         rest: '— first 30 days free, no charge today',
       },
       { strong: 'Book your onboarding call', rest: '— 30 minutes with our team' },
       {
-        strong: 'Get going',
-        rest: '— your brand kit will be ready before the call',
+        strong: "We'll design your brand kit",
+        rest: '— ready before your onboarding call',
       },
     ],
   },
