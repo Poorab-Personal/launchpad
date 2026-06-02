@@ -23,9 +23,16 @@ const LEGACY_REDIRECTS: Record<string, string> = {
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
-  // Temporary diagnostic — confirms the matcher is firing for the paths we
-  // care about. Remove once the LEGACY_REDIRECTS routing is verified.
-  console.log(`[proxy] invoked for path=${path}`);
+  // Short-circuit Next internals + static assets — we get every path via
+  // the broad '/:path*' matcher, so we filter cheaply here. Pure
+  // string-prefix checks; no allocation.
+  if (
+    path.startsWith('/_next/') ||
+    path.startsWith('/api/') ||
+    path === '/favicon.ico'
+  ) {
+    return NextResponse.next();
+  }
 
   // ── Legacy-Worker redirects ─────────────────────────────────────────────
   // These are exact-match-only (no prefix matching) and run before the
@@ -55,16 +62,12 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // One broad matcher with internal filtering. Next 16's array-form
-  // matcher silently drops bare exact strings like '/keyes' or '/' when
-  // mixed with parameterized patterns like '/workspace/:path*' — empirically
-  // verified 2026-06-02 (only the parameterized entries fired). Switching
-  // to a single negative-lookahead pattern that catches everything EXCEPT
-  // Next internals + api + static-asset URLs, then letting the function
-  // do exact-path routing via LEGACY_REDIRECTS + the /workspace check.
-  //
-  // Pattern lifted from the Next 16 proxy.md docs, exact same shape.
-  matcher: [
-    '/((?!api/|_next/static|_next/image|favicon|.*\\..*).*)',
-  ],
+  // Match every path. We filter inside the function (api / _next / static
+  // assets are short-circuited via path.startsWith). Tried narrower
+  // matchers (parameterized strings, negative-lookahead pattern from the
+  // Next 16 docs) — none of them fired for bare paths like /keyes or /
+  // on this build, only the /workspace/:path* parameterized form worked.
+  // This broadest possible matcher is verifiably called and lets the
+  // function do the routing.
+  matcher: '/:path*',
 };
