@@ -127,6 +127,7 @@ export default async function BrokerageTestLandingPage(
 
   return (
     <LandingShell
+      slug={slug}
       brokerage={{
         name: brokerage.name,
         masterLogoUrl: brokerage.masterLogoUrl ?? null,

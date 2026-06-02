@@ -51,6 +51,7 @@ export default async function BrokerageLandingPage(props: PageProps<'/[slug]'>) 
 
   return (
     <LandingShell
+      slug={slug}
       brokerage={{
         name: brokerage.name,
         masterLogoUrl: brokerage.masterLogoUrl ?? null,

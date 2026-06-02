@@ -23,12 +23,47 @@ interface LandingShellBrokerage {
   tagline: string;
 }
 
+/** Brokerage-specific landing copy. Carries the marketing-flyer narrative
+ *  forward to the LP (offer, partnership framing, what-happens-next steps).
+ *  Hardcoded per slug for now — when Keyes/B&W go live, add their entries.
+ *  For unknown slugs, falls back to the generic copy in the renderer below. */
+const COPY_BY_SLUG: Record<
+  string,
+  {
+    eyebrow: string;
+    h1: string;
+    subheadHtml: string;
+    bullets: Array<{ strong: string; rest: string }>;
+  }
+> = {
+  ipre: {
+    eyebrow: 'ILLUSTRATED PROPERTIES × REJIG.AI',
+    h1: 'Activate your Rejig.ai account',
+    subheadHtml:
+      'Your AI-powered social media assistant. Enter your work email to verify your IPRE profile and start your 30-day free trial.',
+    bullets: [
+      { strong: 'Verify your IPRE profile', rest: '— quick, no password needed' },
+      {
+        strong: 'Confirm your details & save your card',
+        rest: '— first 30 days free, no charge today',
+      },
+      { strong: 'Book your onboarding call', rest: '— 30 minutes with our team' },
+      {
+        strong: 'Get going',
+        rest: '— your brand kit will be ready before the call',
+      },
+    ],
+  },
+};
+
 export default function LandingShell({
+  slug,
   brokerage,
   theme,
   form,
   banner,
 }: {
+  slug: string;
   brokerage: LandingShellBrokerage;
   theme: LandingTheme;
   /** The interactive verification form (prod EmailForm or TestEmailForm). */
@@ -36,6 +71,7 @@ export default function LandingShell({
   /** Optional slot above the form card (e.g. the TEST MODE banner). */
   banner?: ReactNode;
 }) {
+  const copy = COPY_BY_SLUG[slug];
   const headlineFontFamily = theme.serifHeadline
     ? 'var(--font-cormorant), Georgia, "Times New Roman", serif'
     : 'var(--font-outfit), sans-serif';
@@ -45,7 +81,11 @@ export default function LandingShell({
       className="min-h-screen flex flex-col"
       style={{ backgroundColor: theme.bg, color: theme.ink }}
     >
-      {/* Top bar */}
+      {/* Top bar — co-brand lockup (Rejig × Brokerage), matches the flyer.
+          Earlier this used opposite-corner logos, which read as "two
+          separate companies" rather than a partnership. Centered with an
+          oversized × between is the visual cue the marketing flyer
+          establishes; we carry it through here for continuity. */}
       <header
         className="border-b"
         style={{
@@ -53,8 +93,20 @@ export default function LandingShell({
           borderColor: `${theme.accent}66`,
         }}
       >
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-          {/* Brokerage logo — left */}
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 py-4 flex items-center justify-center gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://rejig.ai/wp-content/themes/rejigchild/assets/images/rejig-logo-1.png"
+            alt="Rejig.ai"
+            className="h-8 w-auto max-w-[140px] object-contain"
+          />
+          <span
+            className="text-2xl font-light"
+            style={{ color: theme.ink, opacity: 0.35 }}
+            aria-hidden="true"
+          >
+            ×
+          </span>
           {brokerage.masterLogoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -67,15 +119,6 @@ export default function LandingShell({
               {brokerage.name}
             </span>
           )}
-          {/* Rejig.ai co-brand logo — top-right. Plain <img> (mirrors the
-              brokerage logo above); h-8/w-auto fixes one dimension only, so
-              no aspect-ratio console warning. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://rejig.ai/wp-content/themes/rejigchild/assets/images/rejig-logo-1.png"
-            alt="Rejig.ai"
-            className="h-8 w-auto max-w-[140px] object-contain"
-          />
         </div>
       </header>
 
@@ -91,7 +134,7 @@ export default function LandingShell({
               fontFamily: 'var(--font-outfit), sans-serif',
             }}
           >
-            {brokerage.name}
+            {copy?.eyebrow ?? brokerage.name}
           </p>
 
           <h1
@@ -102,15 +145,16 @@ export default function LandingShell({
               fontWeight: theme.serifHeadline ? 600 : 700,
             }}
           >
-            Welcome to your Rejig onboarding
+            {copy?.h1 ?? 'Welcome to your Rejig onboarding'}
           </h1>
 
           <p
             className="mt-3 text-center text-sm sm:text-base"
             style={{ color: theme.ink, opacity: 0.7 }}
           >
-            {brokerage.tagline ||
-              'Enter your work email to verify your agent profile and begin onboarding.'}
+            {copy?.subheadHtml ??
+              (brokerage.tagline ||
+                'Enter your work email to verify your agent profile and begin onboarding.')}
           </p>
 
           {banner ? <div className="mt-6">{banner}</div> : null}
@@ -126,12 +170,55 @@ export default function LandingShell({
             {form}
           </div>
 
+          {/* Trust line — kept verbatim. */}
           <p
             className="mt-6 text-center text-xs"
             style={{ color: theme.ink, opacity: 0.45 }}
           >
             We use your email only to match you against your brokerage roster.
           </p>
+
+          {/* "Here's what happens next" — only renders when the brokerage has
+              flyer-aligned copy wired in COPY_BY_SLUG. Keeps the LP feeling
+              consistent with the marketing flyer's promise. */}
+          {copy?.bullets && (
+            <div
+              className="mt-8 rounded-2xl border p-5 sm:p-6"
+              style={{
+                backgroundColor: theme.surface,
+                borderColor: `${theme.accent}66`,
+              }}
+            >
+              <p
+                className="text-[11px] font-semibold uppercase tracking-wider"
+                style={{ color: theme.primary, letterSpacing: '0.14em' }}
+              >
+                Here&apos;s what happens next
+              </p>
+              <ol
+                className="mt-4 space-y-3 text-sm"
+                style={{ color: theme.ink }}
+              >
+                {copy.bullets.map((b, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span
+                      className="flex-shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold"
+                      style={{
+                        backgroundColor: `${theme.primary}1A`,
+                        color: theme.primary,
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                    <span className="leading-relaxed">
+                      <span className="font-semibold">{b.strong}</span>{' '}
+                      <span style={{ opacity: 0.7 }}>{b.rest}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
       </main>
     </div>

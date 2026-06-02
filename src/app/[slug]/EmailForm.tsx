@@ -278,7 +278,7 @@ export default function EmailForm({
           backgroundColor: buttonHovered ? theme.primaryHover : theme.primary,
         }}
       >
-        {submitting ? 'Checking…' : 'Continue'}
+        {submitting ? 'Checking…' : 'Verify & continue'}
       </button>
     </form>
   );
