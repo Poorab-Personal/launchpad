@@ -205,12 +205,12 @@ export const customers = pgTable(
     // — dedup + UNIQUE migration is a separate ticket. Auditor 2026-05-11.
     platformEmailIdx: index('customers_platform_email_idx').on(table.platformEmail),
     contactEmailIdx: index('customers_contact_email_idx').on(table.contactEmail),
-    // HubSpot cross-system anchors. hubspot_contact_id is UNIQUE to prevent
-    // duplicate customer creation on webhook retries. hubspot_ticket_id is
-    // indexed for ticket-driven webhook routing.
-    hubspotContactIdUnique: uniqueIndex('customers_hubspot_contact_id_unique')
-      .on(table.hubspotContactId)
-      .where(sql`${table.hubspotContactId} IS NOT NULL`),
+    // HubSpot cross-system anchors. hubspot_ticket_id is indexed for
+    // ticket-driven webhook routing. hubspot_contact_id was UNIQUE until
+    // migration 0021 — that constraint blocked /test (all test customers
+    // share the same HS contact poorab@rejig.ai) and re-onboarding cases.
+    // The 1:1 invariant is enforced by HubSpot itself (Contact is keyed
+    // by email).
     hubspotTicketIdIdx: index('customers_hubspot_ticket_id_idx').on(table.hubspotTicketId),
     // Rejig cross-system anchor. Partial unique — backfilled customers all have
     // rejig_user_id; organically-onboarded customers (D2C closedwon path) may
