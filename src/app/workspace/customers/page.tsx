@@ -3,6 +3,7 @@ import { requireSession } from '@/lib/auth/dal';
 import { getCustomers, getTeamMembers } from '@/lib/db';
 import type { TeamMember } from '@/types';
 import PortalLinkActions from './PortalLinkActions';
+import { CallDateBadge } from '@/components/CallDateDisplay';
 
 function stagePill(stage: string) {
   if (!stage) return <span className="text-[#1B2E35]/40">—</span>;
@@ -62,6 +63,9 @@ export default async function CustomersPage() {
               <th className="text-left text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
                 Approval
               </th>
+              <th className="text-left text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
+                Onboarding Call
+              </th>
               <th className="text-right text-xs font-semibold uppercase tracking-wide text-[#1B2E35]/60 px-4 py-3">
                 Portal
               </th>
@@ -70,7 +74,7 @@ export default async function CustomersPage() {
           <tbody className="divide-y divide-[#E0DEE4]">
             {sorted.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-[#1B2E35]/50">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-[#1B2E35]/50">
                   No customers yet.
                 </td>
               </tr>
@@ -104,6 +108,13 @@ export default async function CustomersPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-[#1B2E35]/70">
                     {c.designApproval ?? '—'}
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {c.callBooked && c.callDate ? (
+                      <CallDateBadge callDateIso={c.callDate} />
+                    ) : (
+                      <span className="text-[#1B2E35]/40">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <PortalLinkActions

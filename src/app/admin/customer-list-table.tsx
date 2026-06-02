@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import type { Customer, Task } from '@/types';
+import { CallDateBadge } from '@/components/CallDateDisplay';
 
 const HS_PORTAL_ID = '44956899';
 
@@ -183,6 +184,11 @@ export default function CustomerListTable({ customers, memberNameMap, activeTask
                     </td>
                     <td className="px-3 py-3 text-sm text-[#1B2E35]/60 align-top break-words">
                       {customer.csmAssigned.length > 0 ? memberNameMap[customer.csmAssigned[0]] ?? customer.csmAssigned[0] : '—'}
+                      {customer.callBooked && customer.callDate && (
+                        <div className="mt-1 text-xs">
+                          <CallDateBadge callDateIso={customer.callDate} />
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-sm align-top">
                       <div className="flex items-center gap-2">

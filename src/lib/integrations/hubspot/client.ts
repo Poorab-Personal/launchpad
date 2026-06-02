@@ -372,59 +372,113 @@ export async function updateTicketProperties(
 }
 
 /**
- * Fetch the latest Onboarding meeting associated with a ticket. Returns null
- * if no meeting is associated. Used by the inbound webhook when a ticket
- * moves to "Onboarding Scheduled" to capture the booked meeting datetime
- * into LP (customer.callDate + calls row) so designers + Account Creators
- * can prioritize work by call-date.
+ * Fetch the onboarding meeting booking that triggered a ticket's stage move
+ * to "Onboarding Scheduled". Used by the inbound webhook to capture the
+ * meeting datetime into LP (customer.callDate + calls row) so designers +
+ * Account Creators can prioritize work by call-date.
  *
- * If multiple meetings are associated (e.g. customer booked → reschedule),
- * picks the one with the latest hs_meeting_start_time that is in the
- * future. Falls back to latest overall if none are future.
+ * Two strategies, in order:
+ *   1. Direct ticket→meeting association (the RIGHT way).
+ *      Requires the HS Workflow "CSM Meeting Onboarding Created via
+ *      LaunchPad" to include an "Associate meeting to ticket" action when
+ *      moving the ticket to Onboarding Scheduled. If that's wired, this
+ *      strategy returns the exact meeting that caused the stage change.
+ *   2. Fallback via ticket→contact→meetings filtered by recency.
+ *      Works WITHOUT the HS Workflow association action: follow the
+ *      ticket's primary Contact, list that contact's meetings, pick the one
+ *      created within 5 minutes of "now" with a future start time. Brittle
+ *      when the contact already has many meetings (e.g. a Calendly-era
+ *      contact who's been booked dozens of times), so the strategy-1 fix
+ *      should be wired ASAP — this fallback only buys us "works today".
  */
 export async function getOnboardingMeetingForTicket(
   ticketId: string,
 ): Promise<{ meetingId: string; startTime: string; title: string | null } | null> {
   const hs = client();
 
-  // 1. Get ticket → meetings associations (the SDK separates engagement-type
-  //    objects under the generic basicApi path).
+  // Always need ticket → contact for fallback path, ticket → meetings for
+  // strategy-1. One request covers both.
   const ticket = await hs.crm.tickets.basicApi.getById(
     ticketId,
+    ['createdate'],
+    undefined,
+    ['contacts', 'meetings'],
+  );
+
+  // ── Strategy 1: ticket → meeting (the right architecture) ──────────────
+  const ticketMeetingIds = ticket.associations?.meetings?.results?.map((r) => r.id) ?? [];
+  if (ticketMeetingIds.length > 0) {
+    const ticketMeetings = await Promise.all(
+      ticketMeetingIds.map((id) =>
+        hs.crm.objects.basicApi.getById('meetings', id, [
+          'hs_meeting_start_time',
+          'hs_meeting_title',
+        ]),
+      ),
+    );
+    const pick = pickLatestFuture(ticketMeetings);
+    if (pick) return pick;
+  }
+
+  // ── Strategy 2: ticket → contact → meetings (fallback) ─────────────────
+  const contactIds = ticket.associations?.contacts?.results?.map((r) => r.id) ?? [];
+  if (contactIds.length === 0) return null;
+  const contactId = contactIds[0];
+
+  const contact = await hs.crm.contacts.basicApi.getById(
+    contactId,
     undefined,
     undefined,
     ['meetings'],
   );
-  const meetingIds = ticket.associations?.meetings?.results?.map((r) => r.id) ?? [];
+  const meetingIds = contact.associations?.meetings?.results?.map((r) => r.id) ?? [];
   if (meetingIds.length === 0) return null;
 
-  // 2. Fetch each meeting's start time + title.
-  const meetings = await Promise.all(
-    meetingIds.map((id) =>
+  const recentIds = meetingIds.slice(0, 15);
+  const contactMeetings = await Promise.all(
+    recentIds.map((id) =>
       hs.crm.objects.basicApi.getById('meetings', id, [
         'hs_meeting_start_time',
         'hs_meeting_title',
+        'hs_createdate',
       ]),
     ),
   );
 
-  // 3. Pick the latest future meeting; fall back to latest overall.
+  // Filter to meetings that look booking-like for THIS ticket: created at or
+  // after the ticket's createdate (minus 60s slack), future start time.
+  const ticketCreatedMs = ticket.properties.createdate
+    ? Date.parse(ticket.properties.createdate)
+    : 0;
   const now = Date.now();
-  type ScoredMeeting = {
-    id: string;
-    start: number;
-    title: string | null;
-  };
-  const scored: ScoredMeeting[] = meetings.map((m) => {
-    const startStr = m.properties.hs_meeting_start_time;
-    const start = startStr ? Date.parse(startStr) : 0;
-    return { id: m.id, start, title: m.properties.hs_meeting_title ?? null };
+  const recentFuture = contactMeetings.filter((m) => {
+    const created = m.properties.hs_createdate ? Date.parse(m.properties.hs_createdate) : 0;
+    const start = m.properties.hs_meeting_start_time
+      ? Date.parse(m.properties.hs_meeting_start_time)
+      : 0;
+    return created >= ticketCreatedMs - 60_000 && start > now;
   });
-  const future = scored.filter((m) => m.start > now);
-  const pick =
-    (future.length > 0 ? future : scored).sort((a, b) => b.start - a.start)[0];
-  if (!pick || !pick.start) return null;
+  if (recentFuture.length > 0) return pickLatestFuture(recentFuture);
 
+  // Last-ditch: any future meeting on this contact, latest by start_time.
+  return pickLatestFuture(contactMeetings);
+}
+
+function pickLatestFuture(
+  meetings: Array<{ id: string; properties: Record<string, string | null | undefined> }>,
+): { meetingId: string; startTime: string; title: string | null } | null {
+  const now = Date.now();
+  type Scored = { id: string; start: number; title: string | null };
+  const scored: Scored[] = meetings.map((m) => ({
+    id: m.id,
+    start: m.properties.hs_meeting_start_time
+      ? Date.parse(m.properties.hs_meeting_start_time)
+      : 0,
+    title: m.properties.hs_meeting_title ?? null,
+  }));
+  const future = scored.filter((m) => m.start > now);
+  const pick = (future.length > 0 ? future : scored).sort((a, b) => b.start - a.start)[0];
+  if (!pick || !pick.start) return null;
   return {
     meetingId: pick.id,
     startTime: new Date(pick.start).toISOString(),
