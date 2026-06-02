@@ -9,6 +9,7 @@ import {
 } from '@/lib/db';
 import { readViewAs } from '@/lib/auth/view-as';
 import type { Task, Customer, TeamMember } from '@/types';
+import { CallDateBadge } from '@/components/CallDateDisplay';
 
 type Column = {
   key: string;
@@ -69,11 +70,13 @@ function TaskCard({
   task,
   customerName,
   customerId,
+  callDateIso,
   assignees,
 }: {
   task: Task;
   customerName: string;
   customerId: string;
+  callDateIso?: string;
   assignees?: string;
 }) {
   return (
@@ -96,13 +99,16 @@ function TaskCard({
         <span className="inline-flex items-center rounded-full bg-[#F7F4EB] px-2 py-0.5 text-[#1B2E35]/70">
           {task.stage}
         </span>
-        <span className={urgencyClass(task.daysActive)}>
-          {task.daysActive === null
-            ? '—'
-            : task.daysActive === 0
-              ? 'today'
-              : `${task.daysActive}d`}
-        </span>
+        <div className="flex items-center gap-2">
+          {callDateIso && <CallDateBadge callDateIso={callDateIso} />}
+          <span className={urgencyClass(task.daysActive)}>
+            {task.daysActive === null
+              ? '—'
+              : task.daysActive === 0
+                ? 'today'
+                : `${task.daysActive}d`}
+          </span>
+        </div>
       </div>
     </Link>
   );
@@ -198,6 +204,7 @@ export default async function QueuePage() {
                         task={task}
                         customerName={customer?.name ?? 'Unknown'}
                         customerId={cId ?? ''}
+                        callDateIso={customer?.callDate ?? ''}
                         assignees={assigneeNames(task)}
                       />
                     );
@@ -224,6 +231,7 @@ export default async function QueuePage() {
                   task={task}
                   customerName={customer?.name ?? 'Unknown'}
                   customerId={cId ?? ''}
+                  callDateIso={customer?.callDate ?? ''}
                   assignees={assigneeNames(task)}
                 />
               );

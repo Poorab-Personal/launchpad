@@ -334,6 +334,9 @@ export interface Call {
   recordingUrl: string;
   /** UUID parsed from Calendly event URI. Used to dedupe webhook deliveries. */
   calendlyEventUuid: string;
+  /** HS Meeting object id. Used to dedupe HS Meetings webhook deliveries.
+   *  Mirrors calendlyEventUuid for the HS Meetings path. */
+  hubspotMeetingId: string;
   /** From Airtable record metadata (always present). */
   createdAt: string;
   /** From `Last Modified` field if it exists in Airtable; else empty string. */

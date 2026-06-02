@@ -350,6 +350,7 @@ function mapDbCall(row: CallRow): Call {
     notes: row.notes ?? '',
     recordingUrl: row.recordingUrl ?? '',
     calendlyEventUuid: row.calendlyEventUuid ?? '',
+    hubspotMeetingId: row.hubspotMeetingId ?? '',
     createdAt: iso(row.createdAt),
     lastModified: iso(row.lastModified),
   };
@@ -1126,6 +1127,13 @@ export async function getCallByCalendlyUuid(uuid: string): Promise<Call | null> 
   return row ? mapDbCall(row) : null;
 }
 
+export async function getCallByHubspotMeetingId(meetingId: string): Promise<Call | null> {
+  const row = await db.query.calls.findFirst({
+    where: eq(schema.calls.hubspotMeetingId, meetingId),
+  });
+  return row ? mapDbCall(row) : null;
+}
+
 export async function createCall(fields: Partial<Call>): Promise<Call> {
   const [row] = await db
     .insert(schema.calls)
@@ -1139,6 +1147,7 @@ export async function createCall(fields: Partial<Call>): Promise<Call> {
       notes: fields.notes ?? null,
       recordingUrl: fields.recordingUrl ?? null,
       calendlyEventUuid: fields.calendlyEventUuid ?? null,
+      hubspotMeetingId: fields.hubspotMeetingId ?? null,
     })
     .returning();
   return mapDbCall(row);
@@ -1156,6 +1165,8 @@ export async function updateCall(id: string, fields: Partial<Call>): Promise<Cal
   if (fields.recordingUrl !== undefined) update.recordingUrl = fields.recordingUrl;
   if (fields.calendlyEventUuid !== undefined)
     update.calendlyEventUuid = fields.calendlyEventUuid;
+  if (fields.hubspotMeetingId !== undefined)
+    update.hubspotMeetingId = fields.hubspotMeetingId;
 
   const [row] = await db
     .update(schema.calls)

@@ -6,9 +6,18 @@ import { customers } from '@/db/schema/customers';
 import { customerStateTransitions } from '@/db/schema/customerStateTransitions';
 import { hubspotInboundEvents } from '@/db/schema/hubspotInboundEvents';
 import { tasks } from '@/db/schema/tasks';
-import { updateTaskFields } from '@/lib/db';
+import {
+  createCall,
+  getCallByHubspotMeetingId,
+  updateCall,
+  updateCustomerFields,
+  updateTaskFields,
+} from '@/lib/db';
 import { processDealClosedWon } from '@/lib/integrations/hubspot/closedwon-handler';
-import { getStageLabelById } from '@/lib/integrations/hubspot/client';
+import {
+  getOnboardingMeetingForTicket,
+  getStageLabelById,
+} from '@/lib/integrations/hubspot/client';
 import { createTrialSubscriptionForCustomer } from '@/lib/automations/handle-call-completed';
 
 /**
@@ -306,6 +315,7 @@ async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhoo
     where: eq(customers.hubspotTicketId, ticketId),
     columns: {
       id: true,
+      name: true,
       workflowKey: true,
       stripeSubscriptionId: true,
       onboardingState: true,
@@ -370,6 +380,55 @@ async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhoo
   // so dependents activate and the LP customer state advances. Idempotent:
   // handleTaskCompleted early-returns if the task isn't Active.
   if (stageLabel === 'Onboarding Scheduled') {
+    // ── 1. Fetch the booked meeting + persist into LP (Calls row +
+    //       customer.callDate). The webhook payload itself only carries the
+    //       stage change, so we go fetch the meeting via the HS API. Failures
+    //       here log + continue — the schedule-task auto-complete below
+    //       must still run, and a missing call-date is recoverable later.
+    try {
+      const meeting = await getOnboardingMeetingForTicket(ticketId);
+      if (meeting) {
+        const existing = await getCallByHubspotMeetingId(meeting.meetingId);
+        if (existing) {
+          await updateCall(existing.id, {
+            scheduledDate: meeting.startTime,
+            status: 'Scheduled',
+          });
+        } else {
+          await createCall({
+            title: `Onboarding — ${customer.name}`,
+            customer: [customer.id],
+            type: 'Onboarding',
+            scheduledDate: meeting.startTime,
+            status: 'Scheduled',
+            hubspotMeetingId: meeting.meetingId,
+            notes: 'Created from HubSpot Meetings webhook.',
+          });
+        }
+        await updateCustomerFields(customer.id, {
+          callBooked: true,
+          callDate: new Date(meeting.startTime),
+        });
+        console.log('[hubspot webhook] captured HS meeting datetime', {
+          customerId: customer.id,
+          meetingId: meeting.meetingId,
+          startTime: meeting.startTime,
+        });
+      } else {
+        console.warn(
+          '[hubspot webhook] ticket → Onboarding Scheduled but no associated meeting found',
+          { ticketId, customerId: customer.id },
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[hubspot webhook] meeting-datetime capture failed (non-blocking)', msg);
+    }
+
+    // ── 2. Auto-complete the Active LP Schedule task. Routes through
+    //       updateTaskFields → handleTaskCompleted so dependents activate
+    //       and the LP customer state advances. Idempotent:
+    //       handleTaskCompleted early-returns if the task isn't Active.
     const scheduleTask = await db.query.tasks.findFirst({
       where: and(
         eq(tasks.customerId, customer.id),

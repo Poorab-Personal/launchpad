@@ -372,6 +372,67 @@ export async function updateTicketProperties(
 }
 
 /**
+ * Fetch the latest Onboarding meeting associated with a ticket. Returns null
+ * if no meeting is associated. Used by the inbound webhook when a ticket
+ * moves to "Onboarding Scheduled" to capture the booked meeting datetime
+ * into LP (customer.callDate + calls row) so designers + Account Creators
+ * can prioritize work by call-date.
+ *
+ * If multiple meetings are associated (e.g. customer booked → reschedule),
+ * picks the one with the latest hs_meeting_start_time that is in the
+ * future. Falls back to latest overall if none are future.
+ */
+export async function getOnboardingMeetingForTicket(
+  ticketId: string,
+): Promise<{ meetingId: string; startTime: string; title: string | null } | null> {
+  const hs = client();
+
+  // 1. Get ticket → meetings associations (the SDK separates engagement-type
+  //    objects under the generic basicApi path).
+  const ticket = await hs.crm.tickets.basicApi.getById(
+    ticketId,
+    undefined,
+    undefined,
+    ['meetings'],
+  );
+  const meetingIds = ticket.associations?.meetings?.results?.map((r) => r.id) ?? [];
+  if (meetingIds.length === 0) return null;
+
+  // 2. Fetch each meeting's start time + title.
+  const meetings = await Promise.all(
+    meetingIds.map((id) =>
+      hs.crm.objects.basicApi.getById('meetings', id, [
+        'hs_meeting_start_time',
+        'hs_meeting_title',
+      ]),
+    ),
+  );
+
+  // 3. Pick the latest future meeting; fall back to latest overall.
+  const now = Date.now();
+  type ScoredMeeting = {
+    id: string;
+    start: number;
+    title: string | null;
+  };
+  const scored: ScoredMeeting[] = meetings.map((m) => {
+    const startStr = m.properties.hs_meeting_start_time;
+    const start = startStr ? Date.parse(startStr) : 0;
+    return { id: m.id, start, title: m.properties.hs_meeting_title ?? null };
+  });
+  const future = scored.filter((m) => m.start > now);
+  const pick =
+    (future.length > 0 ? future : scored).sort((a, b) => b.start - a.start)[0];
+  if (!pick || !pick.start) return null;
+
+  return {
+    meetingId: pick.id,
+    startTime: new Date(pick.start).toISOString(),
+    title: pick.title,
+  };
+}
+
+/**
  * Post a Note on a Deal. Used for surfacing validation errors back to the
  * sales rep (e.g. "Stripe subscription not found").
  */

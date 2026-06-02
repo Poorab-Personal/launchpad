@@ -26,6 +26,7 @@ export const calls = pgTable(
     notes: text('notes'),
     recordingUrl: text('recording_url'),
     calendlyEventUuid: text('calendly_event_uuid'),                        // dedup key for webhook deliveries; nullable for non-Calendly calls (ad-hoc) — Postgres UNIQUE allows multiple NULLs, so dedup fires only on rows with a UUID set
+    hubspotMeetingId: text('hubspot_meeting_id'),                          // dedup key for HS Meetings booking — same nullable+UNIQUE pattern as calendly_event_uuid
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastModified: timestamp('last_modified', { withTimezone: true })
       .notNull()
@@ -34,6 +35,7 @@ export const calls = pgTable(
   },
   (table) => ({
     calendlyEventUuidUnique: uniqueIndex('calls_calendly_event_uuid_unique').on(table.calendlyEventUuid),
+    hubspotMeetingIdUnique: uniqueIndex('calls_hubspot_meeting_id_unique').on(table.hubspotMeetingId),
   }),
 );
 

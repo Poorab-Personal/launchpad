@@ -8,6 +8,7 @@ import {
 } from '@/lib/db';
 import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from '@/types';
 import { latestNoteFrom } from '@/lib/design-notes';
+import { CallDateCallout } from '@/components/CallDateDisplay';
 import MarkCompleteButton from './MarkCompleteButton';
 import ProofTaskAction from './ProofTaskAction';
 import ReviewDesignsAction from './ReviewDesignsAction';
@@ -387,6 +388,10 @@ export default async function CustomerDetailPage({
             )}
           </div>
         </div>
+
+        {customer.callBooked && customer.callDate && (
+          <CallDateCallout callDateIso={customer.callDate} />
+        )}
 
         <div className="mt-4 pt-4 border-t border-[#E0DEE4] flex flex-wrap gap-x-6 gap-y-2 text-xs">
           <div>
