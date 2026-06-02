@@ -23,6 +23,10 @@ const LEGACY_REDIRECTS: Record<string, string> = {
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
+  // Temporary diagnostic — confirms the matcher is firing for the paths we
+  // care about. Remove once the LEGACY_REDIRECTS routing is verified.
+  console.log(`[proxy] invoked for path=${path}`);
+
   // ── Legacy-Worker redirects ─────────────────────────────────────────────
   // These are exact-match-only (no prefix matching) and run before the
   // /workspace auth check so the proxy stays single-purpose per request.
