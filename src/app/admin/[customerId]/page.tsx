@@ -14,6 +14,7 @@ import {
 } from '@/lib/db';
 import type { TaskStatus } from '@/types';
 import { latestNoteFrom } from '@/lib/design-notes';
+import { CallDateCallout } from '@/components/CallDateDisplay';
 import { deleteCustomerAction, updateBillingRelationshipAction } from './actions';
 import { requireSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
 import DeleteCustomerButton from './delete-customer-button';
@@ -285,6 +286,15 @@ export default async function CustomerDetailPage({
                 </form>
               )}
             </div>
+
+            {/* Onboarding-call callout — shown when a future call is booked,
+                regardless of channel (D2C/Calendly OR B2B/HS Meetings both
+                populate customer.callDate). */}
+            {customer.callBooked && customer.callDate && (
+              <div className="px-5 pt-2 pb-1">
+                <CallDateCallout callDateIso={customer.callDate} />
+              </div>
+            )}
 
             {/* Bottom row — key signals */}
             <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-3 lg:grid-cols-6">
