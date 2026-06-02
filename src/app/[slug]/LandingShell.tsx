@@ -31,18 +31,19 @@ const COPY_BY_SLUG: Record<
   string,
   {
     h1: string;
-    /** Two short lines, rendered with tight spacing. First is the value
-     *  promise, second is the call-to-action. */
-    subheadLines: [string, string];
+    /** Headline-adjacent value promise. Reads as a tagline. */
+    subhead: string;
+    /** Smaller intro inside the form card — explains what the email
+     *  field is for so the agent knows the next step. */
+    formIntro: string;
     bullets: Array<{ strong: string; rest: string }>;
   }
 > = {
   ipre: {
     h1: 'Activate your Rejig.ai account',
-    subheadLines: [
-      'Your AI-powered social media assistant.',
+    subhead: 'Your AI-powered social media assistant.',
+    formIntro:
       'Enter your work email to verify your IPRE profile and start your 30-day free trial.',
-    ],
     bullets: [
       { strong: 'Verify your IPRE profile', rest: '— quick, no password needed' },
       {
@@ -159,21 +160,14 @@ export default function LandingShell({
             {copy?.h1 ?? 'Welcome to your Rejig onboarding'}
           </h1>
 
-          {copy ? (
-            // Two tight lines — value promise on top, CTA underneath.
-            <div className="mt-3 text-center text-sm sm:text-base" style={{ color: theme.ink, opacity: 0.7 }}>
-              <p>{copy.subheadLines[0]}</p>
-              <p className="mt-1">{copy.subheadLines[1]}</p>
-            </div>
-          ) : (
-            <p
-              className="mt-3 text-center text-sm sm:text-base"
-              style={{ color: theme.ink, opacity: 0.7 }}
-            >
-              {brokerage.tagline ||
-                'Enter your work email to verify your agent profile and begin onboarding.'}
-            </p>
-          )}
+          <p
+            className="mt-3 text-center text-sm sm:text-base"
+            style={{ color: theme.ink, opacity: 0.7 }}
+          >
+            {copy?.subhead ??
+              (brokerage.tagline ||
+                'Enter your work email to verify your agent profile and begin onboarding.')}
+          </p>
 
           {banner ? <div className="mt-6">{banner}</div> : null}
 
@@ -185,6 +179,14 @@ export default function LandingShell({
               boxShadow: '0 1px 3px rgba(0, 40, 63, 0.06)',
             }}
           >
+            {copy?.formIntro && (
+              <p
+                className="mb-5 text-center text-xs sm:text-sm leading-relaxed"
+                style={{ color: theme.ink, opacity: 0.65 }}
+              >
+                {copy.formIntro}
+              </p>
+            )}
             {form}
           </div>
 
