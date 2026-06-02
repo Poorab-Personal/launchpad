@@ -34,11 +34,21 @@ type PlanOption = {
 
 type PricingPayload = {
   brokerageName: string;
+  brokerageShortName: string;
+  brokerageLogoUrl: string | null;
   tagline: string;
   features: string[];
   trialDays: number;
   plans: PlanOption[];
 };
+
+// D2C falls back to brokerageName = 'Rejig.ai' in the API; the component uses
+// that to suppress the brokerage-partnership framing.
+const REJIG_PRODUCT_NAME = 'Rejig.ai';
+const REJIG_SUPPORT_EMAIL = 'support@rejig.ai';
+// Rejig wordmark — matches the portal header logo at /r/[token]/page.tsx.
+const REJIG_LOGO_URL =
+  'https://rejig.ai/wp-content/themes/rejigchild/assets/images/rejig-logo-1.png';
 
 export default function PaymentSetupTask({
   task,
@@ -187,47 +197,101 @@ function PricingPage({
   onPick: (p: PlanOption) => void;
   loadingPriceId: string | null;
 }) {
-  const { brokerageName, tagline, features, trialDays, plans } = pricing;
+  const { brokerageName, brokerageShortName, brokerageLogoUrl, tagline, features, trialDays, plans } = pricing;
+  // D2C / unconfigured = no brokerage co-brand to surface; the partnership
+  // framing only makes sense when there's a real brokerage in play.
+  const hasBrokerage = brokerageName !== REJIG_PRODUCT_NAME;
   // Adaptive grid: 1 plan = single centered card, 2 = 2-col, 3+ = 3-col
   const gridCols = plans.length === 1 ? 'grid-cols-1' : plans.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3';
-  const heading =
-    trialDays > 0 ? `Start Your ${trialDays}-Day Free Trial` : `Choose Your Plan`;
+  // Always "Choose Your Plan" — "Start Your … Trial" misled customers into
+  // thinking the trial begins today. Trial mechanics live in the banner + the
+  // "here's how it works" callout below.
+  const heading = 'Choose Your Plan';
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8">
-      <header className="text-center space-y-3">
+    <div className="mx-auto max-w-4xl space-y-10">
+      <header className="text-center space-y-2">
         <h2 className="text-3xl font-semibold tracking-tight text-[#1B2E35]">{heading}</h2>
-        <p className="text-[#1B2E35]/70">{tagline}</p>
         {trialDays > 0 && (
-          <p className="inline-flex items-center gap-1.5 text-xs font-medium text-[#EC531A]">
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-            </svg>
-            No charge today · trial starts at your onboarding call
+          // Was a loud orange tinted pill that upstaged the Recommended badge.
+          // Now a restrained line in brand purple — same color system as the
+          // primary action, no second accent competing.
+          <p className="text-sm font-medium text-[#6C4AB6]">
+            No charge today · {trialDays}-day free trial starts on your onboarding call
           </p>
         )}
+        {tagline && <p className="text-sm text-[#1B2E35]/60">{tagline}</p>}
       </header>
 
-      <div className={`grid gap-4 ${gridCols}`}>
-        {plans.map((plan) => (
-          <PlanCard
-            key={plan.id}
-            plan={plan}
-            loading={loadingPriceId === plan.stripePriceId}
-            disabled={loadingPriceId !== null && loadingPriceId !== plan.stripePriceId}
-            onPick={() => onPick(plan)}
-          />
-        ))}
+      {/* Plans + trust row visually grouped — the trust signals hug the cards
+          (tight space-y-4) so they read as belonging to the action above, not
+          as a separate section. */}
+      <div className="space-y-4">
+        <div className={`grid gap-4 ${gridCols}`}>
+          {plans.map((plan) => (
+            <PlanCard
+              key={plan.id}
+              plan={plan}
+              loading={loadingPriceId === plan.stripePriceId}
+              disabled={loadingPriceId !== null && loadingPriceId !== plan.stripePriceId}
+              onPick={() => onPick(plan)}
+            />
+          ))}
+        </div>
+
+        {/* Compact trust row — single neutral ink color throughout. "Stripe"
+            in semibold (no brand purple — was a second accent that didn't
+            earn its keep). Check icons in muted ink, not mint. */}
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-sm text-[#1B2E35]/75">
+          <span className="inline-flex items-center gap-1.5">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 0h10.5a2.25 2.25 0 0 1 2.25 2.25v6.75a2.25 2.25 0 0 1-2.25 2.25H6.75a2.25 2.25 0 0 1-2.25-2.25v-6.75a2.25 2.25 0 0 1 2.25-2.25Z" />
+            </svg>
+            Encrypted by <span className="font-semibold text-[#1B2E35]">Stripe</span>
+          </span>
+          <span aria-hidden className="text-[#1B2E35]/20">·</span>
+          <span className="inline-flex items-center gap-1.5">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+            </svg>
+            <a href={`mailto:${REJIG_SUPPORT_EMAIL}`} className="hover:underline">
+              Cancel anytime
+            </a>
+          </span>
+          {trialDays > 0 && (
+            <>
+              <span aria-hidden className="text-[#1B2E35]/20">·</span>
+              <span className="inline-flex items-center gap-1.5">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                </svg>
+                {trialDays}-day free trial
+              </span>
+            </>
+          )}
+        </div>
       </div>
 
-      <TrialCallout trialDays={trialDays} />
-
       {features.length > 0 && (
-        <div className="rounded-xl border border-[#E0DEE4] bg-white p-6">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/60 mb-4">
-            What&apos;s included
-          </h3>
-          <ul className="grid gap-3 sm:grid-cols-2">
+        // Collapsible — closed by default. The features card was eating a huge
+        // vertical chunk; agents who care can expand, the rest get a cleaner page.
+        <details className="group rounded-xl border border-[#E0DEE4] bg-white">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-6 py-4">
+            <span className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70">
+              What&apos;s included
+            </span>
+            <svg
+              className="h-4 w-4 text-[#1B2E35]/50 transition-transform group-open:rotate-180"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </summary>
+          <ul className="grid gap-3 px-6 pb-6 sm:grid-cols-2">
             {features.map((feature) => (
               <li key={feature} className="flex items-start gap-3 text-sm text-[#1B2E35]">
                 <svg
@@ -244,12 +308,34 @@ function PricingPage({
               </li>
             ))}
           </ul>
-        </div>
+        </details>
       )}
 
-      <p className="text-center text-xs text-[#1B2E35]/50">
-        Powered by Stripe. {brokerageName === 'Rejig.ai' ? 'Rejig.ai' : `${brokerageName} × Rejig.ai`}
-      </p>
+      {/* Partnership lockup — moved to the bottom (was redundantly above the
+          "What's included" box AND repeated again in a "A program from…"
+          footer line). One placement, one statement. Grayscale + same height
+          so the two logos read as a quiet co-brand. */}
+      <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-[#1B2E35]/60">
+        <span>Brought to you by</span>
+        {hasBrokerage && brokerageLogoUrl && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={brokerageLogoUrl}
+              alt={brokerageName}
+              className="h-7 w-auto object-contain opacity-70 grayscale"
+            />
+            <span>in partnership with</span>
+          </>
+        )}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={REJIG_LOGO_URL}
+          alt="Rejig.ai"
+          className="h-7 w-auto object-contain opacity-70 grayscale"
+        />
+      </div>
+
     </div>
   );
 }
@@ -304,11 +390,10 @@ function PlanCard({
         type="button"
         onClick={onPick}
         disabled={loading || disabled}
-        className={`inline-flex w-full items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-          isHighlighted
-            ? 'bg-[#6C4AB6] text-white hover:bg-[#5A3DA5]'
-            : 'bg-[#1B2E35] text-white hover:bg-[#1B2E35]/90'
-        }`}
+        // Same button style on both cards — Recommended-ness lives in the
+        // badge + border, not in a different button color. One CTA affordance,
+        // not two competing ones.
+        className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#1B2E35] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1B2E35]/90 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading ? (
           <>
@@ -324,59 +409,6 @@ function PlanCard({
   );
 }
 
-function TrialCallout({ trialDays }: { trialDays: number }) {
-  return (
-    <div className="rounded-xl border border-[#EC531A]/20 bg-[#EC531A]/5 px-6 py-5">
-      <div className="flex items-start gap-3">
-        <svg
-          className="mt-0.5 h-6 w-6 shrink-0 text-[#EC531A]"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth={1.8}
-          stroke="currentColor"
-          aria-hidden="true"
-        >
-          {/* lock-closed — reassurance, not the prior warning triangle */}
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 0h10.5a2.25 2.25 0 0 1 2.25 2.25v6.75a2.25 2.25 0 0 1-2.25 2.25H6.75a2.25 2.25 0 0 1-2.25-2.25v-6.75a2.25 2.25 0 0 1 2.25-2.25Z"
-          />
-        </svg>
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-[#1B2E35]">
-            No charge today — here&apos;s how it works
-          </p>
-          <ul className="space-y-1.5 text-sm leading-relaxed text-[#1B2E35]/80">
-            <li>
-              Your{' '}
-              <strong className="font-semibold text-[#1B2E35]">
-                {trialDays > 0
-                  ? `${trialDays}-day free trial begins the day of your onboarding call`
-                  : 'subscription begins the day of your onboarding call'}
-              </strong>{' '}
-              — not today.
-            </li>
-            <li>
-              We save your card now, but{' '}
-              <strong className="font-semibold text-[#1B2E35]">
-                {trialDays > 0
-                  ? 'you won’t be charged until the trial ends.'
-                  : 'you won’t be charged until then.'}
-              </strong>
-            </li>
-            <li>
-              Adding your card{' '}
-              <strong className="font-semibold text-[#1B2E35]">
-                kicks off your account setup.
-              </strong>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function CardEntryStage({
   plan,
@@ -399,6 +431,21 @@ function CardEntryStage({
 }) {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+      {/* Proper Back button — clear affordance to return to the plan picker
+          without using browser back (which would leave the portal entirely).
+          The "Change plan" link in the summary card below is a contextual
+          secondary path; this one is the primary nav. */}
+      <button
+        type="button"
+        onClick={onBack}
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-[#1B2E35]/70 transition-colors hover:text-[#6C4AB6]"
+      >
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+        </svg>
+        Back to plans
+      </button>
+
       <header className="space-y-1">
         <h2 className="text-2xl font-semibold text-[#1B2E35]">Save your card to create your account</h2>
         <p className="text-sm text-[#1B2E35]/70">
@@ -431,7 +478,7 @@ function CardEntryStage({
           <button
             type="button"
             onClick={onBack}
-            className="text-xs text-[#6C4AB6] underline whitespace-nowrap"
+            className="text-xs text-[#6C4AB6] underline whitespace-nowrap transition-colors hover:text-[#1B2E35]"
           >
             Change plan
           </button>
@@ -553,14 +600,14 @@ function CardForm({
             Saving…
           </>
         ) : (
-          'Save card & create my account'
+          'Save card — no charge today'
         )}
       </button>
       <p className="flex items-center justify-center gap-1.5 text-xs text-[#1B2E35]/55">
         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 0h10.5a2.25 2.25 0 0 1 2.25 2.25v6.75a2.25 2.25 0 0 1-2.25 2.25H6.75a2.25 2.25 0 0 1-2.25-2.25v-6.75a2.25 2.25 0 0 1 2.25-2.25Z" />
         </svg>
-        Secure &amp; encrypted via Stripe. No charge today.
+        Encrypted via Stripe · Cancel anytime
       </p>
     </form>
   );
