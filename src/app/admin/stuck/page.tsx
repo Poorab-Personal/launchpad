@@ -148,6 +148,9 @@ export default async function StuckCustomersPage({
                 Current Stage
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">
+                Waiting On
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">
                 Days Stuck
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#1B2E35]/54">
@@ -165,7 +168,7 @@ export default async function StuckCustomersPage({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-sm text-[#1B2E35]/40"
                 >
                   No customers match this filter.
@@ -201,6 +204,28 @@ export default async function StuckCustomersPage({
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-[#1B2E35]/70">
                       {c.currentStage}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      {c.blockingTasks.length === 0 ? (
+                        <span className="text-[#1B2E35]/40 italic">— (no active task)</span>
+                      ) : (
+                        <ul className="space-y-1">
+                          {c.blockingTasks.map((b) => (
+                            <li key={b.name} className="flex items-center gap-2">
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                  b.taskType === 'Client'
+                                    ? 'bg-[#6C4AB6]/10 text-[#6C4AB6]'
+                                    : 'bg-[#D97706]/10 text-[#D97706]'
+                                }`}
+                              >
+                                {b.taskType === 'Client' ? 'Customer' : 'Team'}
+                              </span>
+                              <span className="text-[#1B2E35]">{b.name}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm">
                       <span

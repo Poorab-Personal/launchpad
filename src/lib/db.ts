@@ -1262,6 +1262,12 @@ export interface StuckCustomerRow {
   hubspotTicketId: string;
   stripeSubscriptionId: string;
   createdAt: string;
+  /** The Active task(s) in the customer's current stage — i.e., what's
+   *  actually blocking the stage from advancing. `taskType` says who
+   *  needs to act: 'Client' = customer, 'Team' = internal. Empty array
+   *  is unusual (would mean stuck-but-nothing-blocking, possibly a
+   *  workflow-template misconfiguration). */
+  blockingTasks: Array<{ name: string; taskType: 'Client' | 'Team' }>;
 }
 
 /**
@@ -1346,6 +1352,40 @@ export async function getStuckCustomers(options: {
     .where(and(...whereClauses))
     .orderBy(asc(schema.customers.stageEnteredAt));
 
+  // Second-pass query: the Active tasks in each customer's current stage.
+  // These are the actual blockers — what the team / customer needs to do
+  // to advance the stage. Limited to Core product tasks (the main flow);
+  // Voice / Avatar add-on stages have their own tracking elsewhere.
+  const blockingByCustomer = new Map<string, Array<{ name: string; taskType: 'Client' | 'Team' }>>();
+  if (rows.length > 0) {
+    const customerIds = rows.map((r) => r.id);
+    const blockingRows = await db
+      .select({
+        customerId: schema.tasks.customerId,
+        taskName: schema.tasks.taskName,
+        taskType: schema.tasks.taskType,
+        stage: schema.tasks.stage,
+      })
+      .from(schema.tasks)
+      .where(
+        and(
+          inArray(schema.tasks.customerId, customerIds),
+          eq(schema.tasks.status, 'Active'),
+          eq(schema.tasks.product, 'Core'),
+        ),
+      );
+    // Pair each row with its customer's currentStage so we only keep
+    // tasks in THAT stage (not other-stage active tasks like
+    // Move Designs to Production that's already activated downstream).
+    const stageByCustomer = new Map(rows.map((r) => [r.id, r.currentStage]));
+    for (const t of blockingRows) {
+      if (t.stage !== stageByCustomer.get(t.customerId)) continue;
+      const list = blockingByCustomer.get(t.customerId) ?? [];
+      list.push({ name: t.taskName, taskType: t.taskType as 'Client' | 'Team' });
+      blockingByCustomer.set(t.customerId, list);
+    }
+  }
+
   const now = Date.now();
   return rows.map((r) => ({
     id: r.id,
@@ -1360,6 +1400,7 @@ export async function getStuckCustomers(options: {
     hubspotTicketId: r.hubspotTicketId ?? '',
     stripeSubscriptionId: r.stripeSubscriptionId ?? '',
     createdAt: iso(r.createdAt),
+    blockingTasks: blockingByCustomer.get(r.id) ?? [],
   }));
 }
 
