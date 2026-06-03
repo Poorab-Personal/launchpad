@@ -43,6 +43,28 @@ export interface DesignNote {
   at: string;
 }
 
+/** Free-form attachment metadata stored on internal notes (and other
+ *  event-bound jsonb arrays). Same shape Vercel Blob's `upload()` returns. */
+export interface InternalNoteAttachment {
+  url: string;
+  filename?: string;
+  size?: number;
+  contentType?: string;
+}
+
+/** Customer-scoped internal note. Stored as a row in `events` with
+ *  eventType='Internal Note'. Visible only inside /workspace; never to
+ *  customers. Append-only by API contract. */
+export interface InternalNote {
+  id: string;
+  customerId: string;
+  authorId: string | null;
+  authorName: string | null;
+  body: string;
+  attachments: InternalNoteAttachment[];
+  createdAt: string;
+}
+
 export interface AirtableAttachment {
   /** Airtable-assigned attachment id (`att...`). Present on reads, omitted when writing new attachments. */
   id?: string;

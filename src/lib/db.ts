@@ -29,6 +29,8 @@ import type {
   Call,
   Customer,
   Event,
+  InternalNote,
+  InternalNoteAttachment,
   RosterAgent,
   StripePlan,
   Task,
@@ -942,6 +944,90 @@ export async function getEventsForCustomer(
     relatedTaskId: r.relatedTaskId,
     createdAt: r.createdAt.toISOString(),
   }));
+}
+
+// ─── Public API: Internal Notes ─────────────────────────────────────────
+// Customer-scoped append-only notes. Persisted as `events` rows with
+// eventType='Internal Note' and a `{ body, attachments }` jsonb details
+// payload. Visible only inside /workspace. See docs/architecture.md.
+
+const INTERNAL_NOTE_EVENT_TYPE = 'Internal Note';
+
+type InternalNoteDetails = {
+  body?: string;
+  attachments?: InternalNoteAttachment[];
+};
+
+export async function getInternalNotes(customerId: string): Promise<InternalNote[]> {
+  const rows = await db
+    .select({
+      id: schema.events.id,
+      customerId: schema.events.customerId,
+      authorId: schema.events.actorTeamMemberId,
+      authorName: schema.teamMembers.name,
+      details: schema.events.details,
+      createdAt: schema.events.createdAt,
+    })
+    .from(schema.events)
+    .leftJoin(
+      schema.teamMembers,
+      eq(schema.teamMembers.id, schema.events.actorTeamMemberId),
+    )
+    .where(
+      and(
+        eq(schema.events.customerId, customerId),
+        eq(schema.events.eventType, INTERNAL_NOTE_EVENT_TYPE),
+      ),
+    )
+    .orderBy(desc(schema.events.createdAt));
+
+  return rows.map((r) => {
+    const details = (r.details ?? {}) as InternalNoteDetails;
+    return {
+      id: r.id,
+      customerId: r.customerId ?? customerId,
+      authorId: r.authorId,
+      authorName: r.authorName ?? null,
+      body: details.body ?? '',
+      attachments: details.attachments ?? [],
+      createdAt: r.createdAt.toISOString(),
+    };
+  });
+}
+
+export async function createInternalNote(args: {
+  customerId: string;
+  authorId: string;
+  body: string;
+  attachments: InternalNoteAttachment[];
+}): Promise<InternalNote> {
+  const details: InternalNoteDetails = {
+    body: args.body,
+    attachments: args.attachments,
+  };
+  const [row] = await db
+    .insert(schema.events)
+    .values({
+      customerId: args.customerId,
+      eventType: INTERNAL_NOTE_EVENT_TYPE,
+      actorTeamMemberId: args.authorId,
+      actorType: 'Team Member',
+      details,
+    })
+    .returning();
+  const author = await db.query.teamMembers.findFirst({
+    where: eq(schema.teamMembers.id, args.authorId),
+    columns: { name: true },
+  });
+  return {
+    id: row.id,
+    customerId: row.customerId ?? args.customerId,
+    authorId: row.actorTeamMemberId,
+    authorName: author?.name ?? null,
+    body: args.body,
+    attachments: args.attachments,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 export async function getTasksAssignedTo(

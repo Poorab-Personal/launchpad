@@ -3,9 +3,12 @@ import { notFound } from 'next/navigation';
 import { requireSession, getEffectiveContext } from '@/lib/auth/dal';
 import {
   getCustomerById,
+  getInternalNotes,
   getTasksForCustomer,
   getTeamMembers,
 } from '@/lib/db';
+import AddInternalNoteButton from '@/components/internal-notes/AddInternalNoteButton';
+import InternalNotesThread from '@/components/internal-notes/InternalNotesThread';
 import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from '@/types';
 import { latestNoteFrom } from '@/lib/design-notes';
 import { CallDateCallout } from '@/components/CallDateDisplay';
@@ -289,11 +292,12 @@ export default async function CustomerDetailPage({
   const { id: customerId } = await params;
   const { taskId: highlightTaskId } = await searchParams;
 
-  const [customer, tasks, members, ctx] = await Promise.all([
+  const [customer, tasks, members, ctx, internalNotes] = await Promise.all([
     getCustomerById(customerId),
     getTasksForCustomer(customerId),
     getTeamMembers(),
     getEffectiveContext(session),
+    getInternalNotes(customerId),
   ]);
 
   if (!customer) notFound();
@@ -361,6 +365,9 @@ export default async function CustomerDetailPage({
                 {customer.channel && ` · ${customer.channel}`}
               </span>
             </div>
+            <div className="mt-3">
+              <AddInternalNoteButton customerId={customerId} />
+            </div>
           </div>
           <div className="text-right space-y-3">
             <div>
@@ -412,6 +419,21 @@ export default async function CustomerDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Customer workspace (2/3 width) */}
         <div className="lg:col-span-2 space-y-6">
+          <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70">
+                  Internal Notes
+                </h2>
+                <p className="text-xs text-[#1B2E35]/50 mt-0.5">
+                  Team-only handoffs, context, screenshots. Not visible to the customer.
+                </p>
+              </div>
+              <AddInternalNoteButton customerId={customerId} />
+            </div>
+            <InternalNotesThread notes={internalNotes} mode="full" />
+          </section>
+
           <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
             <div className="mb-4">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70">
