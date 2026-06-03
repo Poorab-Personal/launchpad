@@ -3,7 +3,7 @@
   "type": "webhooks",
   "config": {
     "settings": {
-      "targetUrl": "https://launchpad-indol-ten.vercel.app/api/webhooks/hubspot",
+      "targetUrl": "https://onboarding.rejig.ai/api/webhooks/hubspot",
       "maxConcurrentRequests": 10
     },
     "subscriptions": {
