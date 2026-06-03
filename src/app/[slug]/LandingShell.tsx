@@ -34,16 +34,19 @@ const COPY_BY_SLUG: Record<
     /** Headline-adjacent value promise. Reads as a tagline. */
     subhead: string;
     /** Smaller intro inside the form card — explains what the email
-     *  field is for so the agent knows the next step. */
-    formIntro: string;
+     *  field is for so the agent knows the next step. Array → two
+     *  tight lines: action above, preview underneath. */
+    formIntro: readonly [string, string];
     bullets: Array<{ strong: string; rest: string }>;
   }
 > = {
   ipre: {
     h1: 'Activate your Rejig.ai account',
     subhead: 'Your AI-powered social media assistant.',
-    formIntro:
-      'Verify your IPRE email to access your pre-filled profile. 30-day free trial — no charge today.',
+    formIntro: [
+      'Enter your IPRE email to start setup.',
+      'Review your pre-filled info, save your card, book your onboarding call.',
+    ],
     bullets: [
       // Sharpened to disambiguate "verify" (email-matching only) from
       // "review" (the profile step). Bullet 2 makes the IPRE-roster pre-fill
@@ -184,12 +187,13 @@ export default function LandingShell({
             }}
           >
             {copy?.formIntro && (
-              <p
+              <div
                 className="mb-5 text-center text-xs sm:text-sm leading-relaxed"
                 style={{ color: theme.ink, opacity: 0.65 }}
               >
-                {copy.formIntro}
-              </p>
+                <p>{copy.formIntro[0]}</p>
+                <p className="mt-1">{copy.formIntro[1]}</p>
+              </div>
             )}
             {form}
           </div>
