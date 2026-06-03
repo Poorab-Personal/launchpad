@@ -27,6 +27,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { updateTaskStatus } from '@/lib/db';
+import { notifyTaskAssigned } from '@/lib/automations/notify-assignee';
 import { makeNote } from '@/lib/design-notes';
 
 const REVIEW_TASK = 'Review & Approve Your Brand Kit';
@@ -153,6 +154,9 @@ export async function handleDesignChangesRequested(
         taskOrder: 10 + round,
         status: 'Active',
         activatedAt: now,
+        // Stamp pre-emptively: the notify helper short-circuits on this column,
+        // so a concurrent invocation can't double-send. See plan §dedupe.
+        assigneeNotifiedAt: designerId ? now : null,
         visibleToClient: false,
         hasTeamReview: false,
         attachmentType: 'None',
@@ -235,6 +239,13 @@ export async function handleDesignChangesRequested(
     details: `Customer requested design changes (Round ${round}).${feedback ? ` Feedback: ${feedback}` : ''}`,
     relatedTaskId: result.reviseTask.id,
   });
+
+  // Notify the designer that the new Active revise task is in their queue.
+  // The review + upload tasks are Draft and will fire via Auto 2 when their
+  // deps clear.
+  if (designerId) {
+    void notifyTaskAssigned(result.reviseTask.id);
+  }
 
   return {
     round,

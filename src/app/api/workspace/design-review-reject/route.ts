@@ -7,6 +7,7 @@ import {
   getTasksForCustomer,
   updateTaskFields,
 } from '@/lib/db';
+import { notifyTaskAssigned } from '@/lib/automations/notify-assignee';
 
 const REVISE_INTERNAL_PATTERN = /^Revise Design \(Internal Round (\d+)\)$/;
 
@@ -99,6 +100,9 @@ export async function POST(request: NextRequest) {
 
   // Build the new Revise task. Inherit Stage + Stage Order from Review Designs,
   // push Task Order out so it sorts after the review.
+  // Stamp assigneeNotifiedAt at insert so the notify helper's dedupe is
+  // armed even before the post-commit fire — see plan §dedupe.
+  const now = new Date();
   const created = await createTask({
     taskName: newTaskName,
     customerId,
@@ -112,9 +116,12 @@ export async function POST(request: NextRequest) {
     attachmentType: 'None',
     instructions: feedback,
     assignedToTeamMemberId: designerId,
-    activatedAt: new Date(),
+    activatedAt: now,
+    assigneeNotifiedAt: now,
     product: 'Core',
   });
+
+  void notifyTaskAssigned(created.id);
 
   try {
     await createEvent(

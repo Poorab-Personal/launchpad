@@ -210,6 +210,7 @@ async function createTasksFromTemplates(
 
   const values = templates.map((t) => {
     const isActive = t.initialStatus === 'Active';
+    const assigneeId = t.assignedRole ? roleAssignments.get(t.assignedRole) ?? null : null;
     const embedUrl =
       t.taskTitle === SCHEDULE_ONBOARDING_TASK && onboardingCalendlyUrl
         ? onboardingCalendlyUrl
@@ -223,13 +224,18 @@ async function createTasksFromTemplates(
       stageOrder: t.stageOrder,
       taskOrder: t.taskOrder,
       status: t.initialStatus,
-      assignedToTeamMemberId: t.assignedRole ? roleAssignments.get(t.assignedRole) ?? null : null,
+      assignedToTeamMemberId: assigneeId,
       visibleToClient: t.visibleToClient,
       hasTeamReview: t.hasTeamReview,
       attachmentType: t.attachmentType,
       embedUrl,
       instructions: t.instructions ?? null,
       activatedAt: isActive ? now : null,
+      // Defensive: stamp pre-emptively if this template starts Active with a
+      // team assignee. All current workflows have only the Client intake task
+      // Active at create, but a future template row could change that — the
+      // stamp arms the notify helper's dedupe so re-fires no-op.
+      assigneeNotifiedAt: isActive && assigneeId ? now : null,
       product,
     } satisfies typeof schema.tasks.$inferInsert;
   });

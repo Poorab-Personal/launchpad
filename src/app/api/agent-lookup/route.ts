@@ -22,6 +22,7 @@ import { verifyHCaptcha } from '@/lib/captcha';
 import { getSetting } from '@/lib/db';
 import { lookupByEmail } from '@/lib/roster/lookup';
 import { createRosterCustomer } from '@/lib/automations/create-roster-customer';
+import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee';
 import { importRosterCustomerAssets } from '@/lib/roster/import-assets';
 
 interface SourceOffice {
@@ -229,6 +230,9 @@ export async function POST(request: NextRequest) {
     masterLogoUrl: brokerage.masterLogoUrl ?? null,
   });
 
+  // Defensive assignee-notify scan — see notify-assignee.ts comment.
+  await notifyAssigneesForNewCustomer(result.id);
+
   return Response.json({ match: true, redirect: `/r/${result.accessToken}` });
 }
 
@@ -370,6 +374,9 @@ async function handleTestMode(
     photoUrl: rosterRow.photoUrl ?? null,
     masterLogoUrl: brokerage.masterLogoUrl ?? null,
   });
+
+  // Defensive assignee-notify scan — see notify-assignee.ts comment.
+  await notifyAssigneesForNewCustomer(result.id);
 
   return Response.json({ match: true, redirect: `/r/${result.accessToken}` });
 }

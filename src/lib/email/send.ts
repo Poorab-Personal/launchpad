@@ -4,11 +4,12 @@ import WelcomeEmail from './templates/welcome';
 import DesignReadyEmail from './templates/design-ready';
 import CredentialsSentEmail from './templates/credentials-sent';
 import MagicLinkEmail from './templates/magic-link';
+import TaskAssignedEmail from './templates/task-assigned';
 
 const FROM = 'Rejig.ai Success Team <success@rejig.ai>';
 const REPLY_TO = 'success@rejig.ai';
 
-export type EmailTemplate = 'welcome' | 'design-ready' | 'credentials-sent';
+export type EmailTemplate = 'welcome' | 'design-ready' | 'credentials-sent' | 'task-assigned';
 
 interface BaseData {
   firstName: string;
@@ -27,16 +28,29 @@ interface DesignReadyData extends BaseData {
   designerNote?: string | null;
 }
 
+interface TaskAssignedData {
+  firstName: string;
+  taskName: string;
+  customerName: string;
+  workspaceUrl: string;
+  instructions?: string | null;
+}
+
 type TemplateDataMap = {
   welcome: BaseData;
   'design-ready': DesignReadyData;
   'credentials-sent': CredentialsData;
+  'task-assigned': TaskAssignedData;
 };
 
 const subjects: Record<EmailTemplate, string> = {
   welcome: 'Welcome to Rejig — your portal is ready',
   'design-ready': 'Your design proof is ready to review',
   'credentials-sent': 'Your Rejig account is ready',
+  // Overridden per-call by sendEmail({ subject }) — task-assigned interpolates
+  // the task and customer name. This static fallback is only used if a caller
+  // forgets the override.
+  'task-assigned': 'New task in your queue',
 };
 
 function renderTemplate<T extends EmailTemplate>(
@@ -50,6 +64,8 @@ function renderTemplate<T extends EmailTemplate>(
       return React.createElement(DesignReadyEmail, data as DesignReadyData);
     case 'credentials-sent':
       return React.createElement(CredentialsSentEmail, data as CredentialsData);
+    case 'task-assigned':
+      return React.createElement(TaskAssignedEmail, data as TaskAssignedData);
   }
   // exhaustiveness guard
   throw new Error(`Unknown email template: ${template}`);
@@ -59,10 +75,13 @@ export async function sendEmail<T extends EmailTemplate>({
   template,
   to,
   data,
+  subject,
 }: {
   template: T;
   to: string;
   data: TemplateDataMap[T];
+  /** Optional override. When omitted, falls back to the static `subjects[template]`. */
+  subject?: string;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -74,7 +93,7 @@ export async function sendEmail<T extends EmailTemplate>({
     from: FROM,
     to,
     replyTo: REPLY_TO,
-    subject: subjects[template],
+    subject: subject ?? subjects[template],
     react: renderTemplate(template, data),
   });
 

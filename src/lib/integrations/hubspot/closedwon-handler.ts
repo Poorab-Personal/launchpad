@@ -4,6 +4,7 @@ import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
+import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee';
 import {
   createCustomerJourneyTicket,
   getDealForClosedWon,
@@ -214,6 +215,8 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
     } catch (err) {
       console.warn('[hubspot closedwon] Welcome email failed (non-blocking)', err);
     }
+    // Defensive assignee-notify scan — see notify-assignee.ts comment.
+    await notifyAssigneesForNewCustomer(customer.id);
   }
 
   // ─── 6. Update Stripe metadata — idempotent on Stripe's side ────────────

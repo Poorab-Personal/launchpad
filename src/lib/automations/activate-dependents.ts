@@ -11,6 +11,7 @@ import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
+import { notifyTaskAssigned } from '@/lib/automations/notify-assignee';
 import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
 
 const REVIEW_BRAND_KIT_TASK = 'Review & Approve Your Brand Kit';
@@ -94,9 +95,19 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
 
     // Race guard: only activate if still Draft. Returns 0 rows when another
     // concurrent Auto 2 already activated this one — silent no-op.
+    // assigneeNotifiedAt is stamped in the SAME update so the losing concurrent
+    // call sees it set and the notify helper short-circuits — see
+    // docs/plans/internal-task-assignee-notifications.md.
+    const activationUpdate: Partial<typeof schema.tasks.$inferInsert> = {
+      status: 'Active',
+      activatedAt: new Date(),
+    };
+    if (draft.assignedToTeamMemberId) {
+      activationUpdate.assigneeNotifiedAt = new Date();
+    }
     const result = await db
       .update(schema.tasks)
-      .set({ status: 'Active', activatedAt: new Date() })
+      .set(activationUpdate)
       .where(and(eq(schema.tasks.id, draft.id), eq(schema.tasks.status, 'Draft')))
       .returning({ id: schema.tasks.id });
 
@@ -112,6 +123,9 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
       // becomes Active. Best-effort fire-and-forget.
       if (draft.taskName === REVIEW_BRAND_KIT_TASK) {
         void triggerCustomerEmail('design-ready', customerId);
+      }
+      if (draft.assignedToTeamMemberId) {
+        void notifyTaskAssigned(draft.id);
       }
     }
   }
@@ -334,9 +348,16 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     const canActivate = depIds.length === 0 || depIds.every((id) => allCompletedIds.has(id));
     if (!canActivate) continue;
 
+    const newStageUpdate: Partial<typeof schema.tasks.$inferInsert> = {
+      status: 'Active',
+      activatedAt: new Date(),
+    };
+    if (t.assignedToTeamMemberId) {
+      newStageUpdate.assigneeNotifiedAt = new Date();
+    }
     const result = await db
       .update(schema.tasks)
-      .set({ status: 'Active', activatedAt: new Date() })
+      .set(newStageUpdate)
       .where(and(eq(schema.tasks.id, t.id), eq(schema.tasks.status, 'Draft')))
       .returning({ id: schema.tasks.id });
 
@@ -352,6 +373,9 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
       // task can become Active when the stage advances to Review Your Designs).
       if (t.taskName === REVIEW_BRAND_KIT_TASK) {
         void triggerCustomerEmail('design-ready', customerId);
+      }
+      if (t.assignedToTeamMemberId) {
+        void notifyTaskAssigned(t.id);
       }
     }
   }

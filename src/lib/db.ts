@@ -736,15 +736,47 @@ export async function updateTaskFields(
   taskId: string,
   fields: Partial<typeof schema.tasks.$inferInsert>,
 ): Promise<Task> {
+  // Read the existing assignment before the write so we can detect a
+  // reassignment that should re-notify. One PK lookup; only fires the
+  // notification path when the assignment actually changed.
+  const prevRow =
+    fields.assignedToTeamMemberId !== undefined
+      ? await db.query.tasks.findFirst({
+          where: eq(schema.tasks.id, taskId),
+          columns: { assignedToTeamMemberId: true },
+        })
+      : null;
+
+  // If the assignment is changing to a non-null member on what will be an
+  // Active task, clear assigneeNotifiedAt in this UPDATE so the notify helper
+  // doesn't short-circuit on a stale stamp from the prior assignee.
+  const reassignedTo =
+    fields.assignedToTeamMemberId !== undefined
+    && fields.assignedToTeamMemberId !== null
+    && prevRow
+    && prevRow.assignedToTeamMemberId !== fields.assignedToTeamMemberId
+      ? (fields.assignedToTeamMemberId as string)
+      : null;
+  const setFields: Partial<typeof schema.tasks.$inferInsert> = { ...fields };
+  if (reassignedTo) {
+    setFields.assigneeNotifiedAt = null;
+  }
+
   const [row] = await db
     .update(schema.tasks)
-    .set(fields)
+    .set(setFields)
     .where(eq(schema.tasks.id, taskId))
     .returning();
   if (!row) throw new Error(`Task ${taskId} not found`);
   if (row.status === 'Completed') {
     const { handleTaskCompleted } = await import('@/lib/automations/activate-dependents');
     await handleTaskCompleted(row.id);
+  }
+  // Reassignment notification — only fires when (a) the assignee changed,
+  // (b) the post-update status is Active. Best-effort.
+  if (reassignedTo && row.status === 'Active') {
+    const { notifyTaskAssigned } = await import('@/lib/automations/notify-assignee');
+    void notifyTaskAssigned(row.id);
   }
   return mapDbTask(row);
 }
@@ -771,15 +803,38 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus): Prom
   const update: Partial<typeof schema.tasks.$inferInsert> = { status };
   if (status === 'Completed') update.completedAt = now;
   if (status === 'Active') update.activatedAt = now;
+  // Defensive sibling of updateTaskFields: if anything ever flips status to
+  // Active here, race-guard via the prior status and stamp assigneeNotifiedAt
+  // inside the same UPDATE so a concurrent winner can't double-notify.
+  // Current callers only set Completed, but the function accepts Active.
+  if (status === 'Active') {
+    update.assigneeNotifiedAt = now;
+  }
+  const whereClause =
+    status === 'Active'
+      ? and(eq(schema.tasks.id, taskId), ne(schema.tasks.status, 'Active'))
+      : eq(schema.tasks.id, taskId);
   const [row] = await db
     .update(schema.tasks)
     .set(update)
-    .where(eq(schema.tasks.id, taskId))
+    .where(whereClause)
     .returning();
-  if (!row) throw new Error(`Task ${taskId} not found`);
+  if (!row) {
+    if (status === 'Active') {
+      // Race lost or task missing — re-read to return the current row.
+      const existing = await db.query.tasks.findFirst({ where: eq(schema.tasks.id, taskId) });
+      if (!existing) throw new Error(`Task ${taskId} not found`);
+      return mapDbTask(existing);
+    }
+    throw new Error(`Task ${taskId} not found`);
+  }
   if (status === 'Completed') {
     const { handleTaskCompleted } = await import('@/lib/automations/activate-dependents');
     await handleTaskCompleted(row.id);
+  }
+  if (status === 'Active' && row.assignedToTeamMemberId) {
+    const { notifyTaskAssigned } = await import('@/lib/automations/notify-assignee');
+    void notifyTaskAssigned(row.id);
   }
   return mapDbTask(row);
 }
