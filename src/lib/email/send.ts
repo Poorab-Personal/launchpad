@@ -9,6 +9,21 @@ import TaskAssignedEmail from './templates/task-assigned';
 const FROM = 'Rejig.ai Success Team <success@rejig.ai>';
 const REPLY_TO = 'success@rejig.ai';
 
+/**
+ * Templates that go to the customer's inbox — these get auto-BCC'd to the
+ * internal monitoring address so we can spot delivery / content issues
+ * without polling Resend. Excludes internal-team templates (task-assigned,
+ * magic-link) and ops alerts (sendAlertEmail).
+ *
+ * TODO: once the team is monitoring, swap to success@rejig.ai.
+ */
+const CUSTOMER_FACING_TEMPLATES: ReadonlySet<EmailTemplate> = new Set([
+  'welcome',
+  'design-ready',
+  'credentials-sent',
+]);
+const CUSTOMER_EMAIL_BCC = 'poorab@rejig.ai';
+
 export type EmailTemplate = 'welcome' | 'design-ready' | 'credentials-sent' | 'task-assigned';
 
 interface BaseData {
@@ -95,6 +110,7 @@ export async function sendEmail<T extends EmailTemplate>({
     replyTo: REPLY_TO,
     subject: subject ?? subjects[template],
     react: renderTemplate(template, data),
+    ...(CUSTOMER_FACING_TEMPLATES.has(template) ? { bcc: CUSTOMER_EMAIL_BCC } : {}),
   });
 
   if (result.error) {
