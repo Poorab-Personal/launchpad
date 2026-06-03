@@ -317,8 +317,16 @@ export async function ensureContactCompanyAssociation(
  * locked). So our webhook handler does it via API after capturing the
  * meeting datetime.
  *
+ * Uses createDefault — HubSpot's "use the default association label for
+ * this object pair" endpoint. We tried `create()` with explicit
+ * associationTypeId: 222 first; HS resolves the meeting ID to a
+ * CONVERSATION_SESSION instead of MEETING under that endpoint and
+ * returns INVALID_OBJECT_IDS. The default endpoint resolves the
+ * engagement type correctly. Diagnosed 2026-06-02 via Brandy Webster's
+ * backfill; the previous implementation had been silently failing on
+ * every live webhook delivery.
+ *
  * Idempotent: 409 = already associated → swallow. Other errors bubble.
- * Uses Meeting → Ticket type id 222 (HS-defined).
  */
 export async function ensureMeetingTicketAssociation(
   meetingId: string,
@@ -326,12 +334,11 @@ export async function ensureMeetingTicketAssociation(
 ): Promise<void> {
   const hs = client();
   try {
-    await hs.crm.associations.v4.basicApi.create(
+    await hs.crm.associations.v4.basicApi.createDefault(
       'meetings',
       meetingId,
       'tickets',
       ticketId,
-      [{ associationCategory: HS_DEFINED, associationTypeId: 222 }],
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
