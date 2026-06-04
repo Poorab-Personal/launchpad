@@ -6,6 +6,7 @@ import { getBrokerageByDefaultWorkflowKey } from '@/lib/db';
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee';
+import { notifyCustomerCreated } from '@/lib/automations/notify-new-customer';
 import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
 import { getSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
 import type { Customer } from '@/types';
@@ -107,6 +108,9 @@ export async function POST(request: NextRequest) {
   // starting Active, so typically a no-op — but a future template row with
   // initial_status='Active' on a Team task would otherwise silently skip.
   await notifyAssigneesForNewCustomer(customer.id);
+
+  // Internal alert to the monitoring inbox.
+  await notifyCustomerCreated(customer.id);
 
   // Stripe Customer creation moved to the SetupIntent route (lazy-create).
   // Pre-Phase-1.5.6 this fired here at intake for setup-intent-at-intake
