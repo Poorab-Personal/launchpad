@@ -6,13 +6,22 @@ let _client: Stripe | null = null;
  * Lazy Stripe client init. Don't throw at module load — only when actually
  * called. Lets the app boot in dev/preview environments without
  * STRIPE_SECRET_KEY set; only the routes that touch Stripe need it.
+ *
+ * Key resolution mirrors the closedwon-handler pattern:
+ *   - Prefer STRIPE_LIVE_SECRET_KEY (the LIVE Rejig Stripe account key,
+ *     used by IPRE / future B2B production payments).
+ *   - Fall back to STRIPE_SECRET_KEY (typically the sandbox key in local
+ *     dev or pre-cutover Preview environments).
+ * This means Vercel Production needs only STRIPE_LIVE_SECRET_KEY set;
+ * STRIPE_SECRET_KEY can stay as sandbox for dev/preview without leaking
+ * sandbox into prod.
  */
 function client(): Stripe {
   if (_client) return _client;
-  const key = process.env.STRIPE_SECRET_KEY;
+  const key = process.env.STRIPE_LIVE_SECRET_KEY ?? process.env.STRIPE_SECRET_KEY;
   if (!key) {
     throw new Error(
-      'STRIPE_SECRET_KEY is not set. Required for Stripe operations (customer/sub/SetupIntent creation).',
+      'STRIPE_LIVE_SECRET_KEY (or STRIPE_SECRET_KEY) is not set. Required for Stripe operations (customer/sub/SetupIntent creation).',
     );
   }
   _client = new Stripe(key);
