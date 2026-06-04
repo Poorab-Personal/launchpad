@@ -46,13 +46,14 @@ const SWAP: Record<string, string> = {
 };
 
 async function main() {
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
-  if (!stripeKey) throw new Error('STRIPE_SECRET_KEY missing');
+  // Mirrors the runtime client (src/lib/stripe.ts): prefer LIVE then fall back.
+  const stripeKey = process.env.STRIPE_LIVE_SECRET_KEY ?? process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey) throw new Error('STRIPE_LIVE_SECRET_KEY (or STRIPE_SECRET_KEY) missing');
   if (!stripeKey.startsWith('sk_live_')) {
     throw new Error(
-      `STRIPE_SECRET_KEY is "${stripeKey.slice(0, 8)}…" — expected sk_live_*. ` +
+      `Resolved Stripe key is "${stripeKey.slice(0, 8)}…" — expected sk_live_*. ` +
       `Refusing to flip stripe_plans while still on sandbox. ` +
-      `Swap Vercel + .env.local env vars to live keys first.`,
+      `Set STRIPE_LIVE_SECRET_KEY=sk_live_… in .env.local first.`,
     );
   }
 

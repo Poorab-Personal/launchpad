@@ -1,9 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getCustomerById, updateCustomerFields, updateTaskStatus } from '@/lib/db';
-import { db } from '@/db';
-import * as schema from '@/db/schema';
-import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
-import { sendAlertEmail } from '@/lib/email/send';
+import { runHubspotIntakePushWithAudit } from '@/lib/integrations/hubspot/intake-handler';
 
 /**
  * POST /api/customers/[id]/payment-setup/confirm
@@ -70,71 +67,7 @@ export async function POST(
   // Auto 2's trigger remains in place as an idempotent backstop in case the
   // Stripe-webhook path fires before this route (e.g., user closes tab
   // between Stripe.confirmSetup() and this POST landing).
-  await runHubspotIntakePush(id, customer.name);
+  await runHubspotIntakePushWithAudit(id, customer.name);
 
   return Response.json({ ok: true });
-}
-
-async function runHubspotIntakePush(customerId: string, customerName: string) {
-  try {
-    const result = await pushCustomerIntakeToHubSpot(customerId);
-
-    if (result.kind === 'pushed') {
-      await db.insert(schema.events).values({
-        customerId,
-        eventType: 'HS Ticket Created',
-        actorType: 'System',
-        details: `HubSpot Ticket ${result.ticketId} created (Contact ${result.contactId}${result.contactWasNew ? ' [new]' : ''}).`,
-      });
-    } else if (result.kind === 'skipped') {
-      await db.insert(schema.events).values({
-        customerId,
-        eventType: 'HS Ticket Push Skipped',
-        actorType: 'System',
-        details: result.reason,
-      });
-    } else {
-      // result.kind === 'error' — push returned a soft failure (HS API said
-      // no, brokerage misconfigured, etc.). Audit + alert.
-      await db.insert(schema.events).values({
-        customerId,
-        eventType: 'HS Ticket Push Failed',
-        actorType: 'System',
-        details: result.error,
-      });
-      void sendOpsAlert(customerId, customerName, result.error);
-    }
-  } catch (err) {
-    // Threw (network / bug / etc.). Audit + alert. Never surface to user.
-    const message = err instanceof Error ? err.message : String(err);
-    await db.insert(schema.events).values({
-      customerId,
-      eventType: 'HS Ticket Push Threw',
-      actorType: 'System',
-      details: message.slice(0, 1000),
-    });
-    void sendOpsAlert(customerId, customerName, message);
-  }
-}
-
-async function sendOpsAlert(customerId: string, customerName: string, reason: string) {
-  try {
-    await sendAlertEmail({
-      // Temporary: route HS-push failures to poorab@rejig.ai until there's a
-      // proper internal ops inbox. ALERTS_EMAIL env wins if set in Vercel.
-      to: process.env.ALERTS_EMAIL ?? 'poorab@rejig.ai',
-      subject: `[LaunchPad] HS Ticket Push Failed: ${customerName}`,
-      text: [
-        `Customer: ${customerName}`,
-        `Customer ID: ${customerId}`,
-        `Reason: ${reason}`,
-        ``,
-        `The customer saved their card successfully. The HubSpot ticket was NOT created.`,
-        `Investigate: /workspace/customers/${customerId}`,
-      ].join('\n'),
-    });
-  } catch (err) {
-    // Don't let an alert-email failure mask the original problem. Log only.
-    console.error('[confirm route] failed to send ops alert', err);
-  }
 }

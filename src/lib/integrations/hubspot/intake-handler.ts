@@ -34,6 +34,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
+import { sendAlertEmail } from '@/lib/email/send';
 import {
   createContact,
   createCustomerJourneyTicket,
@@ -193,4 +194,84 @@ export async function pushCustomerIntakeToHubSpot(customerId: string): Promise<I
   console.log(`[HS intake] customer=${customer.id} type=${customer.type} → contact=${contactId} (new=${contactWasNew}) → ticket=${ticketId}${companyId ? ` (company=${companyId})` : ''}`);
 
   return { kind: 'pushed', contactId, ticketId, contactWasNew };
+}
+
+/**
+ * Audit-aware wrapper around `pushCustomerIntakeToHubSpot`. Writes a customer
+ * event for every outcome (created / skipped / failed / threw) and emails
+ * ALERTS_EMAIL on real failures. Used by:
+ *   - `/payment-setup/confirm` route (primary path for Keyes/IPRE)
+ *   - Auto 2's INTAKE_PUSH_TRIGGER_TASK block (idempotent backstop for
+ *     Keyes/IPRE; sole HS-push observability surface for B2B-BW which has
+ *     no Stripe webhook).
+ *
+ * Best-effort throughout: alert-email failures don't mask the original
+ * problem (logged only). The wrapped push call is already idempotent via
+ * the `hubspotTicketId-already-set` short-circuit in
+ * `pushCustomerIntakeToHubSpot`.
+ *
+ * Noise note: on the Keyes/IPRE happy path the confirm route writes
+ * `HS Ticket Created` first; the Auto 2 backstop subsequently writes
+ * `HS Ticket Push Skipped (already pushed)`. Two events per customer,
+ * but audit-accurate.
+ */
+export async function runHubspotIntakePushWithAudit(
+  customerId: string,
+  customerName: string,
+): Promise<void> {
+  try {
+    const result = await pushCustomerIntakeToHubSpot(customerId);
+
+    if (result.kind === 'pushed') {
+      await db.insert(schema.events).values({
+        customerId,
+        eventType: 'HS Ticket Created',
+        actorType: 'System',
+        details: `HubSpot Ticket ${result.ticketId} created (Contact ${result.contactId}${result.contactWasNew ? ' [new]' : ''}).`,
+      });
+    } else if (result.kind === 'skipped') {
+      await db.insert(schema.events).values({
+        customerId,
+        eventType: 'HS Ticket Push Skipped',
+        actorType: 'System',
+        details: result.reason,
+      });
+    } else {
+      await db.insert(schema.events).values({
+        customerId,
+        eventType: 'HS Ticket Push Failed',
+        actorType: 'System',
+        details: result.error,
+      });
+      void sendOpsAlert(customerId, customerName, result.error);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await db.insert(schema.events).values({
+      customerId,
+      eventType: 'HS Ticket Push Threw',
+      actorType: 'System',
+      details: message.slice(0, 1000),
+    });
+    void sendOpsAlert(customerId, customerName, message);
+  }
+}
+
+async function sendOpsAlert(customerId: string, customerName: string, reason: string) {
+  try {
+    await sendAlertEmail({
+      to: process.env.ALERTS_EMAIL ?? 'poorab@rejig.ai',
+      subject: `[LaunchPad] HS Ticket Push Failed: ${customerName}`,
+      text: [
+        `Customer: ${customerName}`,
+        `Customer ID: ${customerId}`,
+        `Reason: ${reason}`,
+        ``,
+        `The customer was created. The HubSpot ticket was NOT.`,
+        `Investigate: /workspace/customers/${customerId}`,
+      ].join('\n'),
+    });
+  } catch (err) {
+    console.error('[runHubspotIntakePushWithAudit] failed to send ops alert', err);
+  }
 }

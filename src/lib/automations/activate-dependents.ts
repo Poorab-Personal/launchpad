@@ -12,7 +12,7 @@ import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { notifyTaskAssigned } from '@/lib/automations/notify-assignee';
-import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
+import { runHubspotIntakePushWithAudit } from '@/lib/integrations/hubspot/intake-handler';
 
 const REVIEW_BRAND_KIT_TASK = 'Review & Approve Your Brand Kit';
 
@@ -23,6 +23,8 @@ const REVIEW_BRAND_KIT_TASK = 'Review & Approve Your Brand Kit';
 // ticket; self-serve D2C does not exist). Keyes/BW are out of scope for now.
 const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
   'B2B-IPRE': 'Capture Payment Method',
+  'B2B-Keyes': 'Capture Payment Method',
+  'B2B-BW': 'Confirm Your Information',
 };
 
 const NEXT_STAGE_BY_PRODUCT: Record<'Core' | 'Voice' | 'Avatar', { stageField: 'currentStage' | 'voiceStage' | 'avatarStage'; workflowKeyForCustomer: (custType: 'D2C' | 'B2B', channel: string) => string }> = {
@@ -388,21 +390,13 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
   // per the 2026-05-14 incident). Best-effort: failures are logged, never thrown.
   const cust = await db.query.customers.findFirst({
     where: eq(schema.customers.id, customerId),
-    columns: { workflowKey: true },
+    columns: { workflowKey: true, name: true },
   });
   const triggerTaskName = cust ? INTAKE_PUSH_TRIGGER_TASK[cust.workflowKey] : undefined;
-  if (triggerTaskName && completedTask.taskName === triggerTaskName) {
-    try {
-      const result = await pushCustomerIntakeToHubSpot(customerId);
-      if (result.kind === 'error') {
-        console.error('[Auto 2] HS intake push error:', result.error);
-      } else if (result.kind === 'skipped') {
-        console.log('[Auto 2] HS intake push skipped:', result.reason);
-      } else {
-        console.log('[Auto 2] HS intake push: pushed', { ticketId: result.ticketId });
-      }
-    } catch (err) {
-      console.error('[Auto 2] HS intake push threw (non-blocking):', err);
-    }
+  if (cust && triggerTaskName && completedTask.taskName === triggerTaskName) {
+    // Audit-aware wrapper writes customer events + emails ALERTS_EMAIL on
+    // failure. Important for B2B-BW (sole HS-push path) and for the
+    // Keyes/IPRE idempotent backstop case.
+    await runHubspotIntakePushWithAudit(customerId, cust.name);
   }
 }
