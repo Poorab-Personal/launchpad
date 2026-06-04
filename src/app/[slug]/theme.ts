@@ -20,7 +20,6 @@ export const DEFAULT_THEME: LandingTheme = {
   serifHeadline: false,
 };
 
-// Only IPRE is branded for now; Keyes / B&W stay neutral until wired here.
 const BROKERAGE_THEME: Record<string, LandingTheme> = {
   // IPRE (Illustrated Properties) — Inland Greens palette.
   // Ivory cream bg + Jade primary + Ocean ink + Sage accent. Serif headline
@@ -33,6 +32,36 @@ const BROKERAGE_THEME: Record<string, LandingTheme> = {
     ink: '#00283F',
     accent: '#92ADAC',
     serifHeadline: true,
+  },
+
+  // Keyes — Floridian-inspired palette per official brand book.
+  // Delray Beach cream bg + Everglade Green primary + Miami Sands accent.
+  // Serif headline (Fraunces — Google Fonts substitute for Keyes' paid
+  // "The Picnic Club" brand font).
+  keyes: {
+    bg: '#F7F3E5',            // Delray Beach
+    surface: '#FFFFFF',
+    primary: '#044439',       // Everglade Green
+    primaryHover: '#033329',
+    ink: '#1B2E35',
+    accent: '#F3D8BE',        // Miami Sands
+    serifHeadline: true,
+    headlineFontVar: 'var(--font-fraunces)',
+  },
+
+  // Baird & Warner — Deep Lake + Amber Wheat from official brand book.
+  // Sans-serif throughout (B&W's proprietary "BW Bow Tie" is corporate-only;
+  // brand book directs digital to clean supportive sans-serifs — we use
+  // the existing Outfit fallback, very close to brand-recommended Plus
+  // Jakarta Sans).
+  bw: {
+    bg: '#F7F4EB',            // neutral warm cream
+    surface: '#FFFFFF',
+    primary: '#192D6B',       // Deep Lake
+    primaryHover: '#101F4F',
+    ink: '#1B2E35',
+    accent: '#DCAE1D',        // Amber Wheat
+    serifHeadline: false,
   },
 };
 

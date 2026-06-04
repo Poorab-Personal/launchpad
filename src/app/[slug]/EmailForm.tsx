@@ -55,6 +55,11 @@ export interface LandingTheme {
   ink: string;
   accent: string;
   serifHeadline: boolean;
+  /** Optional explicit headline font CSS variable
+   *  (e.g. `'var(--font-fraunces)'`). When set, overrides the default
+   *  Cormorant/Outfit selection driven by `serifHeadline`. Use for
+   *  per-brokerage brand fonts. */
+  headlineFontVar?: string;
 }
 
 type LookupResponse =

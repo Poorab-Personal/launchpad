@@ -64,6 +64,50 @@ const COPY_BY_SLUG: Record<
       },
     ],
   },
+
+  keyes: {
+    h1: 'Activate your Rejig.ai account',
+    subhead: 'Your AI-powered social media assistant.',
+    formIntro: [
+      'Enter your Keyes email to start setup.',
+      'Review your pre-filled info, save your card, book your onboarding call.',
+    ],
+    bullets: [
+      { strong: 'Verify your Keyes email', rest: '— no password, no signup' },
+      {
+        strong: 'Review your pre-filled Keyes profile & save your card',
+        rest: '— first 30 days free, no charge today',
+      },
+      { strong: 'Book your onboarding call', rest: '— 30 minutes with our team' },
+      {
+        strong: "We'll design your brand kit",
+        rest: '— ready before your onboarding call',
+      },
+    ],
+  },
+
+  // Baird & Warner — no payment, brokerage covers it via master agreement.
+  // Bullet 2 reflects that (no "save your card" framing).
+  bw: {
+    h1: 'Activate your Rejig.ai account',
+    subhead: 'Your AI-powered social media assistant.',
+    formIntro: [
+      'Enter your Baird & Warner email to start setup.',
+      'Review your pre-filled info and book your onboarding call.',
+    ],
+    bullets: [
+      { strong: 'Verify your Baird & Warner email', rest: '— no password, no signup' },
+      {
+        strong: 'Review your pre-filled Baird & Warner profile',
+        rest: '— provided by your brokerage',
+      },
+      { strong: 'Book your onboarding call', rest: '— 30 minutes with our team' },
+      {
+        strong: "We'll design your brand kit",
+        rest: '— ready before your onboarding call',
+      },
+    ],
+  },
 };
 
 export default function LandingShell({
@@ -82,9 +126,16 @@ export default function LandingShell({
   banner?: ReactNode;
 }) {
   const copy = COPY_BY_SLUG[slug];
-  const headlineFontFamily = theme.serifHeadline
-    ? 'var(--font-cormorant), Georgia, "Times New Roman", serif'
-    : 'var(--font-outfit), sans-serif';
+  // headlineFontVar (per-brokerage override) wins over the default
+  // Cormorant/Outfit fallback keyed off serifHeadline.
+  const headlineFallbackStack = theme.serifHeadline
+    ? 'Georgia, "Times New Roman", serif'
+    : 'sans-serif';
+  const headlineFontFamily = theme.headlineFontVar
+    ? `${theme.headlineFontVar}, ${headlineFallbackStack}`
+    : theme.serifHeadline
+      ? `var(--font-cormorant), ${headlineFallbackStack}`
+      : `var(--font-outfit), ${headlineFallbackStack}`;
 
   return (
     <div

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist_Mono } from "next/font/google";
-import { Outfit, Open_Sans, Cormorant_Garamond } from "next/font/google";
+import { Outfit, Open_Sans, Cormorant_Garamond, Fraunces } from "next/font/google";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -15,6 +15,14 @@ const cormorantGaramond = Cormorant_Garamond({
   variable: "--font-cormorant",
   subsets: ["latin"],
   weight: ["500", "600", "700"],
+});
+
+// Modern editorial serif — Keyes landing headline. Free Google Fonts
+// substitute for Keyes' paid "The Picnic Club" brand font.
+const fraunces = Fraunces({
+  variable: "--font-fraunces",
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
 });
 
 const openSans = Open_Sans({
@@ -41,7 +49,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${outfit.variable} ${openSans.variable} ${cormorantGaramond.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${outfit.variable} ${openSans.variable} ${cormorantGaramond.variable} ${fraunces.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
