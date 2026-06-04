@@ -1,7 +1,7 @@
 /**
  * Reusable Rejig snapshot importer.
  *
- * Pulls the live `${REJIG_API_URL}/dashboard/admin/account-list` snapshot
+ * Pulls the live `https://api.rejig.ai/dashboard/admin/account-list` snapshot
  * and writes 6 signal rows per account into `customer_usage_signals`.
  * Idempotent on (customer_id | rejig_user_id, signal_type, observed_at).
  *

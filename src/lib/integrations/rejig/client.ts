@@ -2,17 +2,19 @@
  * Rejig API client — fetches the customer-account snapshot used by the BI
  * ingestion pipeline. API-only per Pass 2.7 §29.1 (no file-mode read path).
  *
- * Auth via X-Service-API-Key header. Env: REJIG_API_URL + REJIG_API_KEY.
- * REJIG_API_KEY must exist in Vercel production env before Phase 9 cron
- * can run; until then this is local-dev only via .env.local.
+ * Auth via X-Service-API-Key header. Env: REJIG_API_KEY only.
+ * The endpoint URL is hardcoded — Rejig is a single fixed third-party
+ * SaaS (no staging API, nothing to override), and making it env-driven
+ * once led to a doubled-path 404 when someone pasted the full endpoint
+ * into the env var. If Rejig ever changes their base URL, that warrants
+ * a code change, not a silent env swap.
  *
  * Pass 2.7 §29.2: cadence is weekly (snapshot fetched Monday 10 UTC, BI
  * cron runs Monday 11 UTC). This client does NOT cache — the importer
  * controls cadence externally.
  */
 
-const DEFAULT_REJIG_API_URL = 'https://api.rejig.ai';
-const ACCOUNTS_PATH = '/dashboard/admin/account-list';
+const ACCOUNTS_URL = 'https://api.rejig.ai/dashboard/admin/account-list';
 
 export type RejigContentTypeBreakdown = Record<string, number>;
 
@@ -68,10 +70,7 @@ export async function fetchAccountsSnapshot(): Promise<RejigAccount[]> {
       'REJIG_API_KEY is not set. Required for Rejig API. Set in .env.local for local dev, and in Vercel Production env for cron deployment.',
     );
   }
-  const baseUrl = process.env.REJIG_API_URL ?? DEFAULT_REJIG_API_URL;
-  const url = `${baseUrl}${ACCOUNTS_PATH}`;
-
-  const res = await fetch(url, {
+  const res = await fetch(ACCOUNTS_URL, {
     method: 'GET',
     headers: {
       'X-Service-API-Key': apiKey,
