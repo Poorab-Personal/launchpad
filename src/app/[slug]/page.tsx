@@ -32,7 +32,19 @@ import { themeForSlug } from './theme';
 export const dynamic = 'force-dynamic';
 
 export default async function BrokerageLandingPage(props: PageProps<'/[slug]'>) {
-  const { slug } = await props.params;
+  const { slug: rawSlug } = await props.params;
+  // Next.js 16 does NOT URL-decode dynamic route params. Slugs that contain
+  // reserved characters (B&W lives at `/b&w` per memory `brokerage_landing_urls`,
+  // which browsers send as `/b%26w`) need an explicit decode before any
+  // DB / map lookup. Wrap in try/catch — a malformed sequence (e.g. `%ZZ`)
+  // throws URIError; fall back to the raw form so the lookup just misses
+  // and returns 404 instead of 500.
+  let slug = rawSlug;
+  try {
+    slug = decodeURIComponent(rawSlug);
+  } catch {
+    /* fall through with raw slug */
+  }
 
   const brokerage = await db.query.brokerages.findFirst({
     where: and(

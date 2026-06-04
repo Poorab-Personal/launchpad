@@ -31,7 +31,15 @@ export const dynamic = 'force-dynamic';
 export default async function BrokerageTestLandingPage(
   props: PageProps<'/[slug]/test'>,
 ) {
-  const { slug } = await props.params;
+  const { slug: rawSlug } = await props.params;
+  // See note in `[slug]/page.tsx` — decode for slugs that contain reserved
+  // chars (e.g. B&W → `b%26w` in URL form, `b&w` in the DB).
+  let slug = rawSlug;
+  try {
+    slug = decodeURIComponent(rawSlug);
+  } catch {
+    /* fall through with raw slug */
+  }
 
   // Route gate: the test endpoint only renders while explicitly enabled.
   const testEnabled = (await getSetting('b2b_test_route_enabled')) === 'on';

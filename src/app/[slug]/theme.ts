@@ -54,7 +54,10 @@ const BROKERAGE_THEME: Record<string, LandingTheme> = {
   // brand book directs digital to clean supportive sans-serifs — we use
   // the existing Outfit fallback, very close to brand-recommended Plus
   // Jakarta Sans).
-  bw: {
+  //
+  // Slug literally includes the ampersand to match legacy QR codes and
+  // brokerage internal links — see memory `brokerage_landing_urls`.
+  'b&w': {
     bg: '#F7F4EB',            // neutral warm cream
     surface: '#FFFFFF',
     primary: '#192D6B',       // Deep Lake

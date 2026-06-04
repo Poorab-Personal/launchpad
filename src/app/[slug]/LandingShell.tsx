@@ -88,7 +88,8 @@ const COPY_BY_SLUG: Record<
 
   // Baird & Warner — no payment, brokerage covers it via master agreement.
   // Bullet 2 reflects that (no "save your card" framing).
-  bw: {
+  // Slug literally includes the ampersand — see memory `brokerage_landing_urls`.
+  'b&w': {
     h1: 'Activate your Rejig.ai account',
     subhead: 'Your AI-powered social media assistant.',
     formIntro: [
