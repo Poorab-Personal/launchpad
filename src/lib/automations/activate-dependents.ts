@@ -211,6 +211,31 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
   });
   cursor = tt('log Task Completed event', cursor);
 
+  // ── 3b. HS ticket creation on the commitment-moment task ───────────
+  // Positioned BEFORE the stage-advancement early-return at section 4.
+  // The commitment task (e.g. BW "Confirm Your Information", IPRE/Keyes
+  // "Capture Payment Method") doesn't itself complete the whole stage —
+  // Schedule + Create Designs are still pending — so the stage-advancement
+  // check below would otherwise return early and skip the HS push entirely
+  // (B2B-BW had no HS ticket ever created before this fix, since BW has
+  // no separate confirm-route belt; IPRE/Keyes were saved by the confirm
+  // route's parallel push).
+  //
+  // Idempotent via intake-handler's hubspotTicketId-already-set short-circuit.
+  // Awaited (best-effort; matches admin path — voiding risks dropped
+  // promises per the 2026-05-14 incident). Failures audit-logged + emailed
+  // to ALERTS_EMAIL but never thrown.
+  const triggerCust = await db.query.customers.findFirst({
+    where: eq(schema.customers.id, customerId),
+    columns: { workflowKey: true, name: true },
+  });
+  const triggerTaskName = triggerCust
+    ? INTAKE_PUSH_TRIGGER_TASK[triggerCust.workflowKey]
+    : undefined;
+  if (triggerCust && triggerTaskName && completedTask.taskName === triggerTaskName) {
+    await runHubspotIntakePushWithAudit(customerId, triggerCust.name);
+  }
+
   // ── 4. Stage advancement check ─────────────────────────────────────
   // Re-fetch product tasks to see fresh statuses after activations.
   const fresh = await db
@@ -390,21 +415,6 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     }
   }
 
-  // ── HS ticket creation on the commitment-moment task ────────────────
-  // B2B self-serve flows don't create their HubSpot ticket at landing —
-  // they create it when the customer commits (Capture Payment for IPRE).
-  // Idempotent via intake-handler's hubspotTicketId-already-set short-circuit.
-  // Awaited (best-effort; matches admin path — voiding risks dropped promises
-  // per the 2026-05-14 incident). Best-effort: failures are logged, never thrown.
-  const cust = await db.query.customers.findFirst({
-    where: eq(schema.customers.id, customerId),
-    columns: { workflowKey: true, name: true },
-  });
-  const triggerTaskName = cust ? INTAKE_PUSH_TRIGGER_TASK[cust.workflowKey] : undefined;
-  if (cust && triggerTaskName && completedTask.taskName === triggerTaskName) {
-    // Audit-aware wrapper writes customer events + emails ALERTS_EMAIL on
-    // failure. Important for B2B-BW (sole HS-push path) and for the
-    // Keyes/IPRE idempotent backstop case.
-    await runHubspotIntakePushWithAudit(customerId, cust.name);
-  }
+  // HS ticket trigger moved up to §3b (before the stage-advancement early
+  // return) — see comment block above.
 }
