@@ -89,6 +89,7 @@ type BiCronSummary = {
   durationMs: number;
   trajectoriesComputed: { processed: number; written: number };
   customersEvaluated: number;
+  customersSkippedPreLaunch: number;
   customersTotal: number;
   offset: number;
   limit: number;
@@ -139,6 +140,7 @@ export async function GET(request: NextRequest) {
     durationMs: 0,
     trajectoriesComputed: { processed: 0, written: 0 },
     customersEvaluated: 0,
+    customersSkippedPreLaunch: 0,
     customersTotal: 0,
     offset,
     limit,
@@ -187,7 +189,7 @@ export async function GET(request: NextRequest) {
   // separate Postgres connection. id is the primary key, so the index
   // makes this cheap regardless of customer count.
   const allActive = await db
-    .select({ id: customers.id })
+    .select({ id: customers.id, currentStage: customers.currentStage })
     .from(customers)
     .where(
       and(
@@ -209,8 +211,26 @@ export async function GET(request: NextRequest) {
     ? offset + activeCustomers.length
     : null;
 
+  // BI's domain is post-launch attention management. Pre-launch customer
+  // journey (Getting Started → Prepare for Onboarding → … → Launched) is
+  // LP-owned with HS Workflows F + A driving the Pre-Onboarding /
+  // Onboarding Scheduled / Active transitions on the ticket. BI must not
+  // evaluate pre-launch customers — its `applyStateTransition` would
+  // overwrite LP.onboarding_state to Watch/At-Risk/etc., and its
+  // unconditional pushTicketStage below would yank the HS ticket out of
+  // the pre-launch lane. (Symptom audit: scripts/audit-bi-clobbered-
+  // prelaunch-tickets.ts; bug discovered 2026-06-05.)
+  //
+  // 'Backfilled' IS BI-eligible — backfilled customers are historical
+  // post-launch records whose HS pipeline state we want to keep current.
+  const BI_ELIGIBLE_STAGES = new Set(['Launched', 'Backfilled']);
+
   for (const c of activeCustomers) {
     try {
+      if (!BI_ELIGIBLE_STAGES.has(c.currentStage)) {
+        summary.customersSkippedPreLaunch++;
+        continue;
+      }
       const ctx = await buildBiContext(c.id);
       if (!ctx) continue;
 
