@@ -21,7 +21,15 @@ const REVIEW_BRAND_KIT_TASK = 'Review & Approve Your Brand Kit';
 // schedule chain at line 259 then pushes it to "Onboarding Scheduled" when the
 // customer books. D2C-Standard is intentionally absent (admin path creates the
 // ticket; self-serve D2C does not exist). Keyes/BW are out of scope for now.
-const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
+/**
+ * Exported so the admin POST /api/customers can check whether a workflow's
+ * HS push is gated behind a commitment-task. Workflows in this map skip the
+ * immediate-HS-push admin behavior — they wait for the trigger task to
+ * complete, which fires the push via this same Auto 2 hook. D2C-Standard
+ * stays unconditional-immediate (no trigger task; admin is the canonical
+ * D2C creation path alongside closedwon-handler).
+ */
+export const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
   'B2B-IPRE': 'Capture Payment Method',
   'B2B-Keyes': 'Capture Payment Method',
   'B2B-BW': 'Confirm Your Information',

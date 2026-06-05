@@ -13,7 +13,7 @@ export default function AddCustomerForm({ workflows }: { workflows: Workflow[] }
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ id: string; tasksCreated: number } | null>(null);
+  const [result, setResult] = useState<{ accessToken: string } | null>(null);
   const [selectedWorkflow, setSelectedWorkflow] = useState('');
 
   const d2cWorkflows = workflows.filter((w) => w.type === 'D2C');
@@ -53,7 +53,7 @@ export default function AddCustomerForm({ workflows }: { workflows: Workflow[] }
 
     const json = await res.json();
     setLoading(false);
-    setResult({ id: json.id, tasksCreated: json.tasksCreated });
+    setResult({ accessToken: json.accessToken });
     router.refresh();
   }
 
@@ -169,9 +169,9 @@ export default function AddCustomerForm({ workflows }: { workflows: Workflow[] }
           </button>
           {result && (
             <span className="text-sm text-[#05C68E] font-medium">
-              Created with {result.tasksCreated} tasks.{' '}
+              Created.{' '}
               <a
-                href={`/r/${result.id}`}
+                href={`/r/${result.accessToken}`}
                 target="_blank"
                 className="underline hover:text-[#04946A]"
               >
@@ -179,7 +179,7 @@ export default function AddCustomerForm({ workflows }: { workflows: Workflow[] }
               </a>
               {' · '}
               <a
-                href={`/r/${result.id}?test=fill`}
+                href={`/r/${result.accessToken}?test=fill`}
                 target="_blank"
                 className="underline text-[#6C4AB6]/80 hover:text-[#6C4AB6]"
                 title="Opens portal with auto-fill button enabled"

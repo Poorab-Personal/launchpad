@@ -7,6 +7,7 @@ import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee';
 import { notifyCustomerCreated } from '@/lib/automations/notify-new-customer';
+import { INTAKE_PUSH_TRIGGER_TASK } from '@/lib/automations/activate-dependents';
 import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
 import { getSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
 import type { Customer } from '@/types';
@@ -118,38 +119,50 @@ export async function POST(request: NextRequest) {
   // submitted the form but never reached the payment step. The SetupIntent
   // route now creates the Stripe Customer on first use + persists the ID.
 
-  // HubSpot intake push — awaited (not fire-and-forget). Vercel serverless
-  // terminates the function instance when the response returns, so a void
-  // promise would not complete reliably (verified 2026-05-14 — a Keyes
-  // customer was created but the HS push never landed, only succeeded when
-  // re-fired manually).
+  // HubSpot intake push — gated on whether the workflow has a commitment-task
+  // trigger wired in Auto 2's INTAKE_PUSH_TRIGGER_TASK.
   //
-  // Adds 2-5s to the response time but guarantees the HS Ticket exists
-  // before we return success. Soft-fail: if HS push errors, we log it but
-  // still return the LP customer — the customer record is canonical, HS is
-  // the mirror. Admin can retry the push via backfill script if needed.
+  //   - D2C-Standard (no trigger task): push HS immediately here. Admin is
+  //     the canonical D2C entry-point alongside closedwon-handler; D2C has
+  //     no "commitment" task to defer to.
+  //   - B2B-IPRE / B2B-Keyes (setup-intent-at-intake): SKIP — wait for the
+  //     customer to actually complete Capture Payment Method. Auto 2's
+  //     trigger fires HS push at that point. Matches landing-flow behavior.
+  //   - B2B-BW (intake-only, no payment): SKIP — wait for Confirm Your
+  //     Information completion. Auto 2 fires there.
   //
-  // Runs for BOTH D2C and B2B admin-created customers. D2C closedwon
-  // customers come through src/lib/integrations/hubspot/closedwon-handler.ts
-  // and skip this path entirely.
+  // Pre-2026-06-05 this was unconditional, which created admin↔landing
+  // divergence: admin-created B2B customers got HS tickets immediately
+  // while landing-created customers correctly deferred. This now aligns
+  // both paths to the same model.
   //
-  // See src/lib/integrations/hubspot/intake-handler.ts for the full
-  // object graph + association rules per type.
+  // closedwon-handler.ts (D2C deal closedwon) is unaffected — it creates
+  // customers via its own path and stays immediate.
+  //
+  // See src/lib/integrations/hubspot/intake-handler.ts for the object
+  // graph + association rules.
   let hubspotTicketId: string | null = null;
   let hubspotPushError: string | null = null;
-  try {
-    const result = await pushCustomerIntakeToHubSpot(customer.id);
-    if (result.kind === 'pushed') {
-      hubspotTicketId = result.ticketId;
-    } else if (result.kind === 'error') {
-      hubspotPushError = result.error;
-      console.error('[customers POST] HS intake push error:', result.error);
-    } else {
-      console.log('[customers POST] HS intake push skipped:', result.reason);
+  const hasDeferredTrigger = customer.workflowKey in INTAKE_PUSH_TRIGGER_TASK;
+  if (hasDeferredTrigger) {
+    console.log(
+      `[customers POST] HS push deferred for workflow ${customer.workflowKey} — Auto 2 will fire at "${INTAKE_PUSH_TRIGGER_TASK[customer.workflowKey]}" completion.`,
+    );
+  } else {
+    try {
+      const result = await pushCustomerIntakeToHubSpot(customer.id);
+      if (result.kind === 'pushed') {
+        hubspotTicketId = result.ticketId;
+      } else if (result.kind === 'error') {
+        hubspotPushError = result.error;
+        console.error('[customers POST] HS intake push error:', result.error);
+      } else {
+        console.log('[customers POST] HS intake push skipped:', result.reason);
+      }
+    } catch (err) {
+      hubspotPushError = err instanceof Error ? err.message : String(err);
+      console.error('[customers POST] HS intake push threw:', err);
     }
-  } catch (err) {
-    hubspotPushError = err instanceof Error ? err.message : String(err);
-    console.error('[customers POST] HS intake push threw:', err);
   }
 
   return Response.json({

@@ -47,6 +47,7 @@ const BROKERAGE_THEME: Record<string, LandingTheme> = {
     accent: '#F3D8BE',        // Miami Sands
     serifHeadline: true,
     headlineFontVar: 'var(--font-fraunces)',
+    headlineColor: '#044439', // Everglade Green — brand book headline color
   },
 
   // Baird & Warner — Deep Lake + Amber Wheat from official brand book.
@@ -65,6 +66,7 @@ const BROKERAGE_THEME: Record<string, LandingTheme> = {
     ink: '#1B2E35',
     accent: '#DCAE1D',        // Amber Wheat
     serifHeadline: false,
+    headlineColor: '#192D6B', // Deep Lake — pops the headline with brand navy
   },
 };
 

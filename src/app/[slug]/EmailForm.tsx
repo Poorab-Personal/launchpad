@@ -60,6 +60,9 @@ export interface LandingTheme {
    *  Cormorant/Outfit selection driven by `serifHeadline`. Use for
    *  per-brokerage brand fonts. */
   headlineFontVar?: string;
+  /** Optional explicit headline color. Defaults to `theme.ink` (charcoal).
+   *  Use to pop the h1 with the brand primary (e.g. Keyes Everglade Green). */
+  headlineColor?: string;
 }
 
 type LookupResponse =

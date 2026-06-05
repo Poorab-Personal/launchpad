@@ -41,7 +41,7 @@ const COPY_BY_SLUG: Record<
   }
 > = {
   ipre: {
-    h1: 'Activate your Rejig.ai account',
+    h1: 'Activate your account',
     subhead: 'Your AI-powered social media assistant.',
     formIntro: [
       'Enter your IPRE email to start setup.',
@@ -66,7 +66,7 @@ const COPY_BY_SLUG: Record<
   },
 
   keyes: {
-    h1: 'Activate your Rejig.ai account',
+    h1: 'Activate your account',
     subhead: 'Your AI-powered social media assistant.',
     formIntro: [
       'Enter your Keyes email to start setup.',
@@ -90,7 +90,7 @@ const COPY_BY_SLUG: Record<
   // Bullet 2 reflects that (no "save your card" framing).
   // Slug literally includes the ampersand — see memory `brokerage_landing_urls`.
   'b&w': {
-    h1: 'Activate your Rejig.ai account',
+    h1: 'Activate your account',
     subhead: 'Your AI-powered social media assistant.',
     formIntro: [
       'Enter your Baird & Warner email to start setup.',
@@ -209,9 +209,9 @@ export default function LandingShell({
           )}
 
           <h1
-            className={`text-center text-3xl sm:text-4xl leading-tight ${copy ? '' : 'mt-3'}`}
+            className={`text-center text-3xl sm:text-[2.5rem] leading-[1.1] tracking-tight ${copy ? '' : 'mt-3'}`}
             style={{
-              color: theme.ink,
+              color: theme.headlineColor ?? theme.ink,
               fontFamily: headlineFontFamily,
               fontWeight: theme.serifHeadline ? 600 : 700,
             }}
@@ -220,8 +220,8 @@ export default function LandingShell({
           </h1>
 
           <p
-            className="mt-3 text-center text-sm sm:text-base"
-            style={{ color: theme.ink, opacity: 0.7 }}
+            className="mt-4 text-center text-sm sm:text-base"
+            style={{ color: theme.ink, opacity: 0.78 }}
           >
             {copy?.subhead ??
               (brokerage.tagline ||
@@ -234,8 +234,8 @@ export default function LandingShell({
             className="mt-8 rounded-2xl border shadow-sm p-6 sm:p-8"
             style={{
               backgroundColor: theme.surface,
-              borderColor: `${theme.accent}80`,
-              boxShadow: '0 1px 3px rgba(0, 40, 63, 0.06)',
+              borderColor: `${theme.primary}26`,   // primary at ~15% — visible but not loud
+              boxShadow: `0 4px 18px ${theme.primary}14`,
             }}
           >
             {copy?.formIntro && (
@@ -266,7 +266,8 @@ export default function LandingShell({
               className="mt-8 rounded-2xl border p-5 sm:p-6"
               style={{
                 backgroundColor: theme.surface,
-                borderColor: `${theme.accent}66`,
+                borderColor: `${theme.primary}26`,
+                boxShadow: `0 4px 18px ${theme.primary}14`,
               }}
             >
               <p
