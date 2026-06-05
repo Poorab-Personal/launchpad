@@ -34,6 +34,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import {
+  applyStateTransition,
   createCall,
   getCallByHubspotMeetingId,
   updateCall,
@@ -170,6 +171,34 @@ export async function recordOnboardingBooking(
       await alertFailure({ customer, bookerEmail, payload, reason: `Meeting↔Ticket association failed: ${msg}`, meeting });
       // Non-blocking — call row + callDate are already written.
     }
+  }
+
+  // ── 6. Advance the HS ticket stage to "Onboarding Scheduled". The HS-side
+  //       workflow "CSM Meeting Onboarding Created via LaunchPad" tries to
+  //       do this, but only enrolls cleanly on first-time meeting bookings
+  //       for the contact (re-enrollment quirks bite repeat bookers). LP
+  //       drives the transition canonically here — applyStateTransition
+  //       does an atomic LP onboardingState update + transition-log row +
+  //       best-effort HS push, with idempotent no-op detection if the stage
+  //       is already there (e.g. HS workflow beat us). The webhook that
+  //       comes back from the HS push is caught by the LP-own-write loop
+  //       prevention.
+  try {
+    await applyStateTransition({
+      customerId: customer.id,
+      toState: 'Onboarding Scheduled',
+      attentionReason: null,
+      changeSource: 'lp_portal',
+      sourceDetail: 'onboarding-booked',
+      payload: {
+        hubspotMeetingId: meeting.meetingId,
+        bookerEmail,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[record-onboarding-booking] state transition failed (non-blocking)', msg);
+    await alertFailure({ customer, bookerEmail, payload, reason: `Ticket stage advance failed: ${msg}`, meeting });
   }
 
   console.log('[record-onboarding-booking] success', {

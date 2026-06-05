@@ -24,6 +24,7 @@ export const CHANGE_SOURCE_VALUES = [
   'lp_auto2',                   // LaunchPad's Auto 2 (handleTaskCompleted) advanced
   'lp_bi',                      // LaunchPad's BI cron (Phase 4+) applied a rule
   'lp_admin',                   // LaunchPad admin tooling (backfill scripts, manual writes)
+  'lp_portal',                  // LaunchPad portal-side transition (onboarding-booked endpoint)
   'stripe_webhook',             // Stripe webhook handler triggered a state move
   'hubspot_api_other',          // HubSpot API change from another integration (catch-all)
 ] as const;
