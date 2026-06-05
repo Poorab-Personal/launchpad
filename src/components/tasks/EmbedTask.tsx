@@ -127,16 +127,48 @@ export default function EmbedTask({
     return task.embedUrl;
   }, [mounted, task.embedUrl, isCalendly, isHubSpotMeetings, isLoom]);
 
-  const handleBookingConfirmed = useCallback(async () => {
+  /**
+   * Mark the schedule task complete after a confirmed booking.
+   *
+   * For HubSpot Meetings: post the full booking payload (booker email + name
+   * + dateString from the postMessage) to /api/customers/[id]/onboarding-booked
+   * so the backend can find the just-created HS meeting on the booker's
+   * contact and write the LP calls row + callDate + Meeting↔Ticket
+   * association. This handles the "VA books with their own email" case where
+   * the HS-side Onboarding-Scheduled workflow can't find the LP ticket.
+   *
+   * For Calendly (or any path without a booking payload): fall back to the
+   * generic task PATCH. Calendly has a reliable server-to-server webhook
+   * that writes the calls row independently.
+   */
+  const handleBookingConfirmed = useCallback(async (payload?: {
+    bookerEmail?: string | null;
+    bookerFirstName?: string | null;
+    bookerLastName?: string | null;
+    dateString?: string | null;
+  }) => {
     setBooked(true);
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tasks/${task.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Completed' }),
-      });
+      const useRichPath = !!(payload?.bookerEmail && customerId);
+      const res = useRichPath
+        ? await fetch(`/api/customers/${customerId}/onboarding-booked`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskId: task.id,
+              bookerEmail: payload!.bookerEmail,
+              bookerFirstName: payload!.bookerFirstName ?? null,
+              bookerLastName: payload!.bookerLastName ?? null,
+              dateString: payload!.dateString ?? null,
+            }),
+          })
+        : await fetch(`/api/tasks/${task.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'Completed' }),
+          });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.error || 'Booking saved but task status update failed. Please refresh.');
@@ -147,7 +179,7 @@ export default function EmbedTask({
     } finally {
       setLoading(false);
     }
-  }, [task.id, onComplete]);
+  }, [task.id, customerId, onComplete]);
 
   // Listen for booking confirmations from either scheduler.
   //
@@ -168,13 +200,25 @@ export default function EmbedTask({
           setIframeLoading(false);
         }
         if (calEv === 'calendly.event_scheduled') {
+          // Calendly has a reliable server-to-server webhook that writes the
+          // calls row + callDate. No payload from here.
           handleBookingConfirmed();
         }
         return;
       }
-      // HubSpot Meetings
+      // HubSpot Meetings — pull booker email/name + dateString from the
+      // (undocumented but stable) postMessage payload so the backend can
+      // find the just-created HS meeting on the booker's contact. The
+      // meeting ID and exact start time aren't in this payload — those
+      // come from a HS API round-trip on the backend.
       if (event.data?.meetingBookSucceeded) {
-        handleBookingConfirmed();
+        const br = event.data?.meetingsPayload?.bookingResponse;
+        handleBookingConfirmed({
+          bookerEmail: br?.postResponse?.contact?.email ?? null,
+          bookerFirstName: br?.postResponse?.contact?.firstName ?? null,
+          bookerLastName: br?.postResponse?.contact?.lastName ?? null,
+          dateString: br?.event?.dateString ?? null,
+        });
       }
     }
     window.addEventListener('message', handleMessage);

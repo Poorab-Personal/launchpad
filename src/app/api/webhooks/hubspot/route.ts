@@ -20,6 +20,7 @@ import {
   getStageLabelById,
 } from '@/lib/integrations/hubspot/client';
 import { createTrialSubscriptionForCustomer } from '@/lib/automations/handle-call-completed';
+import { sendAlertEmail } from '@/lib/email/send';
 
 /**
  * Our HubSpot App ID. Set when LaunchPad makes API calls — HubSpot stamps
@@ -30,6 +31,9 @@ import { createTrialSubscriptionForCustomer } from '@/lib/automations/handle-cal
  * If we ever rotate the HubSpot app, update here.
  */
 const LP_HUBSPOT_APP_ID = '39386685';
+
+/** Our HubSpot portal (hub) ID — used to build app.hubspot.com URLs in alerts. */
+const HUBSPOT_PORTAL_ID = '44956899';
 
 /**
  * Map a HubSpot webhook `changeSource` value onto our locked `change_source`
@@ -399,6 +403,25 @@ async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhoo
         } catch (assocErr) {
           const m = assocErr instanceof Error ? assocErr.message : String(assocErr);
           console.warn('[hubspot webhook] meeting↔ticket association failed (non-blocking)', m);
+          try {
+            await sendAlertEmail({
+              to: process.env.ALERTS_EMAIL ?? 'poorab@rejig.ai',
+              subject: `[LaunchPad] Meeting↔Ticket association failed for ${customer.name}`,
+              text:
+                `The HubSpot Meetings webhook captured the meeting but failed to link it to the LP ticket. ` +
+                `CSMs viewing the ticket in HS won't see the meeting on the card until linked manually.\n\n` +
+                `Customer: ${customer.name} (${customer.id})\n` +
+                `HS Ticket: https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-5/${ticketId}\n` +
+                `HS Meeting ID: ${meeting.meetingId}\n` +
+                `Scheduled: ${meeting.startTime}\n\n` +
+                `Error: ${m}`,
+            });
+          } catch (mailErr) {
+            console.error(
+              '[hubspot webhook] association-failure alert email failed',
+              mailErr instanceof Error ? mailErr.message : String(mailErr),
+            );
+          }
         }
 
         const existing = await getCallByHubspotMeetingId(meeting.meetingId);

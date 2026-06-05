@@ -565,6 +565,59 @@ function pickLatestFuture(
 }
 
 /**
+ * Find the meeting just booked by `bookerEmail` on its HS contact. Used by
+ * the portal-triggered onboarding-booked path: the HS Meetings widget fired
+ * `meetingBookSucceeded` in the LP portal, the portal knows the LP customer
+ * but the meeting could be associated to ANY HS contact (the booker's, which
+ * may be a VA or alternate email). We look up the booker's contact by email,
+ * walk to their associated meetings, and pick the most recently created.
+ *
+ * Filters to meetings created in the last `windowMs` (default 10 min) so we
+ * don't pick up unrelated historical meetings on the contact. Returns null
+ * if no contact, no meetings, or nothing recent enough.
+ */
+export async function findRecentMeetingByContactEmail(
+  bookerEmail: string,
+  windowMs: number = 10 * 60_000,
+): Promise<{ meetingId: string; startTime: string; title: string | null; contactId: string } | null> {
+  const contactId = await findContactByEmail(bookerEmail);
+  if (!contactId) return null;
+
+  const hs = client();
+  const contact = await hs.crm.contacts.basicApi.getById(
+    contactId,
+    undefined,
+    undefined,
+    ['meetings'],
+  );
+  const meetingIds = contact.associations?.meetings?.results?.map((r) => r.id) ?? [];
+  if (meetingIds.length === 0) return null;
+
+  // Cap at 100 — same safety bound as getOnboardingMeetingForTicket.
+  const allIds = meetingIds.slice(0, 100);
+  const meetings = await Promise.all(
+    allIds.map((id) =>
+      hs.crm.objects.basicApi.getById('meetings', id, [
+        'hs_meeting_start_time',
+        'hs_meeting_title',
+        'hs_createdate',
+      ]),
+    ),
+  );
+
+  const now = Date.now();
+  const recent = meetings.filter((m) => {
+    const created = m.properties.hs_createdate ? Date.parse(m.properties.hs_createdate) : 0;
+    return created > 0 && now - created <= windowMs;
+  });
+  if (recent.length === 0) return null;
+
+  const pick = pickLatestByCreated(recent);
+  if (!pick) return null;
+  return { ...pick, contactId };
+}
+
+/**
  * Post a Note on a Deal. Used for surfacing validation errors back to the
  * sales rep (e.g. "Stripe subscription not found").
  */

@@ -11,7 +11,7 @@
  * DoS the DMG API by hitting this endpoint.
  *
  * On any per-brokerage failure, a Resend alert is sent to ALERTS_EMAIL
- * (fallback: alerts@rejig.ai). The handler ALWAYS returns 200 with a JSON
+ * (fallback: poorab@rejig.ai). The handler ALWAYS returns 200 with a JSON
  * summary — even on partial failure — so Vercel cron doesn't auto-retry.
  * If freshness becomes urgent, add an /api/cron/sync-roster-now manual
  * trigger.
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
 
     try {
       await sendAlertEmail({
-        to: process.env.ALERTS_EMAIL ?? 'alerts@rejig.ai',
+        to: process.env.ALERTS_EMAIL ?? 'poorab@rejig.ai',
         subject: `[LaunchPad] Roster sync ${failedBrokerages.join(', ')} failed`,
         text: `Failed brokerages: ${failedBrokerages.join(', ')}\n\nErrors:\n${errorList}`,
       });
