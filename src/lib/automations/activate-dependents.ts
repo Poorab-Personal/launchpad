@@ -12,6 +12,7 @@ import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { notifyTaskAssigned } from '@/lib/automations/notify-assignee';
+import { notifyCustomerSubmitted } from '@/lib/automations/notify-new-customer';
 import { runHubspotIntakePushWithAudit } from '@/lib/integrations/hubspot/intake-handler';
 
 const REVIEW_BRAND_KIT_TASK = 'Review & Approve Your Brand Kit';
@@ -32,6 +33,21 @@ const REVIEW_BRAND_KIT_TASK = 'Review & Approve Your Brand Kit';
 export const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
   'B2B-IPRE': 'Capture Payment Method',
   'B2B-Keyes': 'Capture Payment Method',
+  'B2B-BW': 'Confirm Your Information',
+};
+
+/**
+ * Slack "new intake" trigger per workflow. Fires the single notifyCustomerSubmitted
+ * post when the customer completes their data-submission task. Separate from
+ * INTAKE_PUSH_TRIGGER_TASK because the Slack moment is "customer gave us their
+ * info" (Confirm Your Information across B2B), while the HS-push moment is
+ * "customer committed" (Capture Payment Method for IPRE/Keyes). Maps coincide
+ * for BW; D2C is alert-only (HS push is immediate at customer-create).
+ */
+const SLACK_INTAKE_TRIGGER_TASK: Record<string, string> = {
+  'D2C-Standard': 'Complete Your Onboarding Form',
+  'B2B-IPRE': 'Confirm Your Information',
+  'B2B-Keyes': 'Confirm Your Information',
   'B2B-BW': 'Confirm Your Information',
 };
 
@@ -234,6 +250,18 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     : undefined;
   if (triggerCust && triggerTaskName && completedTask.taskName === triggerTaskName) {
     await runHubspotIntakePushWithAudit(customerId, triggerCust.name);
+  }
+
+  // ── 3c. Slack alert on intake-submit task ─────────────────────────
+  // Single "new customer just submitted intake" Slack post per customer.
+  // Fires AFTER 3b so customer.hubspotTicketId is fresh for BW (whose HS
+  // push and Slack alert ride the same task); IPRE/Keyes alert at Confirm
+  // Your Information — earlier than their HS push at Capture Payment Method.
+  const slackTriggerTaskName = triggerCust
+    ? SLACK_INTAKE_TRIGGER_TASK[triggerCust.workflowKey]
+    : undefined;
+  if (triggerCust && slackTriggerTaskName && completedTask.taskName === slackTriggerTaskName) {
+    await notifyCustomerSubmitted(customerId);
   }
 
   // ── 4. Stage advancement check ─────────────────────────────────────

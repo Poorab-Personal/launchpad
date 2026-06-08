@@ -23,7 +23,6 @@ import { getSetting } from '@/lib/db';
 import { lookupByEmail } from '@/lib/roster/lookup';
 import { createRosterCustomer } from '@/lib/automations/create-roster-customer';
 import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee';
-import { notifyCustomerCreated } from '@/lib/automations/notify-new-customer';
 import { importRosterCustomerAssets } from '@/lib/roster/import-assets';
 
 interface SourceOffice {
@@ -233,8 +232,9 @@ export async function POST(request: NextRequest) {
 
   // Defensive assignee-notify scan — see notify-assignee.ts comment.
   await notifyAssigneesForNewCustomer(result.id);
-  // Internal alert to the monitoring inbox.
-  await notifyCustomerCreated(result.id);
+  // Slack alert: NOT emitted here. The B2B "intake submitted" moment is
+  // "Confirm Your Information" task completion (data-submission), not the
+  // landing-page email lookup. notifyCustomerSubmitted fires from Auto 2.
 
   return Response.json({ match: true, redirect: `/r/${result.accessToken}` });
 }
@@ -380,8 +380,9 @@ async function handleTestMode(
 
   // Defensive assignee-notify scan — see notify-assignee.ts comment.
   await notifyAssigneesForNewCustomer(result.id);
-  // Internal alert to the monitoring inbox.
-  await notifyCustomerCreated(result.id);
+  // Slack alert: NOT emitted here. The B2B "intake submitted" moment is
+  // "Confirm Your Information" task completion (data-submission), not the
+  // landing-page email lookup. notifyCustomerSubmitted fires from Auto 2.
 
   return Response.json({ match: true, redirect: `/r/${result.accessToken}` });
 }

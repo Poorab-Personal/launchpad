@@ -6,7 +6,6 @@ import { getBrokerageByDefaultWorkflowKey } from '@/lib/db';
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee';
-import { notifyCustomerCreated } from '@/lib/automations/notify-new-customer';
 import { INTAKE_PUSH_TRIGGER_TASK } from '@/lib/automations/activate-dependents';
 import { pushCustomerIntakeToHubSpot } from '@/lib/integrations/hubspot/intake-handler';
 import { getSession, isEffectiveAdminWriter } from '@/lib/auth/dal';
@@ -110,8 +109,9 @@ export async function POST(request: NextRequest) {
   // initial_status='Active' on a Team task would otherwise silently skip.
   await notifyAssigneesForNewCustomer(customer.id);
 
-  // Internal alert to the monitoring inbox.
-  await notifyCustomerCreated(customer.id);
+  // Slack alert: NOT emitted here. Admin row-create is a team data-entry
+  // event, not a customer submission. notifyCustomerSubmitted fires from
+  // Auto 2 when "Complete Your Onboarding Form" completes.
 
   // Stripe Customer creation moved to the SetupIntent route (lazy-create).
   // Pre-Phase-1.5.6 this fired here at intake for setup-intent-at-intake

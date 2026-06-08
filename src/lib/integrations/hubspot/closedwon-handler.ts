@@ -5,7 +5,6 @@ import * as schema from '@/db/schema';
 import { generateTasksFromTemplate } from '@/lib/automations/generate-tasks';
 import { triggerCustomerEmail } from '@/lib/automations/trigger-email';
 import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee';
-import { notifyCustomerCreated } from '@/lib/automations/notify-new-customer';
 import {
   createCustomerJourneyTicket,
   getDealForClosedWon,
@@ -218,8 +217,9 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
     }
     // Defensive assignee-notify scan — see notify-assignee.ts comment.
     await notifyAssigneesForNewCustomer(customer.id);
-    // Internal alert to the monitoring inbox.
-    await notifyCustomerCreated(customer.id);
+    // Slack alert: NOT emitted here. Closedwon is a HubSpot deal event,
+    // not a customer submission. notifyCustomerSubmitted fires from Auto 2
+    // when "Complete Your Onboarding Form" completes.
   }
 
   // ─── 6. Update Stripe metadata — idempotent on Stripe's side ────────────
@@ -263,6 +263,7 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
       .update(schema.customers)
       .set({ hubspotTicketId: ticketId, onboardingState: 'Pre-Onboarding' })
       .where(eq(schema.customers.id, customer.id));
+
   }
 
   // Read the workflow's paymentMode so we can push it to HubSpot as a
