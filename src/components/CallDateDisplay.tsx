@@ -39,8 +39,7 @@ export function CallDateBadge({ callDateIso }: { callDateIso: string }) {
       : `📞 ${rel.replace('in ', 'in ').replace(' days', 'd')}`;
     const days = Math.round((startOfLocalDay(t) - startOfLocalDay(Date.now())) / (1000 * 60 * 60 * 24));
     const classes =
-      days === 0 ? 'text-[#6C4AB6] font-semibold'
-      : days === 1 ? 'text-[#6C4AB6] font-medium'
+      days <= 1 ? 'text-[#EC531A] font-semibold'
       : days <= 7 ? 'text-[#6C4AB6]'
       : 'text-[#1B2E35]/50';
     setView({ label: compact, classes });

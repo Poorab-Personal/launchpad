@@ -66,16 +66,22 @@ function urgencyClass(days: number | null): string {
   return 'text-[#1B2E35]/60';
 }
 
+function workflowLabel(channel: string): string {
+  return channel === 'Standard' ? 'D2C' : channel;
+}
+
 function TaskCard({
   task,
   customerName,
   customerId,
+  customerChannel,
   callDateIso,
   assignees,
 }: {
   task: Task;
   customerName: string;
   customerId: string;
+  customerChannel?: string;
   callDateIso?: string;
   assignees?: string;
 }) {
@@ -96,9 +102,16 @@ function TaskCard({
         </p>
       )}
       <div className="flex items-center justify-between mt-2 text-xs">
-        <span className="inline-flex items-center rounded-full bg-[#F7F4EB] px-2 py-0.5 text-[#1B2E35]/70">
-          {task.stage}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {customerChannel && (
+            <span className="inline-flex items-center rounded-full border border-[#1B2E35]/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#1B2E35]/70">
+              {workflowLabel(customerChannel)}
+            </span>
+          )}
+          <span className="inline-flex items-center rounded-full bg-[#F7F4EB] px-2 py-0.5 text-[#1B2E35]/70">
+            {task.stage}
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           {callDateIso && <CallDateBadge callDateIso={callDateIso} />}
           <span className={urgencyClass(task.daysActive)}>
@@ -147,9 +160,17 @@ export default async function QueuePage() {
     ? tasks.filter((t) => COLUMNS.some((c) => c.match(t.taskName)))
     : tasks;
 
+  // FIFO within each column — oldest activated first. The fetcher returns
+  // them in stageOrder/taskOrder, which collapses to insertion order within
+  // a kanban column (every "Create Designs" shares the same template position),
+  // so the designer's prioritization signal was effectively random before this.
+  const sortedTasks = [...filteredTasks].sort(
+    (a, b) => Date.parse(a.activatedAt || '') - Date.parse(b.activatedAt || ''),
+  );
+
   const customerMap = new Map<string, Customer>(customers.map((c) => [c.id, c]));
   const memberMap = new Map<string, TeamMember>(members.map((m) => [m.id, m]));
-  const { columns, other } = bucketize(filteredTasks);
+  const { columns, other } = bucketize(sortedTasks);
 
   function assigneeNames(task: Task): string | undefined {
     if (!isAdminBroadView) return undefined;
@@ -204,6 +225,7 @@ export default async function QueuePage() {
                         task={task}
                         customerName={customer?.name ?? 'Unknown'}
                         customerId={cId ?? ''}
+                        customerChannel={customer?.channel}
                         callDateIso={customer?.callDate ?? ''}
                         assignees={assigneeNames(task)}
                       />
@@ -231,6 +253,7 @@ export default async function QueuePage() {
                   task={task}
                   customerName={customer?.name ?? 'Unknown'}
                   customerId={cId ?? ''}
+                  customerChannel={customer?.channel}
                   callDateIso={customer?.callDate ?? ''}
                   assignees={assigneeNames(task)}
                 />
