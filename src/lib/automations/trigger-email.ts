@@ -56,7 +56,7 @@ export async function triggerCustomerEmail(
     return;
   }
 
-  const portalBase = customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
+  const portalBase = customer.portalBaseUrl || 'https://onboarding.rejig.ai';
   const portalUrl = `${portalBase}/r/${customer.accessToken}`;
   const fname = firstName(customer.name);
 

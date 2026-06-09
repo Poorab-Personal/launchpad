@@ -77,7 +77,7 @@ export async function notifyCustomerSubmitted(customerId: string): Promise<void>
 
   const portalBase =
     (await getSetting('portal_base_url'))
-    || 'https://launchpad-indol-ten.vercel.app';
+    || 'https://onboarding.rejig.ai';
   const workspaceUrl = `${portalBase}/workspace/customers/${customer.id}`;
   const hubspotTicketUrl = customer.hubspotTicketId
     ? `https://app.hubspot.com/contacts/${HUBSPOT_PORTAL_ID}/record/0-5/${customer.hubspotTicketId}`

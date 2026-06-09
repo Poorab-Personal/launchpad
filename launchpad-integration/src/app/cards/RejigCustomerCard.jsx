@@ -165,7 +165,7 @@ const ATTENTION_REASON_LABEL = {
 const URGENCY_LABEL = { today: 'TODAY', this_week: 'THIS WEEK', monitor: 'MONITOR' };
 const URGENCY_VARIANT = { today: 'danger', this_week: 'warning', monitor: 'default' };
 
-const LP_ADMIN_BASE = 'https://launchpad-indol-ten.vercel.app/admin/';
+const LP_ADMIN_BASE = 'https://onboarding.rejig.ai/admin/';
 const STRIPE_CUSTOMER_BASE = 'https://dashboard.stripe.com/customers/';
 
 hubspot.extend(({ context }) => <RejigCustomerCard context={context} />);

@@ -40,5 +40,5 @@ export default function MagicLinkEmail({ firstName, signInUrl }: MagicLinkProps)
 MagicLinkEmail.PreviewProps = {
   firstName: 'Kaushal',
   signInUrl:
-    'https://launchpad-indol-ten.vercel.app/auth/verify?token=eyJhbGciOiJIUzI1NiJ9...',
+    'https://onboarding.rejig.ai/auth/verify?token=eyJhbGciOiJIUzI1NiJ9...',
 } satisfies MagicLinkProps;

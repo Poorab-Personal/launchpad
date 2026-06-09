@@ -48,6 +48,6 @@ export default function DesignReadyEmail({ firstName, portalUrl, designerNote }:
 
 DesignReadyEmail.PreviewProps = {
   firstName: 'Sarah',
-  portalUrl: 'https://launchpad-indol-ten.vercel.app/r/recXXXXXXXXXXXXXX',
+  portalUrl: 'https://onboarding.rejig.ai/r/recXXXXXXXXXXXXXX',
   designerNote: 'We adjusted the color palette and added the equal-housing logo to all layouts. Let us know what you think!',
 } satisfies DesignReadyProps;

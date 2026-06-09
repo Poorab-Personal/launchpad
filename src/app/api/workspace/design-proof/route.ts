@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
   if (REVISION_UPLOAD_PATTERN.test(taskName)) {
     try {
       if (customer.contactEmail) {
-        const portalBase = customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
+        const portalBase = customer.portalBaseUrl || 'https://onboarding.rejig.ai';
         const portalUrl = `${portalBase}/r/${customer.accessToken}`;
         const fname = customer.name.trim().split(/\s+/)[0] || 'there';
         // Use the trimmed note we just (potentially) appended. Avoids a

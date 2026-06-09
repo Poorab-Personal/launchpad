@@ -82,7 +82,7 @@ export default function CredentialsSentEmail({
 
 CredentialsSentEmail.PreviewProps = {
   firstName: 'Sarah',
-  portalUrl: 'https://launchpad-indol-ten.vercel.app/r/recXXXXXXXXXXXXXX',
+  portalUrl: 'https://onboarding.rejig.ai/r/recXXXXXXXXXXXXXX',
   platformEmail: 'sarah@example.com',
   password: 'Smith123!',
   callDate: '2026-05-15T14:00:00Z',

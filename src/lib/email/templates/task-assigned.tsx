@@ -52,6 +52,6 @@ TaskAssignedEmail.PreviewProps = {
   firstName: 'Alex',
   taskName: 'Create Designs',
   customerName: 'Sarah Lee',
-  workspaceUrl: 'https://launchpad-indol-ten.vercel.app/workspace/customers/00000000-0000-0000-0000-000000000000',
+  workspaceUrl: 'https://onboarding.rejig.ai/workspace/customers/00000000-0000-0000-0000-000000000000',
   instructions: 'Designer pulls assets and info from Customer record.',
 } satisfies TaskAssignedProps;

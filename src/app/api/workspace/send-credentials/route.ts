@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const portalBase = customer.portalBaseUrl || 'https://launchpad-indol-ten.vercel.app';
+  const portalBase = customer.portalBaseUrl || 'https://onboarding.rejig.ai';
   const portalUrl = `${portalBase}/r/${customer.accessToken}`;
   const firstName = customer.name.trim().split(/\s+/)[0] || 'there';
   const password = tempPasswordFromName(customer.name);

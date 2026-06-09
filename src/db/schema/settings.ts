@@ -7,7 +7,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 // Key-value settings table. Reads on every email send (portal_base_url).
-// Seed initial row: portal_base_url = 'https://launchpad-indol-ten.vercel.app'.
+// Seed initial row: portal_base_url = 'https://onboarding.rejig.ai'.
 
 export const settings = pgTable(
   'settings',

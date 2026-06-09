@@ -99,7 +99,7 @@ export async function notifyTaskAssigned(taskId: string): Promise<void> {
   // field, not present on the raw schema row read here.)
   const portalBase =
     (await getSetting('portal_base_url'))
-    || 'https://launchpad-indol-ten.vercel.app';
+    || 'https://onboarding.rejig.ai';
   const workspaceUrl = `${portalBase}/workspace/customers/${customer.id}`;
 
   // Stamp now if the caller didn't (defensive — prevents future re-fires

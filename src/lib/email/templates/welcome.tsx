@@ -40,5 +40,5 @@ export default function WelcomeEmail({ firstName, portalUrl }: WelcomeProps) {
 
 WelcomeEmail.PreviewProps = {
   firstName: 'Sarah',
-  portalUrl: 'https://launchpad-indol-ten.vercel.app/r/recXXXXXXXXXXXXXX',
+  portalUrl: 'https://onboarding.rejig.ai/r/recXXXXXXXXXXXXXX',
 } satisfies WelcomeProps;
