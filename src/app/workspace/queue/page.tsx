@@ -114,13 +114,16 @@ function TaskCard({
         </div>
         <div className="flex items-center gap-2">
           {callDateIso && <CallDateBadge callDateIso={callDateIso} />}
-          <span className={urgencyClass(task.daysActive)}>
-            {task.daysActive === null
-              ? '—'
-              : task.daysActive === 0
-                ? 'today'
-                : `${task.daysActive}d`}
-          </span>
+          {(() => {
+            const days = task.activatedAt
+              ? Math.floor((Date.now() - Date.parse(task.activatedAt)) / 86400000)
+              : null;
+            return (
+              <span className={urgencyClass(days)} title="Days in queue (FIFO order)">
+                {days === null ? '—' : days === 0 ? 'today' : `${days}d`}
+              </span>
+            );
+          })()}
         </div>
       </div>
     </Link>
