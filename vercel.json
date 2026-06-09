@@ -12,11 +12,6 @@
   ],
   "redirects": [
     {
-      "source": "/keyes",
-      "destination": "https://script.google.com/macros/s/AKfycbzhWpg7ugtSXpsjtXuo97SvrGeQNFFcmlm-UI5Oc02ToI6e3I2au9AhE5rc8KQqHtNwgA/exec",
-      "statusCode": 302
-    },
-    {
       "source": "/b&w",
       "destination": "https://script.google.com/macros/s/AKfycbxsYY48xaZk3No8lKQ3pXo9cqTV6x4NaLeCQQUrC2-exHK9hsgcfwoB3-3cir9HhSwm/exec",
       "statusCode": 302
