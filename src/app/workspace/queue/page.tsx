@@ -120,7 +120,7 @@ function TaskCard({
               : null;
             return (
               <span className={urgencyClass(days)} title="Days in queue (FIFO order)">
-                {days === null ? '—' : days === 0 ? 'today' : `${days}d`}
+                {days === null ? '—' : days === 0 ? '⏳ today' : `⏳ ${days}d`}
               </span>
             );
           })()}
