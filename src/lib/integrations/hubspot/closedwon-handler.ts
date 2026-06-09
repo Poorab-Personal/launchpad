@@ -125,12 +125,18 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
   if (!stripeCustomerId) throw new Error('Stripe customer not resolved');
 
   // ─── 4. Resume-or-create LaunchPad customer ─────────────────────────────
-  // If a customer with this hubspot_contact_id already exists, we're resuming
-  // a previous run that partially failed (e.g. between DB commit and HubSpot
-  // push). Skip the insert + Welcome email + Stripe metadata steps; pick up
-  // at the HubSpot push.
+  // Dedup key is hubspot_deal_id (NOT contact_id). One agent legitimately can
+  // own multiple Rejig accounts under the same HubSpot contact — e.g. a
+  // personal subscription + a separate Market Center subscription. Matching
+  // on contact_id collapsed those into one LP row and skipped the insert
+  // path entirely. Matching on deal_id gives us:
+  //   - same deal fires twice (retry / partial-run recovery) → resume
+  //   - two different deals for the same contact → two LP customers
+  //   - HS-side stage flap (closedwon → other → closedwon) → idempotent on retry
+  // The hubspot_inbound_events table catches identical event-IDs upstream;
+  // this dedup only sees distinct closedwon transitions per deal.
   const existingCustomer = await db.query.customers.findFirst({
-    where: (customers, { eq: eqOp }) => eqOp(customers.hubspotContactId, deal.contactId),
+    where: (customers, { eq: eqOp }) => eqOp(customers.hubspotDealId, deal.dealId),
   });
 
   let customer = existingCustomer ?? null;
