@@ -20,6 +20,7 @@ import {
   getStageLabelById,
 } from '@/lib/integrations/hubspot/client';
 import { createTrialSubscriptionForCustomer } from '@/lib/automations/handle-call-completed';
+import { advanceToLaunchedFromHsActive } from '@/lib/automations/advance-to-launched-from-hs';
 import { sendAlertEmail } from '@/lib/email/send';
 
 /**
@@ -494,6 +495,25 @@ async function processTicketStageChange(eventIdStr: string, event: HubSpotWebhoo
       console.log('[hubspot webhook] no Active Schedule task to auto-complete', {
         customerId: customer.id,
       });
+    }
+  }
+
+  // ─── HS-authoritative Launched advancement (belt D) — on stage → Active ──
+  // Customers often have their onboarding meeting (HS → Active) without ever
+  // signing in via LP, leaving currentStage stranded at "Prepare for
+  // Onboarding". Treat HS Active as the authoritative Launched signal: auto-
+  // complete the residual client tasks and flip currentStage to Launched.
+  // Idempotent + guarded by accountCreated. Bypasses handleTaskCompleted so
+  // it doesn't push HS backward to "Onboarding Scheduled".
+  if (stageLabel === 'Active') {
+    try {
+      const advanceResult = await advanceToLaunchedFromHsActive(customer.id, 'hs-webhook');
+      console.log('[hubspot webhook] HS-authoritative launch result', advanceResult);
+    } catch (err) {
+      // Non-blocking: log + continue to trial activation. A failed advance
+      // doesn't justify skipping the Stripe trial create.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[hubspot webhook] HS-authoritative launch threw', msg);
     }
   }
 
