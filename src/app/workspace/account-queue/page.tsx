@@ -147,18 +147,37 @@ function Column({
 // Role gate — Account Creator queue. Admin allowed (overview).
 const ALLOWED_ROLES = new Set(['Account Creator', 'Admin']);
 
-export default async function AccountQueuePage() {
+type Scope = 'mine' | 'all';
+
+export default async function AccountQueuePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ scope?: string }>;
+}) {
   const session = await requireSession();
-  const [ctx, view] = await Promise.all([getEffectiveContext(session), readViewAs()]);
+  const [ctx, view, resolvedSearchParams] = await Promise.all([
+    getEffectiveContext(session),
+    readViewAs(),
+    searchParams,
+  ]);
 
   if (!ALLOWED_ROLES.has(ctx.role)) {
     redirect('/workspace');
   }
 
-  const isAdminBroadView = session.role === 'Admin' && view.kind !== 'member';
+  const isAdmin = session.role === 'Admin' && view.kind !== 'member';
+  const scope: Scope =
+    resolvedSearchParams?.scope === 'all'
+      ? 'all'
+      : resolvedSearchParams?.scope === 'mine'
+        ? 'mine'
+        : isAdmin
+          ? 'all'
+          : 'mine';
+  const broadView = scope === 'all';
 
   const [tasks, customers, members] = await Promise.all([
-    isAdminBroadView
+    broadView
       ? getAllCoreTasks(['Active'])
       : getTasksAssignedTo(ctx.memberId, ['Active']),
     getCustomers(),
@@ -198,7 +217,7 @@ export default async function AccountQueuePage() {
     (r) => r.call.urgency === 'urgent' || r.call.urgency === 'overdue',
   );
 
-  const heading = isAdminBroadView
+  const heading = broadView
     ? 'Account Queue'
     : view.kind === 'member'
       ? `${ctx.label}'s Queue`
@@ -211,12 +230,36 @@ export default async function AccountQueuePage() {
           <h1 className="text-2xl font-bold text-[#1B2E35]">{heading}</h1>
           <p className="text-sm text-[#1B2E35]/60 mt-1">
             {rows.length} active task{rows.length === 1 ? '' : 's'}
-            {isAdminBroadView && ' (all assignees)'} · sorted by call date
+            {broadView && ' (all assignees)'} · sorted by call date
           </p>
         </div>
-        <p className="text-xs text-[#1B2E35]/50 max-w-xs text-right">
-          Accounts must exist before the onboarding call.
-        </p>
+        <div className="flex items-center gap-4">
+          <div className="inline-flex items-center rounded-full border border-[#E0DEE4] bg-white p-0.5 text-xs">
+            <Link
+              href="/workspace/account-queue?scope=mine"
+              className={
+                scope === 'mine'
+                  ? 'rounded-full bg-[#1B2E35] px-3 py-1 font-medium text-white'
+                  : 'px-3 py-1 text-[#1B2E35]/60 hover:text-[#1B2E35]'
+              }
+            >
+              Mine
+            </Link>
+            <Link
+              href="/workspace/account-queue?scope=all"
+              className={
+                scope === 'all'
+                  ? 'rounded-full bg-[#1B2E35] px-3 py-1 font-medium text-white'
+                  : 'px-3 py-1 text-[#1B2E35]/60 hover:text-[#1B2E35]'
+              }
+            >
+              All
+            </Link>
+          </div>
+          <p className="text-xs text-[#1B2E35]/50 max-w-xs text-right">
+            Accounts must exist before the onboarding call.
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -224,21 +267,21 @@ export default async function AccountQueuePage() {
           title="Urgent"
           emoji="🚨"
           rows={urgent}
-          showAssignees={isAdminBroadView}
+          showAssignees={broadView}
           emptyMessage="Nothing urgent"
         />
         <Column
           title="Create Account"
           emoji="🆕"
           rows={createRows}
-          showAssignees={isAdminBroadView}
+          showAssignees={broadView}
           emptyMessage="No accounts to create"
         />
         <Column
           title="Send Credentials"
           emoji="🔑"
           rows={sendRows}
-          showAssignees={isAdminBroadView}
+          showAssignees={broadView}
           emptyMessage="No credentials to send"
         />
       </div>
