@@ -12,11 +12,6 @@
   ],
   "redirects": [
     {
-      "source": "/b&w",
-      "destination": "https://script.google.com/macros/s/AKfycbxsYY48xaZk3No8lKQ3pXo9cqTV6x4NaLeCQQUrC2-exHK9hsgcfwoB3-3cir9HhSwm/exec",
-      "statusCode": 302
-    },
-    {
       "source": "/",
       "destination": "https://rejig.ai",
       "statusCode": 302
