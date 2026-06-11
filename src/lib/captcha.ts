@@ -19,6 +19,21 @@
 
 const HCAPTCHA_SITEVERIFY_URL = 'https://api.hcaptcha.com/siteverify';
 
+/**
+ * Single opt-in switch. Captcha is OFF by default — to turn it on, set
+ * HCAPTCHA_ENABLED=on (and also have HCAPTCHA_SECRET +
+ * NEXT_PUBLIC_HCAPTCHA_SITE_KEY set so the verify call and the client widget
+ * actually work). Anything other than the literal 'on' is treated as off,
+ * so a typo or empty value fails closed to disabled, never half-on.
+ *
+ * Used by both the agent-lookup route (server verify) and the brokerage
+ * landing server components (which gate the siteKey passed to the client
+ * form). One flag flips both ends in lockstep.
+ */
+export function isHCaptchaEnabled(): boolean {
+  return process.env.HCAPTCHA_ENABLED === 'on';
+}
+
 interface SiteverifyResponse {
   success: boolean;
   challenge_ts?: string;

@@ -25,6 +25,7 @@ import { notFound } from 'next/navigation';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
+import { isHCaptchaEnabled } from '@/lib/captcha';
 import EmailForm from './EmailForm';
 import LandingShell from './LandingShell';
 import { themeForSlug } from './theme';
@@ -57,7 +58,11 @@ export default async function BrokerageLandingPage(props: PageProps<'/[slug]'>) 
   if (!brokerage) notFound();
 
   const theme = themeForSlug(slug);
-  const siteKey = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '';
+  // Captcha is OFF by default — only pass the siteKey when explicitly enabled
+  // via HCAPTCHA_ENABLED=on. Empty siteKey → client form renders no widget.
+  const siteKey = isHCaptchaEnabled()
+    ? (process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '')
+    : '';
   const tagline =
     brokerage.pricingTagline?.replace(/\{Name\}/g, brokerage.name) ?? '';
 

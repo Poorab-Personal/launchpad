@@ -22,6 +22,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { getSetting } from '@/lib/db';
+import { isHCaptchaEnabled } from '@/lib/captcha';
 import LandingShell from '../LandingShell';
 import { themeForSlug } from '../theme';
 import TestEmailForm, { type AgentOption } from './TestEmailForm';
@@ -56,7 +57,10 @@ export default async function BrokerageTestLandingPage(
   if (!brokerage) notFound();
 
   const theme = themeForSlug(slug);
-  const siteKey = process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '';
+  // Captcha is OFF by default (same opt-in gate as the prod landing page).
+  const siteKey = isHCaptchaEnabled()
+    ? (process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '')
+    : '';
   const tagline =
     brokerage.pricingTagline?.replace(/\{Name\}/g, brokerage.name) ?? '';
 

@@ -18,7 +18,7 @@ import { NextRequest } from 'next/server';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
-import { verifyHCaptcha } from '@/lib/captcha';
+import { isHCaptchaEnabled, verifyHCaptcha } from '@/lib/captcha';
 import { getSetting } from '@/lib/db';
 import { lookupByEmail } from '@/lib/roster/lookup';
 import { createRosterCustomer } from '@/lib/automations/create-roster-customer';
@@ -127,15 +127,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 1. hCaptcha gate. verifyHCaptcha fails closed on any error.
-  const remoteip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || undefined;
-  const captchaOk = await verifyHCaptcha(hcaptchaToken, remoteip);
-  if (!captchaOk) {
-    return Response.json(
-      { error: 'Captcha verification failed. Please try again.' },
-      { status: 400 },
-    );
+  // 1. hCaptcha gate. Skipped entirely when HCAPTCHA_SECRET is unset
+  //    (kill-switch — see isHCaptchaEnabled). verifyHCaptcha fails closed.
+  if (isHCaptchaEnabled()) {
+    const remoteip =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || undefined;
+    const captchaOk = await verifyHCaptcha(hcaptchaToken, remoteip);
+    if (!captchaOk) {
+      return Response.json(
+        { error: 'Captcha verification failed. Please try again.' },
+        { status: 400 },
+      );
+    }
   }
 
   // 2. Resolve brokerage by slug (raw row — the mapped Brokerage type omits
@@ -283,15 +286,17 @@ async function handleTestMode(
     return Response.json({ error: 'Test mode is not enabled.' }, { status: 403 });
   }
 
-  // hCaptcha gate (same real verify as prod). Fails closed on any error.
-  const remoteip =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || undefined;
-  const captchaOk = await verifyHCaptcha(hcaptchaToken, remoteip);
-  if (!captchaOk) {
-    return Response.json(
-      { error: 'Captcha verification failed. Please try again.' },
-      { status: 400 },
-    );
+  // hCaptcha gate (same real verify as prod, same kill-switch).
+  if (isHCaptchaEnabled()) {
+    const remoteip =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || undefined;
+    const captchaOk = await verifyHCaptcha(hcaptchaToken, remoteip);
+    if (!captchaOk) {
+      return Response.json(
+        { error: 'Captcha verification failed. Please try again.' },
+        { status: 400 },
+      );
+    }
   }
 
   // Resolve brokerage by slug (active + soft auth), same as prod.

@@ -226,16 +226,9 @@ export default function EmailForm({
         />
       </div>
 
-      {/* hCaptcha widget (or placeholder if not configured) */}
-      {siteKey ? (
-        <div ref={widgetRef} />
-      ) : (
-        <p className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-          Captcha is not configured for this environment
-          (NEXT_PUBLIC_HCAPTCHA_SITE_KEY missing). Verification will fail until
-          it is set.
-        </p>
-      )}
+      {/* hCaptcha widget — omitted entirely when siteKey is empty
+          (kill-switch; server matches via HCAPTCHA_SECRET unset). */}
+      {siteKey ? <div ref={widgetRef} /> : null}
 
       {error && (
         <p className="text-sm text-red-600" role="alert">
