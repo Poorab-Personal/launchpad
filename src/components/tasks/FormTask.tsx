@@ -59,8 +59,8 @@ const STEPS: StepDef[] = [
 
 const REQUIRED_FIELDS: Record<number, (keyof FormData)[]> = {
   0: ['businessName', 'phone', 'website', 'mlsIds'],
-  1: ['bio'],
-  2: ['serviceAreas', 'topics'],
+  1: [],
+  2: ['serviceAreas'],
   3: ['platformEmail'],
 };
 
@@ -1088,11 +1088,11 @@ export default function FormTask({
         return (
           <div className="space-y-5">
             <div>
-              <FieldLabel label="Bio" required />
+              <FieldLabel label="Bio" />
               <textarea
                 className={textareaClass('bio')}
                 rows={6}
-                placeholder="Tell us about yourself — your experience, specialties, and what makes you unique"
+                placeholder="We use this to create your personalized AI."
                 value={form.bio}
                 onChange={(e) => update('bio', e.target.value)}
               />
@@ -1219,7 +1219,7 @@ export default function FormTask({
               helper="Choose up to 5 areas for AI to curate local news posts. Tip: broader, higher-population areas (cities or counties) give richer content."
             />
             <div>
-              <FieldLabel label="Topics" required />
+              <FieldLabel label="Content Topics" />
               <p className="mb-1.5 text-xs text-[#1B2E35]/55">
                 Our AI curates and creates content for you based on these topics of interest — and we&apos;ll also draw topics from your bio.
               </p>
@@ -1399,7 +1399,7 @@ export default function FormTask({
               fields={[
                 { label: 'Monthly Market Reports', value: form.serviceAreas },
                 { label: 'Neighborhood News', value: form.localContentAreas },
-                { label: 'Topics', value: form.topics },
+                { label: 'Content Topics', value: form.topics },
                 { label: 'Preferred Hashtags', value: form.hashtags },
               ]}
             />
