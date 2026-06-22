@@ -68,14 +68,19 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
   if (!deal.magicLinkEmail) errors.push('magic_link_email is empty');
   if (!deal.contactEmail) errors.push('associated Contact has no email');
 
+  // Core (stripe_payment_id) is the canonical billing relationship and the
+  // anchor for customers.stripeCustomerId / .stripeSubscriptionId. Voice/Avatar
+  // add-ons can sit on the same OR a separate Stripe Customer record (it's
+  // common for D2C agents to end up with duplicate Stripe Customers when they
+  // create the add-on subscription as a separate Stripe transaction). The
+  // add-ons are still recorded in customer_subscriptions; only the parent row
+  // anchors on Core.
+  if (!deal.stripePaymentId) errors.push('stripe_payment_id (Core) is empty — required');
+
   const subIdsByProduct: { key: keyof typeof PRODUCT_KEY_TO_ENUM; subId: string }[] = [];
   if (deal.stripePaymentId) subIdsByProduct.push({ key: 'stripePaymentId', subId: deal.stripePaymentId });
   if (deal.voiceStripePaymentId) subIdsByProduct.push({ key: 'voiceStripePaymentId', subId: deal.voiceStripePaymentId });
   if (deal.avatarStripePaymentId) subIdsByProduct.push({ key: 'avatarStripePaymentId', subId: deal.avatarStripePaymentId });
-
-  if (subIdsByProduct.length === 0) {
-    errors.push('no Stripe Subscription IDs set (need Core at minimum)');
-  }
 
   for (const { subId } of subIdsByProduct) {
     if (!/^sub_[A-Za-z0-9_]+$/.test(subId)) {
@@ -90,13 +95,16 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
   }
 
   // ─── 3. Look up Stripe Subscriptions ────────────────────────────────────
+  // Each sub is retrieved + status-checked individually. Unlike the prior
+  // implementation, subs are NOT required to share a Stripe Customer — the
+  // parent customers row anchors on Core's Stripe customer; add-on subs on a
+  // different Stripe customer are still recorded in customer_subscriptions.
   const sk = stripe();
   type SubLookup = {
     product: 'Core' | 'Voice' | 'Avatar';
     sub: Stripe.Subscription;
   };
   const subLookups: SubLookup[] = [];
-  let stripeCustomerId: string | null = null;
 
   for (const { key, subId } of subIdsByProduct) {
     let sub: Stripe.Subscription;
@@ -112,17 +120,13 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
       await postNoteOnDeal(dealId, msg);
       throw new Error(msg);
     }
-    const cusId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id;
-    if (stripeCustomerId && stripeCustomerId !== cusId) {
-      const msg = `LaunchPad: subscriptions belong to different Stripe customers (${stripeCustomerId} vs ${cusId}).`;
-      await postNoteOnDeal(dealId, msg);
-      throw new Error(msg);
-    }
-    stripeCustomerId = cusId;
     subLookups.push({ product: PRODUCT_KEY_TO_ENUM[key], sub });
   }
 
-  if (!stripeCustomerId) throw new Error('Stripe customer not resolved');
+  // Validation above guarantees Core is the first entry in subLookups.
+  const coreSub = subLookups[0].sub;
+  const stripeCustomerId =
+    typeof coreSub.customer === 'string' ? coreSub.customer : coreSub.customer.id;
 
   // ─── 4. Resume-or-create LaunchPad customer ─────────────────────────────
   // Dedup key is hubspot_deal_id (NOT contact_id). One agent legitimately can
@@ -158,8 +162,7 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
       .join(' ')
       .trim() || deal.dealName || deal.contactEmail || 'Unknown';
 
-    const firstSub = subLookups[0].sub;
-    const subStatusMirror: 'Active' | 'Trial' = firstSub.status === 'trialing' ? 'Trial' : 'Active';
+    const subStatusMirror: 'Active' | 'Trial' = coreSub.status === 'trialing' ? 'Trial' : 'Active';
 
     customer = await db.transaction(async (tx) => {
       const [inserted] = await tx
@@ -177,7 +180,7 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
           hubspotContactId: deal.contactId,
           hubspotDealId: deal.dealId,
           stripeCustomerId,
-          stripeSubscriptionId: firstSub.id,
+          stripeSubscriptionId: coreSub.id,
           subscriptionStatus: subStatusMirror,
           hasVoice: subLookups.some((s) => s.product === 'Voice'),
           hasAvatar: subLookups.some((s) => s.product === 'Avatar'),
