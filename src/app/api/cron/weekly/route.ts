@@ -71,14 +71,19 @@ export async function GET(request: NextRequest) {
   })();
   const biUrl = `${baseUrl}/api/cron/bi?offset=0&limit=200`;
 
+  // Await the BI fetch fully inside after(). The previous 2-second race against
+  // the fetch lost reliably: BI is cold (not hit between Sundays), and Vercel
+  // killed the parent function before the cold-start TLS+route handshake
+  // completed, so the request never landed. Awaiting keeps the runtime alive
+  // until BI chunk 0 responds (~150s); BI's own after()-based chain then fires
+  // chunks 1+ as independent warm invocations.
   after(async () => {
     try {
-      const child = fetch(biUrl, {
+      const biRes = await fetch(biUrl, {
         method: 'GET',
         headers: { authorization: `Bearer ${cronSecret}` },
-      }).catch((e) => console.warn('[weekly cron] BI dispatch fetch failed', e));
-      await Promise.race([child, new Promise((r) => setTimeout(r, 2000))]);
-      console.log('[weekly cron] BI chain dispatched', biUrl);
+      });
+      console.log('[weekly cron] BI chunk-0 returned', biRes.status, biUrl);
     } catch (err) {
       console.error('[weekly cron] BI dispatch failed', err);
     }
