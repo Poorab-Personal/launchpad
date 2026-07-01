@@ -21,6 +21,10 @@
     {
       "path": "/api/cron/weekly",
       "schedule": "0 5 * * 0"
+    },
+    {
+      "path": "/api/cron/daily-checks",
+      "schedule": "0 16 * * *"
     }
   ],
   "functions": {
@@ -31,6 +35,9 @@
       "maxDuration": 300
     },
     "src/app/api/cron/weekly/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/cron/daily-checks/route.ts": {
       "maxDuration": 300
     }
   }

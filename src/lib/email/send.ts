@@ -5,6 +5,11 @@ import DesignReadyEmail from './templates/design-ready';
 import CredentialsSentEmail from './templates/credentials-sent';
 import MagicLinkEmail from './templates/magic-link';
 import TaskAssignedEmail from './templates/task-assigned';
+import DailyDigestEmail from './templates/daily-digest';
+import type {
+  Section1Row,
+  Section2Row,
+} from '@/lib/automations/daily-checks';
 
 const FROM = 'Rejig.ai Success Team <success@rejig.ai>';
 const REPLY_TO = 'success@rejig.ai';
@@ -151,6 +156,55 @@ export async function sendAlertEmail({
     replyTo: REPLY_TO,
     subject,
     text,
+  });
+
+  if (result.error) {
+    throw new Error(`Resend error: ${result.error.message}`);
+  }
+  return result.data;
+}
+
+/**
+ * Send the daily B2B-onboarding gap-detection digest. Internal recipients
+ * (success/poorab/matt) — separate from sendEmail() because the data shape
+ * is the runDailyChecks() result, not the customer-template map.
+ *
+ * Caller should pre-check that at least one section is non-empty before
+ * calling this — empty digests are silently skipped at the cron route.
+ */
+export async function sendDailyDigestEmail({
+  to,
+  cc,
+  digestDate,
+  section1,
+  section2,
+}: {
+  to: string | string[];
+  cc?: string | string[];
+  digestDate: string; // YYYY-MM-DD
+  section1: Section1Row[];
+  section2: Section2Row[];
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set');
+  }
+  const resend = new Resend(apiKey);
+
+  const total = section1.length + section2.length;
+  const subject = `[LaunchPad] Daily checks — ${total} item${total === 1 ? '' : 's'} (${digestDate})`;
+
+  const result = await resend.emails.send({
+    from: FROM,
+    to,
+    cc,
+    replyTo: REPLY_TO,
+    subject,
+    react: React.createElement(DailyDigestEmail, {
+      digestDate,
+      section1,
+      section2,
+    }),
   });
 
   if (result.error) {

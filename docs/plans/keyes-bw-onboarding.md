@@ -158,8 +158,8 @@ Google Script still owns real Keyes/BW traffic. Hit `/keyes` and `/b&w` directly
 - [ ] **Purge** the test customers after via `scripts/purge-test-customers.ts` pattern
 
 ### Phase I — Cutover (your action; no LP deploy)
-- [ ] Update Google Script redirect: Keyes domain → `https://onboarding.rejig.ai/keyes`
-- [ ] Update Google Script redirect: BW domain → `https://onboarding.rejig.ai/b&w`
+- [x] Update Google Script redirect: Keyes domain → `https://onboarding.rejig.ai/keyes` ✅ 2026-06-30 — `doGet` in `DMG - Keyes | Fetch Data & Re...` Apps Script (`WebApp.gs`) replaced with branded one-click splash page (target `_top` link, brand colors). True 302 not possible from Apps Script (`doGet` can only return `HtmlOutput`); top-frame nav is sandbox-blocked except via user-initiated `<a target="_top">` click. See [[legacy_gas_redirect_splash]].
+- [x] Update Google Script redirect: BW domain → `https://onboarding.rejig.ai/b&w` ✅ 2026-06-30 — same pattern, B&W brand (Deep Lake `#192D6B` primary, warm cream bg).
 - [ ] Monitor 24h of signups via `notifyCustomerCreated` alerts in poorab@ inbox + HS Pipeline
 - [ ] **Rollback:** revert the Google Script changes; LaunchPad needs zero changes.
 
