@@ -12,8 +12,14 @@
  *   3. Strip diacritics (NFD-normalize, drop combining marks).
  *   4. Treat hyphens and all apostrophe variants (', ’, ‘, ʼ, `, ′) as
  *      segment delimiters. Strip any other non-alphanumeric.
- *   5. Per segment: lowercase, then uppercase the first letter (strict
- *      camel). Join segments with no separator.
+ *   5. Per segment:
+ *        - If the segment is already mixed case (has both upper and lower
+ *          letters), preserve the author's casing — this keeps McCallum,
+ *          MacDonald, DiCaprio, DeSantis, O'Neil, VanDresser intact.
+ *        - Otherwise (uniform upper OR uniform lower), title-case: first
+ *          letter uppercase, rest lowercase. Normalizes SMITH → Smith
+ *          and smith → Smith.
+ *      Join segments with no separator.
  *   6. Append `123!`. If total length < 8, extend the digit block until
  *      the password is at least 8 characters (Rejig's minimum).
  *   7. Empty/garbage input falls through to `Welcome123!`.
@@ -23,10 +29,12 @@
  *   "Christina Day"        → "Day1234!"        (padded to 8)
  *   "Patrick O'Neil"       → "ONeil123!"       (apostrophe is delimiter)
  *   "Mary Jones-Smith"     → "JonesSmith123!"  (hyphen is delimiter)
- *   "MARY SMITH"           → "Smith123!"
+ *   "MARY SMITH"           → "Smith123!"       (all-caps normalized)
  *   "John Smith III"       → "Smith123!"       (suffix skipped)
- *   "Stacia McCallum, PA"  → "Mccallum123!"    (designation skipped)
- *   "Maria González"       → "Gonzalez123!"    (diacritic stripped)
+ *   "Stacia McCallum, PA"  → "McCallum123!"    (designation skipped, mixed case preserved)
+ *   "Susan DeSantis"       → "DeSantis123!"    (mixed case preserved)
+ *   "Jill VanDresser"      → "VanDresser123!"  (mixed case preserved)
+ *   "Maria González"       → "Gonzalez123!"    (diacritic stripped, uniform lower → title)
  *   ""                     → "Welcome123!"
  *
  * Used in four places — all derive on demand, nothing stored:
@@ -71,7 +79,14 @@ export function tempPasswordFromName(name: string): string {
     .split(DELIMITER_RE)
     .map((seg) => seg.replace(/[^A-Za-z0-9]/g, ''))
     .filter((seg) => seg.length > 0)
-    .map((seg) => seg.charAt(0).toUpperCase() + seg.slice(1).toLowerCase());
+    .map((seg) => {
+      // Mixed case → preserve (McCallum, MacDonald, DiCaprio, DeSantis).
+      // Uniform (all-caps or all-lower) → title-case.
+      const hasLower = /[a-z]/.test(seg);
+      const hasUpper = /[A-Z]/.test(seg);
+      if (hasLower && hasUpper) return seg;
+      return seg.charAt(0).toUpperCase() + seg.slice(1).toLowerCase();
+    });
 
   const cleaned = segments.join('');
   if (!cleaned) return 'Welcome123!';
