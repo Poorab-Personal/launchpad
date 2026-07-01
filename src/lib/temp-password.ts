@@ -3,8 +3,12 @@
  *
  * Rule:
  *   1. Take the last whitespace-separated word from the customer's name.
- *   2. If it's a generational suffix (Jr, Sr, II, III, IV, with optional
- *      "."), use the prior word instead.
+ *   2. If it's a generational suffix (Jr, Sr, II, III, IV) OR a common
+ *      professional designation (PA, MBA, CPA, MD, DDS, RN, PhD, Esq,
+ *      CFA, CFP, ABR, GRI, CRS, CLHMS, SRES, SRS), with optional ".",
+ *      use the prior word instead. Applied recursively — "Broker, MBA"
+ *      strips MBA, then would strip Broker only if Broker were also on
+ *      the list (it's not, so it stays).
  *   3. Strip diacritics (NFD-normalize, drop combining marks).
  *   4. Treat hyphens and all apostrophe variants (', ’, ‘, ʼ, `, ′) as
  *      segment delimiters. Strip any other non-alphanumeric.
@@ -15,14 +19,15 @@
  *   7. Empty/garbage input falls through to `Welcome123!`.
  *
  * Examples:
- *   "John Smith"       → "Smith123!"
- *   "Christina Day"    → "Day1234!"        (padded to 8)
- *   "Patrick O'Neil"   → "ONeil123!"       (apostrophe is delimiter)
- *   "Mary Jones-Smith" → "JonesSmith123!"  (hyphen is delimiter)
- *   "MARY SMITH"       → "Smith123!"
- *   "John Smith III"   → "Smith123!"       (suffix skipped)
- *   "Maria González"   → "Gonzalez123!"    (diacritic stripped)
- *   ""                 → "Welcome123!"
+ *   "John Smith"           → "Smith123!"
+ *   "Christina Day"        → "Day1234!"        (padded to 8)
+ *   "Patrick O'Neil"       → "ONeil123!"       (apostrophe is delimiter)
+ *   "Mary Jones-Smith"     → "JonesSmith123!"  (hyphen is delimiter)
+ *   "MARY SMITH"           → "Smith123!"
+ *   "John Smith III"       → "Smith123!"       (suffix skipped)
+ *   "Stacia McCallum, PA"  → "Mccallum123!"    (designation skipped)
+ *   "Maria González"       → "Gonzalez123!"    (diacritic stripped)
+ *   ""                     → "Welcome123!"
  *
  * Used in four places — all derive on demand, nothing stored:
  *  1. Account Creator's Send Credentials UI
@@ -36,7 +41,12 @@
  * password — divergence after first login is harmless.
  */
 
-const SUFFIX_RE = /^(jr|sr|ii|iii|iv)\.?$/i;
+// Generational suffixes (Jr/Sr/II-IV) plus common professional / academic /
+// real-estate designations. Real-estate agents frequently add PA (FL/CA
+// "Professional Association"), MBA, or industry credentials (ABR, GRI, CRS,
+// CLHMS, SRES, SRS) to their name — treating those as the surname produces
+// silly passwords like "Pa12345!" for "Stacia McCallum, PA".
+const SUFFIX_RE = /^(jr|sr|ii|iii|iv|pa|mba|cpa|md|dds|rn|phd|esq|cfa|cfp|abr|gri|crs|clhms|sres|srs)\.?$/i;
 // Hyphen + every apostrophe-like Unicode codepoint we've seen in the wild
 // (straight quote, smart quotes, modifier letter apostrophe / Hawaiian
 // ʻokina, backtick, prime). Anything else inside a base lastname
