@@ -79,6 +79,7 @@ function makeCustomer(opts: {
     paymentStatus: null,
     hubspotContactId: '',
     hubspotTicketId: '',
+    salesRepEmail: null,
     brokerage: [],
     rosterRecord: [],
     csmAssigned: [],

@@ -36,6 +36,7 @@ export type HubSpotDealWithContact = {
   stripePaymentId: string | null;        // Core sub_id — legacy property name
   voiceStripePaymentId: string | null;   // Voice add-on sub_id
   avatarStripePaymentId: string | null;  // Avatar add-on sub_id
+  ownerId: string | null;                // HubSpot user id of the deal owner (sales rep)
   contactId: string;
   contactEmail: string | null;
   contactFirstName: string | null;
@@ -61,6 +62,7 @@ export async function getDealForClosedWon(dealId: string): Promise<HubSpotDealWi
       'stripe_payment_id',
       'voice_stripe_payment_id',
       'avatar_stripe_payment_id',
+      'hubspot_owner_id',
     ],
     undefined,
     ['contacts'],
@@ -89,6 +91,7 @@ export async function getDealForClosedWon(dealId: string): Promise<HubSpotDealWi
     stripePaymentId: deal.properties.stripe_payment_id ?? null,
     voiceStripePaymentId: deal.properties.voice_stripe_payment_id ?? null,
     avatarStripePaymentId: deal.properties.avatar_stripe_payment_id ?? null,
+    ownerId: deal.properties.hubspot_owner_id ?? null,
     contactId,
     contactEmail: contact.properties.email ?? null,
     contactFirstName: contact.properties.firstname ?? null,
@@ -96,6 +99,27 @@ export async function getDealForClosedWon(dealId: string): Promise<HubSpotDealWi
     contactPhone: contact.properties.phone ?? null,
     contactCompany: contact.properties.company ?? null,
   };
+}
+
+/**
+ * Look up a HubSpot Owner (sales rep / CSM / any HS user) by ID and return
+ * their email. Returns null when the ID is unset, when the owner has no
+ * email property, or when the API call fails — callers treat this as
+ * "no CC for this run" rather than blocking the flow. Called from the
+ * closedwon handler to stash `salesRepEmail` on the LP customer row so
+ * the deal owner gets BCC/CC'd on the welcome email that carries the
+ * magic link.
+ */
+export async function getOwnerEmailById(ownerId: string): Promise<string | null> {
+  if (!ownerId) return null;
+  try {
+    const hs = client();
+    const owner = await hs.crm.owners.ownersApi.getById(Number(ownerId));
+    return owner.email ?? null;
+  } catch (err) {
+    console.warn(`[hubspot getOwnerEmailById] lookup failed for owner ${ownerId}:`, err);
+    return null;
+  }
 }
 
 /**

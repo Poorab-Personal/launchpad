@@ -8,6 +8,7 @@ import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee
 import {
   createCustomerJourneyTicket,
   getDealForClosedWon,
+  getOwnerEmailById,
   postNoteOnDeal,
   updateContactProperties,
   updateDealProperties,
@@ -164,6 +165,11 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
 
     const subStatusMirror: 'Active' | 'Trial' = coreSub.status === 'trialing' ? 'Trial' : 'Active';
 
+    // Deal-owner email → stashed on the customer row so the closing sales
+    // rep gets CC'd on the welcome email (with the magic link). Lookup
+    // failures return null and simply skip the CC — never blocks the flow.
+    const salesRepEmail = deal.ownerId ? await getOwnerEmailById(deal.ownerId) : null;
+
     customer = await db.transaction(async (tx) => {
       const [inserted] = await tx
         .insert(schema.customers)
@@ -179,6 +185,7 @@ export async function processDealClosedWon(dealId: string): Promise<ClosedWonRes
           currentStage: 'Getting Started',
           hubspotContactId: deal.contactId,
           hubspotDealId: deal.dealId,
+          salesRepEmail,
           stripeCustomerId,
           stripeSubscriptionId: coreSub.id,
           subscriptionStatus: subStatusMirror,

@@ -124,6 +124,7 @@ export interface Customer {
   // HubSpot integration cross-system anchors (added 2026-05-13 with /api/webhooks/hubspot)
   hubspotContactId: string;
   hubspotTicketId: string;
+  salesRepEmail: string | null;
 
   // Stripe — populated per Workflow Templates.Payment Mode (see plans/payment-mode-dropoff.md)
   stripeCustomerId: string;

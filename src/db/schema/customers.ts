@@ -92,6 +92,7 @@ export const customers = pgTable(
     // HubSpot integration cross-system anchors — populated by /api/webhooks/hubspot on closedwon
     hubspotContactId: text('hubspot_contact_id'),                                  // 1:1 — UNIQUE indexed (see below)
     hubspotTicketId: text('hubspot_ticket_id'),                                    // the current Customer Journey ticket
+    salesRepEmail: text('sales_rep_email'),                                        // deal owner's email at closedwon time; CC'd on welcome
 
     // Stripe — written by payment-mode Phase 1 flow + Stripe webhook
     stripeCustomerId: text('stripe_customer_id'),

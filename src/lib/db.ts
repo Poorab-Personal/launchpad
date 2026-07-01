@@ -133,6 +133,7 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
     // HubSpot integration cross-system anchors
     hubspotContactId: row.hubspotContactId ?? '',
     hubspotTicketId: row.hubspotTicketId ?? '',
+    salesRepEmail: row.salesRepEmail ?? null,
 
     // Enterprise (B2B)
     brokerage: arrFromId(row.brokerageId),

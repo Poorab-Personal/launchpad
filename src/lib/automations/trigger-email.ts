@@ -72,10 +72,19 @@ export async function triggerCustomerEmail(
         }
       : { firstName: fname, portalUrl };
 
+  // Welcome-only: CC the closing sales rep (deal owner) so they get a copy
+  // of the customer's magic link. Populated on the customer row at
+  // closedwon time via getOwnerEmailById; null for admin-created, B2B, and
+  // pre-existing customers → no CC. Design-ready / credentials-sent
+  // intentionally skip the CC — sales rep shouldn't get a second touch
+  // weeks later.
+  const cc = template === 'welcome' ? customer.salesRepEmail : null;
+
   try {
     await sendEmail({
       template,
       to: customer.contactEmail,
+      cc,
       // Casting here is safe — the data shape matches the template
       // discriminant via the conditional above.
       data: data as Parameters<typeof sendEmail<typeof template>>[0]['data'],

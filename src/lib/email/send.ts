@@ -94,11 +94,15 @@ function renderTemplate<T extends EmailTemplate>(
 export async function sendEmail<T extends EmailTemplate>({
   template,
   to,
+  cc,
   data,
   subject,
 }: {
   template: T;
   to: string;
+  /** Optional CC. Used to loop the sales rep in on the welcome email (deal
+   * owner from HubSpot); passed through unchanged when null/undefined. */
+  cc?: string | null;
   data: TemplateDataMap[T];
   /** Optional override. When omitted, falls back to the static `subjects[template]`. */
   subject?: string;
@@ -115,6 +119,7 @@ export async function sendEmail<T extends EmailTemplate>({
     replyTo: REPLY_TO,
     subject: subject ?? subjects[template],
     react: renderTemplate(template, data),
+    ...(cc ? { cc } : {}),
     ...(CUSTOMER_FACING_TEMPLATES.has(template) ? { bcc: CUSTOMER_EMAIL_BCC } : {}),
   });
 
