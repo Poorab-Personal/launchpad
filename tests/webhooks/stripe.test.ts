@@ -25,7 +25,15 @@ vi.mock('@/lib/db', () => ({
   updateTaskStatus: vi.fn(),
 }));
 
+// Keep the real signature verifier; stub only the default-PM setter so we can
+// assert it's called without hitting Stripe.
+vi.mock('@/lib/stripe', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/stripe')>();
+  return { ...actual, setCustomerDefaultPaymentMethod: vi.fn() };
+});
+
 import * as dbLayer from '@/lib/db';
+import { setCustomerDefaultPaymentMethod } from '@/lib/stripe';
 import { POST } from '@/app/api/webhooks/stripe/route';
 import type { NextRequest } from 'next/server';
 
@@ -149,7 +157,11 @@ function makeTask(opts: { id?: string; taskName: string; status: Task['status'];
 
 // Stripe.Event JSON builder — verifier doesn't validate inner shape; the
 // route reads .type, .id, and the nested .data.object.{customer, id, status}.
-function setupIntentEvent(opts: { customerId: string | null; eventId?: string }) {
+function setupIntentEvent(opts: {
+  customerId: string | null;
+  eventId?: string;
+  paymentMethod?: string | null;
+}) {
   return {
     id: opts.eventId ?? 'evt_test_si_1',
     object: 'event' as const,
@@ -160,7 +172,13 @@ function setupIntentEvent(opts: { customerId: string | null; eventId?: string })
     pending_webhooks: 1,
     request: { id: null, idempotency_key: null },
     data: {
-      object: { id: 'seti_test_1', object: 'setup_intent', customer: opts.customerId, status: 'succeeded' },
+      object: {
+        id: 'seti_test_1',
+        object: 'setup_intent',
+        customer: opts.customerId,
+        status: 'succeeded',
+        payment_method: opts.paymentMethod ?? null,
+      },
     },
   };
 }
@@ -210,6 +228,7 @@ const mockGetCustomers = vi.mocked(dbLayer.getCustomers);
 const mockGetTasksForCustomer = vi.mocked(dbLayer.getTasksForCustomer);
 const mockUpdateCustomerFields = vi.mocked(dbLayer.updateCustomerFields);
 const mockUpdateTaskStatus = vi.mocked(dbLayer.updateTaskStatus);
+const mockSetDefaultPM = vi.mocked(setCustomerDefaultPaymentMethod);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -328,6 +347,50 @@ describe('setup_intent.succeeded', () => {
 
     expect(res.status).toBe(200);
     expect(mockUpdateTaskStatus).not.toHaveBeenCalled();
+  });
+
+  // Default-payment-method fix: when the customer saves their card, set it as
+  // their default so the trial-conversion invoice can auto-charge.
+  it('sets the customer default payment method when payment_method is present', async () => {
+    const customer = makeCustomer({ id: 'recCustPM', stripeCustomerId: 'cus_pm', tasks: ['recTaskPM'] });
+    const task = makeTask({ id: 'recTaskPM', taskName: 'Capture Payment Method', status: 'Active' });
+    mockGetCustomers.mockResolvedValue([customer]);
+    mockGetTasksForCustomer.mockResolvedValue([task]);
+
+    const req = makeSignedRequest(setupIntentEvent({ customerId: 'cus_pm', paymentMethod: 'pm_123' }));
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockSetDefaultPM).toHaveBeenCalledExactlyOnceWith('cus_pm', 'pm_123');
+    expect(mockUpdateTaskStatus).toHaveBeenCalledExactlyOnceWith('recTaskPM', 'Completed');
+  });
+
+  it('does not set a default when setup_intent has no payment_method', async () => {
+    const customer = makeCustomer({ id: 'recCustNoPM', stripeCustomerId: 'cus_nopm', tasks: ['recTaskNoPM'] });
+    const task = makeTask({ id: 'recTaskNoPM', taskName: 'Capture Payment Method', status: 'Active' });
+    mockGetCustomers.mockResolvedValue([customer]);
+    mockGetTasksForCustomer.mockResolvedValue([task]);
+
+    const req = makeSignedRequest(setupIntentEvent({ customerId: 'cus_nopm', paymentMethod: null }));
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockSetDefaultPM).not.toHaveBeenCalled();
+    expect(mockUpdateTaskStatus).toHaveBeenCalledExactlyOnceWith('recTaskNoPM', 'Completed');
+  });
+
+  it('still returns 200 and completes the task when setting the default throws', async () => {
+    const customer = makeCustomer({ id: 'recCustThrow', stripeCustomerId: 'cus_throw', tasks: ['recTaskThrow'] });
+    const task = makeTask({ id: 'recTaskThrow', taskName: 'Capture Payment Method', status: 'Active' });
+    mockGetCustomers.mockResolvedValue([customer]);
+    mockGetTasksForCustomer.mockResolvedValue([task]);
+    mockSetDefaultPM.mockRejectedValueOnce(new Error('Stripe unavailable'));
+
+    const req = makeSignedRequest(setupIntentEvent({ customerId: 'cus_throw', paymentMethod: 'pm_throw' }));
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateTaskStatus).toHaveBeenCalledExactlyOnceWith('recTaskThrow', 'Completed');
   });
 });
 

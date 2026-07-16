@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { customerSubscriptions } from '@/db/schema/customerSubscriptions';
 import { customerUsageSignals } from '@/db/schema/customerUsageSignals';
-import { verifyWebhookSignature } from '@/lib/stripe';
+import { verifyWebhookSignature, setCustomerDefaultPaymentMethod } from '@/lib/stripe';
 import { getCustomers, getTasksForCustomer, updateCustomerFields, updateTaskStatus } from '@/lib/db';
 
 /**
@@ -207,6 +207,11 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent, event
     return;
   }
 
+  const paymentMethodId =
+    typeof setupIntent.payment_method === 'string'
+      ? setupIntent.payment_method
+      : setupIntent.payment_method?.id ?? null;
+
   // Phase 2: capture as a usage signal regardless of task state.
   await writeStripeSignal({
     customerId: customer.id,
@@ -215,9 +220,28 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent, event
     occurredAtSeconds: event.created,
     payload: {
       setupIntentId: setupIntent.id,
-      paymentMethodId: typeof setupIntent.payment_method === 'string' ? setupIntent.payment_method : setupIntent.payment_method?.id ?? null,
+      paymentMethodId,
     },
   });
+
+  // PRIMARY fix for the "trial ends → invoice stuck open, no card to charge"
+  // bug: the moment the customer saves their (one) card, mark it the customer's
+  // default. Every future charge_automatically invoice — including the
+  // trial-conversion invoice — then auto-charges it. Runs seconds after save,
+  // days before the subscription is created, so the default is always in place
+  // by billing time. Best-effort: a failure here must not 500 the webhook or
+  // block the task-completion below (Stripe retries delivery anyway).
+  if (paymentMethodId) {
+    try {
+      await setCustomerDefaultPaymentMethod(stripeCustomerId, paymentMethodId);
+      console.log(`[stripe webhook] set default PM ${paymentMethodId} for ${stripeCustomerId} (customer ${customer.id})`);
+    } catch (err) {
+      console.warn(
+        `[stripe webhook] failed to set default PM ${paymentMethodId} for ${stripeCustomerId} (non-fatal):`,
+        err,
+      );
+    }
+  }
 
   // Find this customer's Capture Payment Method task. If it's already
   // Completed, no-op (the client-side /confirm flow already handled it).

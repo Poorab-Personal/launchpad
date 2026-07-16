@@ -76,6 +76,46 @@ export async function createSetupIntent(params: {
 }
 
 /**
+ * Set a customer's default payment method (invoice_settings). Called when the
+ * customer saves their card (setup_intent.succeeded) so every future
+ * charge_automatically invoice — including the trial-conversion invoice — has a
+ * card to auto-charge. Without this, the invoice finalizes with no default and
+ * sits open/incomplete ("customer hasn't attempted to pay this invoice yet").
+ */
+export async function setCustomerDefaultPaymentMethod(
+  stripeCustomerId: string,
+  paymentMethodId: string,
+): Promise<void> {
+  await client().customers.update(stripeCustomerId, {
+    invoice_settings: { default_payment_method: paymentMethodId },
+  });
+}
+
+/**
+ * Resolve the payment method to charge for a customer, in priority order:
+ *   1. Their invoice_settings.default_payment_method (set at card-save time).
+ *   2. Newest saved card (paymentMethods.list is newest-first).
+ *   3. Newest saved Stripe Link method (a distinct PM `type`, missed by a card
+ *      filter — 2 real IPRE customers pay via Link).
+ * Returns null if the customer has no usable payment method on file.
+ */
+export async function getCustomerDefaultPaymentMethod(
+  stripeCustomerId: string,
+): Promise<string | null> {
+  const c = client();
+  const customer = await c.customers.retrieve(stripeCustomerId);
+  if (!('deleted' in customer && customer.deleted)) {
+    const dflt = (customer as Stripe.Customer).invoice_settings?.default_payment_method;
+    if (dflt) return typeof dflt === 'string' ? dflt : dflt.id;
+  }
+  const cards = await c.paymentMethods.list({ customer: stripeCustomerId, type: 'card', limit: 1 });
+  if (cards.data[0]) return cards.data[0].id;
+  const link = await c.paymentMethods.list({ customer: stripeCustomerId, type: 'link', limit: 1 });
+  if (link.data[0]) return link.data[0].id;
+  return null;
+}
+
+/**
  * Create a subscription using a previously-saved payment method.
  * Idempotent on the LaunchPad customer id — call this safely from
  * webhook retries.
