@@ -173,6 +173,7 @@ export interface Customer {
   createdVia: string;                                        // 'organic' | 'closedwon' | 'b2b_landing' | 'backfill' | 'admin'
   accountCreated: boolean;
   credentialsSent: boolean;
+  tempPassword: string | null;                               // password actually sent (editable at Send Credentials); null = derive
   callBooked: boolean;
   callCompleted: boolean;
   callDate: string;

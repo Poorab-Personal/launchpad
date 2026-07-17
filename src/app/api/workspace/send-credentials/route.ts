@@ -8,7 +8,7 @@ import {
   updateTaskFields,
 } from '@/lib/db';
 import { sendEmail } from '@/lib/email/send';
-import { tempPasswordFromName } from '@/lib/temp-password';
+import { resolveTempPassword } from '@/lib/temp-password';
 
 /**
  * Send the credentials email and complete the "Send Credentials" task.
@@ -20,7 +20,7 @@ import { tempPasswordFromName } from '@/lib/temp-password';
 export async function POST(request: NextRequest) {
   const session = await requireSession();
 
-  let body: { taskId?: string; customerId?: string };
+  let body: { taskId?: string; customerId?: string; password?: string };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -31,6 +31,21 @@ export async function POST(request: NextRequest) {
   if (!taskId || !customerId) {
     return Response.json(
       { error: 'Missing required fields: taskId, customerId' },
+      { status: 400 },
+    );
+  }
+
+  // The Account Creator can edit the temp password inline before sending; we
+  // trust the submitted value (route is already role- + assignment-gated) but
+  // guard against a blank/absurd send. The exact value is what we email AND
+  // persist, so every downstream surface matches what actually went out.
+  const password = (body.password ?? '').trim();
+  if (!password) {
+    return Response.json({ error: 'Temp password cannot be empty.' }, { status: 400 });
+  }
+  if (password.length < 8 || password.length > 128) {
+    return Response.json(
+      { error: 'Temp password must be between 8 and 128 characters.' },
       { status: 400 },
     );
   }
@@ -78,7 +93,6 @@ export async function POST(request: NextRequest) {
   const portalBase = customer.portalBaseUrl || 'https://onboarding.rejig.ai';
   const portalUrl = `${portalBase}/r/${customer.accessToken}`;
   const firstName = customer.name.trim().split(/\s+/)[0] || 'there';
-  const password = tempPasswordFromName(customer.name);
 
   await sendEmail({
     template: 'credentials-sent',
@@ -93,20 +107,33 @@ export async function POST(request: NextRequest) {
   });
 
   // Mark task complete + flip flag on customer. Auto 2 (Phase 3) picks up
-  // the status change to activate dependent tasks.
+  // the status change to activate dependent tasks. Persist the exact password
+  // that went out so the email, portal Sign In task, and Handy page all read
+  // back the same value (via resolveTempPassword).
   await updateTaskFields(taskId, {
     status: 'Completed',
     completedAt: new Date(),
   });
-  await updateCustomerFields(customerId, { credentialsSent: true });
+  await updateCustomerFields(customerId, {
+    credentialsSent: true,
+    tempPassword: password,
+  });
 
-  // Non-fatal audit event.
+  // Non-fatal audit event. Flag when the AC edited away from the derived
+  // default — helps future "why is the password X?" debugging.
+  const derivedDefault = resolveTempPassword({
+    tempPassword: null,
+    name: customer.name,
+    platformEmail: customer.platformEmail,
+  });
+  const editedNote =
+    password === derivedDefault ? '' : ' (edited from derived default)';
   try {
     await createEvent(
       customerId,
       'Task Completed',
       'Team Member',
-      `Credentials email sent to ${customer.contactEmail}.`,
+      `Credentials email sent to ${customer.contactEmail}${editedNote}.`,
       taskId,
       session.memberId,
     );

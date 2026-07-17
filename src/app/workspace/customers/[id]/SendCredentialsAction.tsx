@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation';
 /**
  * Account Creator action panel for the "Send Credentials" task.
  *
- * No password input — the temp password is derived from the customer's
- * name on the server (pattern: `Lastname123!`). The Account Creator just
- * reviews what's about to go out and hits Send. The same derivation is
- * used in the email template and the customer's portal Sign In task, so
- * everything stays consistent without any storage.
+ * The temp password is pre-filled with the derived default (or the stored
+ * value if already sent) but is editable — the Account Creator can correct
+ * an odd/empty-name derivation before sending. Whatever's in the box is what
+ * gets emailed AND persisted on the customer, so the email template, portal
+ * Sign In task, and Handy page all read back the exact value that went out.
  */
 export default function SendCredentialsAction({
   taskId,
@@ -24,12 +24,14 @@ export default function SendCredentialsAction({
   derivedPassword: string;
 }) {
   const router = useRouter();
+  const [password, setPassword] = useState(derivedPassword);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const platformEmailMissing = !platformEmail;
-  const canSend = !platformEmailMissing && !sending && !sent;
+  const passwordInvalid = password.trim().length < 8;
+  const canSend = !platformEmailMissing && !passwordInvalid && !sending && !sent;
 
   async function handleSend() {
     setError(null);
@@ -38,7 +40,7 @@ export default function SendCredentialsAction({
       const res = await fetch('/api/workspace/send-credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, customerId }),
+        body: JSON.stringify({ taskId, customerId, password: password.trim() }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? 'Send failed');
@@ -70,12 +72,24 @@ export default function SendCredentialsAction({
         <label className="block text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold mb-1.5">
           Temp Password
         </label>
-        <div className="rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] px-3 py-2 text-sm text-[#1B2E35] font-mono">
-          {derivedPassword}
-        </div>
+        <input
+          type="text"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={sent}
+          spellCheck={false}
+          autoComplete="off"
+          className="w-full rounded-lg border border-[#E0DEE4] bg-[#F7F4EB] px-3 py-2 text-sm text-[#1B2E35] font-mono focus:outline-none focus:ring-2 focus:ring-[#05C68E]/40 disabled:opacity-60"
+        />
         <p className="mt-1 text-xs text-[#1B2E35]/50">
-          Use this same password when creating the customer in app.rejig.ai.
+          Pre-filled from the customer&apos;s name — edit if it looks wrong. Use this
+          same password when creating the customer in app.rejig.ai.
         </p>
+        {passwordInvalid && (
+          <p className="mt-1 text-xs text-[#EC531A]">
+            Password must be at least 8 characters.
+          </p>
+        )}
       </div>
 
       <button

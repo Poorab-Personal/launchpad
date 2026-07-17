@@ -54,6 +54,11 @@ export const customers = pgTable(
     workflowKey: text('workflow_key').notNull(),                                   // resolved at insert from channels.code: `${type}-${code}`
     contactEmail: text('contact_email').notNull(),
     platformEmail: text('platform_email').notNull(),                               // distinct from contact; used for portal sign-in
+    // Temp password actually sent to the customer. Persisted at Send-Credentials
+    // time (the Account Creator can edit it inline before sending). All four
+    // password surfaces read this if set, else derive from name/email. Null = never
+    // sent; still a *temporary* password (customer resets on first sign-in).
+    tempPassword: text('temp_password'),
     phone: text('phone'),
 
     // Business info

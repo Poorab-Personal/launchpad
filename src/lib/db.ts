@@ -159,6 +159,7 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
     createdVia: row.createdVia,
     accountCreated: row.accountCreated,
     credentialsSent: row.credentialsSent,
+    tempPassword: row.tempPassword ?? null,
     callBooked: row.callBooked,
     callCompleted: row.callCompleted,
     callDate: iso(row.callDate),

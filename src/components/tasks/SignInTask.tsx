@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { Task, Customer } from '@/types';
-import { tempPasswordFromName } from '@/lib/temp-password';
+import { resolveTempPassword } from '@/lib/temp-password';
 
 const APP_URL = 'https://app.rejig.ai';
 
@@ -33,7 +33,9 @@ export default function SignInTask({
   const [copied, setCopied] = useState<'email' | 'password' | null>(null);
 
   const email = customer?.platformEmail ?? '';
-  const password = tempPasswordFromName(customer?.name ?? '');
+  const password = customer
+    ? resolveTempPassword(customer)
+    : resolveTempPassword({ tempPassword: null, name: '', platformEmail: '' });
   const launchUrl = email
     ? `${APP_URL}/?email=${encodeURIComponent(email)}`
     : APP_URL;

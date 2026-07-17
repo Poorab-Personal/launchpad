@@ -20,7 +20,7 @@ import CallsSection from './CallsSection';
 import LogCallButton, { type CSMOption } from './LogCallButton';
 import CreateAccountAction from './CreateAccountAction';
 import SendCredentialsAction from './SendCredentialsAction';
-import { tempPasswordFromName } from '@/lib/temp-password';
+import { resolveTempPassword } from '@/lib/temp-password';
 import CopyableField from './CopyableField';
 import { groupDrafts, formatGroupStamp } from './draft-groups';
 
@@ -185,7 +185,7 @@ function TaskActionPanel({
         taskId={task.id}
         customerId={customerId}
         platformEmail={customer.platformEmail}
-        derivedPassword={tempPasswordFromName(customer.name)}
+        derivedPassword={resolveTempPassword(customer)}
       />
     );
   }

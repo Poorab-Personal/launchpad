@@ -162,6 +162,13 @@
       "when": 1780700000000,
       "tag": "0023_customer_sales_rep_email",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1780800000000,
+      "tag": "0024_customer_temp_password",
+      "breakpoints": true
     }
   ]
 }

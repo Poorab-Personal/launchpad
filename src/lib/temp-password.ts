@@ -22,7 +22,10 @@
  *      Join segments with no separator.
  *   6. Append `123!`. If total length < 8, extend the digit block until
  *      the password is at least 8 characters (Rejig's minimum).
- *   7. Empty/garbage input falls through to `Welcome123!`.
+ *   7. If the name is empty/garbage but a platform email is supplied, fall
+ *      back to the email's local-part (before `@`, with `._+-` runs treated
+ *      as spaces) and re-run the rule on that: `sooji.hill@… → Hill123!`.
+ *   8. If neither name nor email yield anything usable → `Welcome123!`.
  *
  * Examples:
  *   "John Smith"           → "Smith123!"
@@ -35,10 +38,14 @@
  *   "Susan DeSantis"       → "DeSantis123!"    (mixed case preserved)
  *   "Jill VanDresser"      → "VanDresser123!"  (mixed case preserved)
  *   "Maria González"       → "Gonzalez123!"    (diacritic stripped, uniform lower → title)
- *   ""                     → "Welcome123!"
+ *   ("", "sooji.hill@bairdwarner.com") → "Hill123!"   (empty name → email local-part)
+ *   ("", "")               → "Welcome123!"
  *
- * Used in four places — all derive on demand, nothing stored:
- *  1. Account Creator's Send Credentials UI
+ * Used in four places. Each derives the *default* on demand, but once the
+ * Account Creator sends credentials the actual value is persisted on
+ * `customers.temp_password` and every surface reads it back via
+ * `resolveTempPassword` (stored value wins over derivation):
+ *  1. Account Creator's Send Credentials UI (editable — seeds the input)
  *  2. credentials-sent email body
  *  3. Customer portal Sign In task
  *  4. Customer portal post-launch Handy page
@@ -63,11 +70,17 @@ const SUFFIX_RE = /^(jr|sr|ii|iii|iv|pa|mba|cpa|md|dds|rn|phd|esq|cfa|cfp|abr|gr
 const DELIMITER_RE = /[-'’‘ʼ`′]+/;
 const COMBINING_DIACRITIC_RE = /[̀-ͯ]/g;
 
-export function tempPasswordFromName(name: string): string {
-  const trimmed = (name ?? '').trim();
-  if (!trimmed) return 'Welcome123!';
+export function tempPasswordFromName(name: string, email?: string): string {
+  // Prefer the name; when it's empty/garbage, fall back to the platform
+  // email's local-part so e.g. an empty-name customer still gets a sensible
+  // "Lastname123!" instead of the generic "Welcome123!".
+  let source = (name ?? '').trim();
+  if (!source && email) {
+    source = (email.split('@')[0] ?? '').replace(/[._+-]+/g, ' ').trim();
+  }
+  if (!source) return 'Welcome123!';
 
-  const words = trimmed.split(/\s+/);
+  const words = source.split(/\s+/);
   let base = words[words.length - 1];
   if (words.length > 1 && SUFFIX_RE.test(base)) {
     base = words[words.length - 2];
@@ -96,4 +109,23 @@ export function tempPasswordFromName(name: string): string {
   const digitCount = Math.max(3, 7 - cleaned.length);
   const digits = '1234567'.slice(0, digitCount);
   return `${cleaned}${digits}!`;
+}
+
+/**
+ * The temp password to display/send for a customer. Once credentials have
+ * been sent, `tempPassword` holds the exact value that went out (which the
+ * Account Creator may have edited) — that wins over any re-derivation, so
+ * the email, portal Sign In task, and Handy page all stay in agreement.
+ * Before sending, `tempPassword` is null and we derive a sensible default
+ * from name (or, if empty, the platform email). Source is the *platform*
+ * email — the login identity — not the contact email.
+ */
+export function resolveTempPassword(c: {
+  tempPassword?: string | null;
+  name: string;
+  platformEmail?: string | null;
+}): string {
+  const stored = (c.tempPassword ?? '').trim();
+  if (stored) return stored;
+  return tempPasswordFromName(c.name, c.platformEmail ?? undefined);
 }

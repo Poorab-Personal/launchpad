@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { Customer } from '@/types';
-import { tempPasswordFromName } from '@/lib/temp-password';
+import { resolveTempPassword } from '@/lib/temp-password';
 
 /**
  * The customer's permanent post-launch home base. Rendered by /r/[token]
@@ -60,7 +60,7 @@ export default function PortalHandyPage({ customer, defaultSupportMeetingUrl }: 
   const supportMeetingUrl = config.supportMeetingUrl ?? defaultSupportMeetingUrl;
   const firstName = customer.name.split(' ')[0];
   const email = customer.platformEmail ?? '';
-  const password = tempPasswordFromName(customer.name ?? '');
+  const password = resolveTempPassword(customer);
   const launchUrl = email
     ? `${config.productUrl}/?email=${encodeURIComponent(email)}`
     : config.productUrl;
