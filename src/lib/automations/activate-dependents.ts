@@ -37,15 +37,16 @@ export const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
   'B2B-RUHL': 'Confirm Your Information',
 };
 
-// Workflows whose Core flow terminates at intake-submission — no account
-// creation, no portal login, no onboarding call (pilot brokerages awaiting
-// Stripe + call-booking rollout). These get 'Submitted' instead of the
-// default 'Launched' as their terminal currentStage value: 'Launched'
-// implies real credentials (the portal shows a "Go to Rejig" link + temp
-// password) and triggers the HS Ticket → "Onboarding Scheduled" push,
-// neither of which is true here.
-const CORE_TERMINAL_STAGE_OVERRIDE: Record<string, string> = {
-  'B2B-RUHL': 'Submitted',
+// Pilot workflows with no onboarding-call task (group training/rollout
+// handled outside LP for the duration of the pilot). For these, the HS
+// Ticket → "Onboarding Scheduled" push normally fired at the Launched
+// terminal branch (see section 4 below) doesn't apply — there's no meeting
+// to schedule. Instead, the ticket gets pushed straight to the given stage
+// the moment "Send Credentials" completes (the real "agent is onboarded"
+// moment for this pilot), and the Launched-time push is skipped for these
+// workflow keys since their push already happened here.
+const SEND_CREDENTIALS_TICKET_PUSH: Record<string, string> = {
+  'B2B-RUHL': 'Active',
 };
 
 /**
@@ -176,10 +177,28 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
       .set({ accountCreated: true })
       .where(eq(schema.customers.id, customerId));
   } else if (completedTask.taskName === 'Send Credentials') {
-    await db
+    // Race guard mirrors the terminal-stage UPDATE below: condition on
+    // credentialsSent still being false so a duplicate Auto 2 invocation
+    // (e.g. a client double-click retrying the same task completion) can't
+    // fire the HS ticket push a second time.
+    const [updatedCust] = await db
       .update(schema.customers)
       .set({ credentialsSent: true })
-      .where(eq(schema.customers.id, customerId));
+      .where(and(eq(schema.customers.id, customerId), eq(schema.customers.credentialsSent, false)))
+      .returning({ workflowKey: schema.customers.workflowKey, hubspotTicketId: schema.customers.hubspotTicketId });
+
+    // Pilot workflows with no onboarding-call task: this is their real
+    // "agent is onboarded" moment (see SEND_CREDENTIALS_TICKET_PUSH above).
+    // Best-effort: log + swallow, same as the Launched-branch push below.
+    const pushStage = updatedCust ? SEND_CREDENTIALS_TICKET_PUSH[updatedCust.workflowKey] : undefined;
+    if (pushStage && updatedCust?.hubspotTicketId) {
+      try {
+        const { pushTicketStage } = await import('@/lib/integrations/hubspot/client');
+        await pushTicketStage(updatedCust.hubspotTicketId, pushStage);
+      } catch (err) {
+        console.warn(`[Auto 2] HS ticket stage push to "${pushStage}" failed for customer ${customerId} (non-blocking)`, err);
+      }
+    }
   } else if (completedTask.taskName === 'Mark Onboarding Call Complete') {
     // Auto 4 port: the actual CSM (whoever the task was routed to) becomes
     // the Customer's csm_team_member_id. Look up that CSM's calendlyUrl
@@ -332,12 +351,9 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
   if (!nextStage) {
     // Final stage — flip the product's stage field to its terminal value.
     //   Core:  'Launched' — post-launch lifecycle now lives in HubSpot
-    //          (per docs/plans/post-launch-migration.md, Phase 1). A handful
-    //          of intake-only pilot workflows override this — see
-    //          CORE_TERMINAL_STAGE_OVERRIDE above.
+    //          (per docs/plans/post-launch-migration.md, Phase 1).
     //   Voice / Avatar: 'Done' — add-on workflows stay LP-scoped.
-    const terminalValue =
-      product === 'Core' ? (CORE_TERMINAL_STAGE_OVERRIDE[workflowKey] ?? 'Launched') : 'Done';
+    const terminalValue = product === 'Core' ? 'Launched' : 'Done';
 
     const updated = await db
       .update(schema.customers)
@@ -356,10 +372,18 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     // takes over from here based on Meeting outcomes (Completed, No-show, etc).
     // Best-effort: log + swallow. LP-side 'Launched' is canonical; the HS push
     // is for CSM kanban visibility only and we don't want a HubSpot outage to
-    // block customer onboarding completion. Skip entirely for workflows whose
-    // terminal value isn't 'Launched' (e.g. intake-only pilots) — there's no
-    // onboarding call to schedule, so "Onboarding Scheduled" would be false.
-    if (product === 'Core' && terminalValue === 'Launched' && updated.length > 0 && updated[0].hubspotTicketId) {
+    // block customer onboarding completion. Skip entirely for pilot workflows
+    // already pushed to their real stage at Send-Credentials time (see
+    // SEND_CREDENTIALS_TICKET_PUSH above) — there's no call to schedule, and
+    // re-pushing to "Onboarding Scheduled" here would regress their ticket
+    // backward from wherever that earlier push already landed it.
+    if (
+      product === 'Core' &&
+      terminalValue === 'Launched' &&
+      !SEND_CREDENTIALS_TICKET_PUSH[workflowKey] &&
+      updated.length > 0 &&
+      updated[0].hubspotTicketId
+    ) {
       try {
         const { pushTicketStage } = await import('@/lib/integrations/hubspot/client');
         await pushTicketStage(updated[0].hubspotTicketId, 'Onboarding Scheduled');

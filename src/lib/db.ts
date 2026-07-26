@@ -1431,7 +1431,7 @@ export async function getStuckCustomerSummary(): Promise<StuckCustomerSummary> {
     .from(schema.customers)
     .where(
       and(
-        sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done', 'Submitted')`,
+        sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done')`,
         sql`${schema.customers.stageEnteredAt} < NOW() - (${minThreshold} || ' days')::interval`,
       ),
     );
@@ -1472,7 +1472,7 @@ export async function getStuckCustomers(options: {
   const { workflowKey, thresholdDays, noCardOnly } = options;
   const whereClauses = [
     eq(schema.customers.workflowKey, workflowKey),
-    sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done', 'Submitted')`,
+    sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done')`,
     sql`${schema.customers.stageEnteredAt} < NOW() - (${thresholdDays} || ' days')::interval`,
   ];
   if (noCardOnly) {

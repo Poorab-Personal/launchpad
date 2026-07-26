@@ -2,7 +2,6 @@ import { notFound } from 'next/navigation';
 import { getCustomerByToken, getSetting, getTasksForCustomer } from '@/lib/db';
 import TaskList from '@/components/TaskList';
 import PortalHandyPage from '@/components/PortalHandyPage';
-import PortalSubmittedPage from '@/components/PortalSubmittedPage';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,9 +16,6 @@ export default async function PortalPage(props: PageProps<'/r/[token]'>) {
   // the portal shifts from workflow-task view to the permanent handy page.
   // Tasks are no longer relevant; post-launch state lives in HubSpot.
   const isLaunched = customer.currentStage === 'Launched';
-  // 'Submitted' = intake-only pilot workflows (e.g. B2B-RUHL) that terminate
-  // at form-submission — no account, no credentials, no portal task list.
-  const isSubmitted = customer.currentStage === 'Submitted';
   const [tasks, defaultSupportMeetingUrl] = isLaunched
     ? [[] as Awaited<ReturnType<typeof getTasksForCustomer>>, await getSetting('default_support_meeting_url')]
     : [await getTasksForCustomer(customer.id), null];
@@ -47,8 +43,6 @@ export default async function PortalPage(props: PageProps<'/r/[token]'>) {
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
         {isLaunched ? (
           <PortalHandyPage customer={customer} defaultSupportMeetingUrl={defaultSupportMeetingUrl} />
-        ) : isSubmitted ? (
-          <PortalSubmittedPage customer={customer} />
         ) : (
           <>
             <header className="mb-8">

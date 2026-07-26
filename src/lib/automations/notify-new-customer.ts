@@ -47,7 +47,7 @@ const INTAKE_SUBMIT_NEXT: Record<string, NextStep> = {
   'B2B-IPRE': { next: 'Capture Payment Method', court: 'Customer' },
   'B2B-Keyes': { next: 'Capture Payment Method', court: 'Customer' },
   'B2B-BW': { next: 'Schedule Onboarding Call + Create Designs', court: 'Customer + Rejig' },
-  'B2B-RUHL': { next: 'CSM follow-up in HubSpot (manual, pilot)', court: 'Rejig' },
+  'B2B-RUHL': { next: 'Create Designs', court: 'Rejig' },
 };
 
 export async function notifyCustomerSubmitted(customerId: string): Promise<void> {

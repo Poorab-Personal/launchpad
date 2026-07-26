@@ -1,10 +1,14 @@
 /**
  * Onboard Ruhl (RuhlHomes) as a new B2B brokerage — PILOT phase.
  *
- * Pilot scope: intake-form submission ONLY. No Stripe payment, no
- * onboarding-call booking. Both are added later once the pilot ends (this
- * workflow's single task terminates the customer at currentStage='Submitted'
- * — see CORE_TERMINAL_STAGE_OVERRIDE in src/lib/automations/activate-dependents.ts).
+ * Pilot scope (original, 2026-07-25): intake-form submission ONLY, no
+ * Stripe, no onboarding call. Superseded 2026-07-26 by
+ * scripts/add-ruhl-design-account-tasks.ts, which adds the Create Designs /
+ * Create Customer Account / Send Credentials / Watch Setup Video / Sign In
+ * tasks — the workflow now reaches real 'Launched' like B2B-BW, with the HS
+ * ticket pushed to 'Active' at Send Credentials (see
+ * SEND_CREDENTIALS_TICKET_PUSH in src/lib/automations/activate-dependents.ts)
+ * instead of the terminal-stage override this comment used to describe.
  *
  * All work runs inside one db.transaction; any throw rolls everything back.
  * Idempotent:
