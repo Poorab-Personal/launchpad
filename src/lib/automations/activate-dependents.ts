@@ -34,6 +34,18 @@ export const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
   'B2B-IPRE': 'Capture Payment Method',
   'B2B-Keyes': 'Capture Payment Method',
   'B2B-BW': 'Confirm Your Information',
+  'B2B-RUHL': 'Confirm Your Information',
+};
+
+// Workflows whose Core flow terminates at intake-submission — no account
+// creation, no portal login, no onboarding call (pilot brokerages awaiting
+// Stripe + call-booking rollout). These get 'Submitted' instead of the
+// default 'Launched' as their terminal currentStage value: 'Launched'
+// implies real credentials (the portal shows a "Go to Rejig" link + temp
+// password) and triggers the HS Ticket → "Onboarding Scheduled" push,
+// neither of which is true here.
+const CORE_TERMINAL_STAGE_OVERRIDE: Record<string, string> = {
+  'B2B-RUHL': 'Submitted',
 };
 
 /**
@@ -49,6 +61,7 @@ const SLACK_INTAKE_TRIGGER_TASK: Record<string, string> = {
   'B2B-IPRE': 'Confirm Your Information',
   'B2B-Keyes': 'Confirm Your Information',
   'B2B-BW': 'Confirm Your Information',
+  'B2B-RUHL': 'Confirm Your Information',
 };
 
 const NEXT_STAGE_BY_PRODUCT: Record<'Core' | 'Voice' | 'Avatar', { stageField: 'currentStage' | 'voiceStage' | 'avatarStage'; workflowKeyForCustomer: (custType: 'D2C' | 'B2B', channel: string) => string }> = {
@@ -319,9 +332,12 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
   if (!nextStage) {
     // Final stage — flip the product's stage field to its terminal value.
     //   Core:  'Launched' — post-launch lifecycle now lives in HubSpot
-    //          (per docs/plans/post-launch-migration.md, Phase 1).
+    //          (per docs/plans/post-launch-migration.md, Phase 1). A handful
+    //          of intake-only pilot workflows override this — see
+    //          CORE_TERMINAL_STAGE_OVERRIDE above.
     //   Voice / Avatar: 'Done' — add-on workflows stay LP-scoped.
-    const terminalValue = product === 'Core' ? 'Launched' : 'Done';
+    const terminalValue =
+      product === 'Core' ? (CORE_TERMINAL_STAGE_OVERRIDE[workflowKey] ?? 'Launched') : 'Done';
 
     const updated = await db
       .update(schema.customers)
@@ -340,8 +356,10 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
     // takes over from here based on Meeting outcomes (Completed, No-show, etc).
     // Best-effort: log + swallow. LP-side 'Launched' is canonical; the HS push
     // is for CSM kanban visibility only and we don't want a HubSpot outage to
-    // block customer onboarding completion.
-    if (product === 'Core' && updated.length > 0 && updated[0].hubspotTicketId) {
+    // block customer onboarding completion. Skip entirely for workflows whose
+    // terminal value isn't 'Launched' (e.g. intake-only pilots) — there's no
+    // onboarding call to schedule, so "Onboarding Scheduled" would be false.
+    if (product === 'Core' && terminalValue === 'Launched' && updated.length > 0 && updated[0].hubspotTicketId) {
       try {
         const { pushTicketStage } = await import('@/lib/integrations/hubspot/client');
         await pushTicketStage(updated[0].hubspotTicketId, 'Onboarding Scheduled');

@@ -68,6 +68,20 @@ const BROKERAGE_THEME: Record<string, LandingTheme> = {
     serifHeadline: false,
     headlineColor: '#192D6B', // Deep Lake — pops the headline with brand navy
   },
+
+  // Ruhl (RuhlHomes) — colors sampled directly from their logo (no brand
+  // book on file yet). Navy + gold, sans-serif to match the logo's bold
+  // block lettering.
+  ruhl: {
+    bg: '#F5F4F0',
+    surface: '#FFFFFF',
+    primary: '#00395D',       // Ruhl navy
+    primaryHover: '#00263F',
+    ink: '#1B2E35',
+    accent: '#FAC809',        // Ruhl gold
+    serifHeadline: false,
+    headlineColor: '#00395D',
+  },
 };
 
 /** Resolve the brand theme for a slug, falling back to the neutral default. */

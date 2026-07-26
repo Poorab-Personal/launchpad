@@ -1384,7 +1384,7 @@ export const STUCK_THRESHOLD_DAYS = [3, 7] as const;
 export type StuckThreshold = (typeof STUCK_THRESHOLD_DAYS)[number];
 
 /** Workflow keys we break stuck-customer counts down by. Matches the seeded set in workflow_templates. */
-export const STUCK_WORKFLOW_KEYS = ['D2C-Standard', 'B2B-Keyes', 'B2B-BW', 'B2B-IPRE'] as const;
+export const STUCK_WORKFLOW_KEYS = ['D2C-Standard', 'B2B-Keyes', 'B2B-BW', 'B2B-IPRE', 'B2B-RUHL'] as const;
 export type StuckWorkflowKey = (typeof STUCK_WORKFLOW_KEYS)[number];
 
 export interface StuckCustomerSummary {
@@ -1431,14 +1431,14 @@ export async function getStuckCustomerSummary(): Promise<StuckCustomerSummary> {
     .from(schema.customers)
     .where(
       and(
-        sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done')`,
+        sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done', 'Submitted')`,
         sql`${schema.customers.stageEnteredAt} < NOW() - (${minThreshold} || ' days')::interval`,
       ),
     );
 
   const counts = {
-    3: { 'D2C-Standard': 0, 'B2B-Keyes': 0, 'B2B-BW': 0, 'B2B-IPRE': 0 },
-    7: { 'D2C-Standard': 0, 'B2B-Keyes': 0, 'B2B-BW': 0, 'B2B-IPRE': 0 },
+    3: { 'D2C-Standard': 0, 'B2B-Keyes': 0, 'B2B-BW': 0, 'B2B-IPRE': 0, 'B2B-RUHL': 0 },
+    7: { 'D2C-Standard': 0, 'B2B-Keyes': 0, 'B2B-BW': 0, 'B2B-IPRE': 0, 'B2B-RUHL': 0 },
   } as Record<StuckThreshold, Record<StuckWorkflowKey, number>>;
   let keyesStuckWithoutCardCount = 0;
 
@@ -1472,7 +1472,7 @@ export async function getStuckCustomers(options: {
   const { workflowKey, thresholdDays, noCardOnly } = options;
   const whereClauses = [
     eq(schema.customers.workflowKey, workflowKey),
-    sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done')`,
+    sql`${schema.customers.currentStage} NOT IN ('Launched', 'Done', 'Submitted')`,
     sql`${schema.customers.stageEnteredAt} < NOW() - (${thresholdDays} || ' days')::interval`,
   ];
   if (noCardOnly) {

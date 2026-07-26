@@ -50,6 +50,7 @@ export const ONBOARDED_RULE: Record<string, 'subscription' | 'stage'> = {
   'B2B-IPRE': 'subscription',
   'B2B-Keyes': 'subscription',
   'B2B-BW': 'stage',
+  'B2B-RUHL': 'stage',
 };
 
 export function getOnboardedRule(workflowKey: string): 'subscription' | 'stage' {
