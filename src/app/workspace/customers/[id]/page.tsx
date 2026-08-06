@@ -9,6 +9,8 @@ import {
 } from '@/lib/db';
 import AddInternalNoteButton from '@/components/internal-notes/AddInternalNoteButton';
 import InternalNotesThread from '@/components/internal-notes/InternalNotesThread';
+import DesignThread from '@/components/tasks/DesignThread';
+import WorkspaceDesignComposer from '@/components/tasks/WorkspaceDesignComposer';
 import type { Customer, Task, TeamMember, AirtableAttachment, TaskStatus } from '@/types';
 import { latestNoteFrom } from '@/lib/design-notes';
 import { CallDateCallout } from '@/components/CallDateDisplay';
@@ -191,9 +193,11 @@ function TaskActionPanel({
   }
 
   const latestCustomerNote = latestNoteFrom(customer, 'customer');
-  const showFeedback = /Revis(e|ion)|Round/i.test(task.taskName) && latestCustomerNote;
   const isInternal = isInternalUploadTask(task.taskName);
   const isSendTask = isSendToCustomerTask(task.taskName);
+  // Design-team tasks get the full customer conversation + a composer to
+  // message the customer mid-task (without completing / advancing).
+  const isDesignContext = isInternal || isSendTask || task.taskName === 'Review Designs';
   // For internal tasks (incl. Review Designs) the latest activity is in Drafts.
   // For send tasks and downstream the latest activity is what was sent (Design Proof).
   const previewSet = isSendTask ? customer.designProof : customer.designDrafts;
@@ -206,14 +210,19 @@ function TaskActionPanel({
 
   return (
     <div className="space-y-3">
-      {showFeedback && latestCustomerNote && (
-        <div className="rounded-lg bg-[#D97706]/5 border border-[#D97706]/20 p-3">
-          <p className="text-xs uppercase tracking-wide text-[#D97706] font-semibold mb-1">
-            Customer feedback
-          </p>
-          <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">
-            {latestCustomerNote.note}
-          </p>
+      {isDesignContext && (
+        <div className="rounded-lg border border-[#E0DEE4] bg-[#F7F4EB]/60 p-3 space-y-3">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold">
+              Conversation with customer
+            </p>
+            <p className="text-[11px] text-[#1B2E35]/50 mt-0.5">
+              The full back-and-forth. Sending a message emails the customer — it does not
+              complete the task or start a new round.
+            </p>
+          </div>
+          <DesignThread notes={customer.designNotes ?? []} viewer="team" />
+          <WorkspaceDesignComposer customerId={customerId} />
         </div>
       )}
       {task.notes && task.notes !== latestCustomerNote?.note && (

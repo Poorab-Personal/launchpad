@@ -41,6 +41,15 @@ export interface DesignNote {
   note: string;
   uploadTask: string | null;
   at: string;
+  /** Files attached to this note (both sides can attach). Optional — round-
+   *  boundary notes written before the messaging feature have none. Same
+   *  shape as internal-note / Vercel Blob attachments. */
+  attachments?: InternalNoteAttachment[];
+  /** Display name of the author (designer's team-member name, or the
+   *  customer's name). Denormed at write time — the customer isn't a
+   *  teamMembers row, so there's no join to recover it. Optional for
+   *  back-compat with notes written before the feature. */
+  authorName?: string | null;
 }
 
 /** Free-form attachment metadata stored on internal notes (and other

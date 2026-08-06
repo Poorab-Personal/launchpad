@@ -2,7 +2,7 @@
  * Helpers over customer.designNotes — the round-by-round designer↔customer
  * note trail. Append-only; latest-by-author wins for the current-round read.
  */
-import type { Customer, DesignNote } from '@/types';
+import type { Customer, DesignNote, InternalNoteAttachment } from '@/types';
 
 /** Latest note authored by `who`, or null if the customer hasn't received
  *  (or sent) one yet. Used for the "FROM YOUR DESIGNER" callout in the
@@ -18,16 +18,26 @@ export function latestNoteFrom(
   return null;
 }
 
-/** Build a new note entry. Call site appends via `[...customer.designNotes, makeNote(...)]`. */
+/** Build a new note entry. Call site appends via `[...customer.designNotes, makeNote(...)]`.
+ *  `attachments` / `authorName` are optional — the round-boundary approval
+ *  writers omit them; the mid-round messaging composer supplies them. */
 export function makeNote(
   from: 'designer' | 'customer',
   note: string,
   uploadTask: string | null,
+  extra?: { attachments?: InternalNoteAttachment[]; authorName?: string | null },
 ): DesignNote {
-  return {
+  const entry: DesignNote = {
     from,
     note,
     uploadTask,
     at: new Date().toISOString(),
   };
+  if (extra?.attachments && extra.attachments.length > 0) {
+    entry.attachments = extra.attachments;
+  }
+  if (extra?.authorName) {
+    entry.authorName = extra.authorName;
+  }
+  return entry;
 }

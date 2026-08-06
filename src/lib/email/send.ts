@@ -11,6 +11,7 @@ import DropoffReminderTeamEmail from './templates/dropoff-reminder-team';
 import DropoffEscalationSalesRepEmail from './templates/dropoff-escalation-salesrep';
 import DropoffEscalationTeamEmail from './templates/dropoff-escalation-team';
 import DropoffB2BDigestEmail from './templates/dropoff-b2b-digest';
+import NewMessageEmail from './templates/new-message';
 import type {
   Section1Row,
   Section2Row,
@@ -33,6 +34,7 @@ const CUSTOMER_FACING_TEMPLATES: ReadonlySet<EmailTemplate> = new Set([
   'design-ready',
   'credentials-sent',
   'dropoff-reminder-customer',
+  'new-message',
 ]);
 const CUSTOMER_EMAIL_BCC = 'poorab@rejig.ai';
 
@@ -44,7 +46,8 @@ export type EmailTemplate =
   | 'dropoff-reminder-customer'
   | 'dropoff-reminder-team'
   | 'dropoff-escalation-salesrep'
-  | 'dropoff-escalation-team';
+  | 'dropoff-escalation-team'
+  | 'new-message';
 
 interface BaseData {
   firstName: string;
@@ -61,6 +64,13 @@ interface CredentialsData extends BaseData {
 interface DesignReadyData extends BaseData {
   /** Latest designer note attached to the proof being sent. Optional. */
   designerNote?: string | null;
+}
+
+interface NewMessageData extends BaseData {
+  /** Who sent the message (team member name), if known. */
+  senderName?: string | null;
+  /** Short preview of the message body. Optional. */
+  messagePreview?: string | null;
 }
 
 interface TaskAssignedData {
@@ -114,6 +124,7 @@ type TemplateDataMap = {
   'dropoff-reminder-team': DropoffReminderTeamData;
   'dropoff-escalation-salesrep': DropoffEscalationSalesRepData;
   'dropoff-escalation-team': DropoffEscalationTeamData;
+  'new-message': NewMessageData;
 };
 
 const subjects: Record<EmailTemplate, string> = {
@@ -130,6 +141,7 @@ const subjects: Record<EmailTemplate, string> = {
   'dropoff-reminder-team': 'Still open in your queue',
   'dropoff-escalation-salesrep': 'A customer of yours could use a nudge',
   'dropoff-escalation-team': 'Internal task stuck',
+  'new-message': 'You have a new message from your Rejig team',
 };
 
 function renderTemplate<T extends EmailTemplate>(
@@ -153,6 +165,8 @@ function renderTemplate<T extends EmailTemplate>(
       return React.createElement(DropoffEscalationSalesRepEmail, data as DropoffEscalationSalesRepData);
     case 'dropoff-escalation-team':
       return React.createElement(DropoffEscalationTeamEmail, data as DropoffEscalationTeamData);
+    case 'new-message':
+      return React.createElement(NewMessageEmail, data as NewMessageData);
   }
   // exhaustiveness guard
   throw new Error(`Unknown email template: ${template}`);

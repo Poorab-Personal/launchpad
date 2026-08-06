@@ -1,8 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import type { Task, Customer } from '@/types';
-import { latestNoteFrom } from '@/lib/design-notes';
+import { useRouter } from 'next/navigation';
+import type { Task, Customer, InternalNoteAttachment } from '@/types';
+import DesignThread from './DesignThread';
+import DesignMessageComposer from './DesignMessageComposer';
 
 type Mode = 'idle' | 'confirming-approve' | 'requesting-changes' | 'changes-sent';
 
@@ -23,10 +25,35 @@ export default function ProofTask({
   revisionInFlight?: boolean;
   onComplete: () => void;
 }) {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>('idle');
   const [loading, setLoading] = useState<'approve' | 'changes' | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  async function handleSendMessage({
+    body,
+    attachments,
+  }: {
+    body: string;
+    attachments: InternalNoteAttachment[];
+  }): Promise<{ ok: boolean; error?: string }> {
+    if (!customer) return { ok: false, error: 'Missing portal link.' };
+    try {
+      const res = await fetch(`/api/r/${customer.accessToken}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body, attachments }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => null);
+        return { ok: false, error: e?.error || 'Failed to send message' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Something went wrong. Please try again.' };
+    }
+  }
 
   // Render every uploaded proof as a gallery. Designers can submit multiple
   // mockups per round (e.g. Instagram post + Story + Reel cover); customer
@@ -99,45 +126,14 @@ export default function ProofTask({
             We got your feedback. Our designer is working on the revisions you requested.
           </p>
           <p className="text-sm text-[#1B2E35]/70">
-            We&apos;ll email you the moment the updated proof is ready to review.
+            We&apos;ll email you the moment the updated proof is ready to review. In the
+            meantime, you can send a note or file below.
           </p>
-          {(() => {
-            const lastCustomerNote = customer ? latestNoteFrom(customer, 'customer') : null;
-            return lastCustomerNote ? (
-              <div className="mt-3 rounded-md bg-white border border-[#05C68E]/20 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider font-semibold text-[#1B2E35]/50 mb-1">
-                  Your feedback
-                </p>
-                <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">
-                  {lastCustomerNote.note}
-                </p>
-              </div>
-            ) : null;
-          })()}
         </div>
       ) : (
-        <>
-          {/* "From your designer" callout — the symmetric counterpart to
-              "Your feedback" the customer sees while revisions are in flight.
-              Shown when the customer is actively reviewing a proof (the round
-              the designer just sent). */}
-          {(() => {
-            const lastDesignerNote = customer ? latestNoteFrom(customer, 'designer') : null;
-            return lastDesignerNote ? (
-              <div className="rounded-lg bg-[#6C4AB6]/5 border border-[#6C4AB6]/20 px-5 py-4">
-                <p className="text-[10px] uppercase tracking-wider font-semibold text-[#6C4AB6] mb-1">
-                  From your designer
-                </p>
-                <p className="text-sm text-[#1B2E35] whitespace-pre-wrap">
-                  {lastDesignerNote.note}
-                </p>
-              </div>
-            ) : null;
-          })()}
-          {task.instructions && (
-            <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
-          )}
-        </>
+        task.instructions && (
+          <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+        )
       )}
 
       {/* Proof gallery */}
@@ -203,6 +199,29 @@ export default function ProofTask({
           )}
         </div>
       </div>
+
+      {/* Conversation with your designer — the full back-and-forth trail plus a
+          composer. Sending a note here just messages the team; it does not
+          approve the design or trigger a new round. Available whether you're
+          reviewing or waiting on a revision. */}
+      {customer && (
+        <div className="space-y-3 rounded-lg border border-[#E0DEE4] bg-[#F7F4EB]/60 px-5 py-4">
+          <div>
+            <h3 className="text-sm font-semibold text-[#1B2E35]">Conversation with your designer</h3>
+            <p className="text-xs text-[#1B2E35]/55 mt-0.5">
+              Ask a question or send a file — no need to email. Your designer will see it here.
+            </p>
+          </div>
+          <DesignThread notes={customer.designNotes ?? []} viewer="customer" />
+          <DesignMessageComposer
+            signUrl={`/api/r/${customer.accessToken}/messages/sign`}
+            placeholder="Send a note or file to your designer…"
+            sendLabel="Send"
+            onSubmit={handleSendMessage}
+            onSent={() => router.refresh()}
+          />
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-[#EC531A]/30 bg-[#EC531A]/5 px-4 py-3 text-sm text-[#EC531A]">

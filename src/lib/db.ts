@@ -28,6 +28,7 @@ import type {
   Brokerage,
   Call,
   Customer,
+  DesignNote,
   Event,
   InternalNote,
   InternalNoteAttachment,
@@ -1031,6 +1032,48 @@ export async function createInternalNote(args: {
     attachments: args.attachments,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+// ─── Public API: Design conversation (designNotes trail) ────────────────
+// Append-only bidirectional designer↔customer trail on customers.designNotes.
+// Written at round boundaries by design-approval / design-proof, and mid-round
+// by the design-message composer (both sides). Read directly off the mapped
+// Customer.designNotes — no separate reader needed. This is a plain jsonb
+// UPDATE: it deliberately does NOT go through updateTaskStatus, so it can
+// never fire Auto-2 (dependent activation / stage advance). See
+// docs/plans/design-review-messaging.md.
+
+/**
+ * Append one note to a customer's design conversation. Atomic jsonb concat
+ * under the row lock, so concurrent designer + customer appends both survive.
+ * Returns the appended entry.
+ */
+export async function appendDesignNote(args: {
+  customerId: string;
+  from: 'designer' | 'customer';
+  body: string;
+  /** Round the note belongs to for grouping; null for free-form messages. */
+  uploadTask: string | null;
+  attachments: InternalNoteAttachment[];
+  authorName?: string | null;
+}): Promise<DesignNote> {
+  const entry: DesignNote = {
+    from: args.from,
+    note: args.body,
+    uploadTask: args.uploadTask,
+    at: new Date().toISOString(),
+  };
+  if (args.attachments.length > 0) entry.attachments = args.attachments;
+  if (args.authorName) entry.authorName = args.authorName;
+
+  await db
+    .update(schema.customers)
+    .set({
+      designNotes: sql`COALESCE(${schema.customers.designNotes}, '[]'::jsonb) || ${JSON.stringify([entry])}::jsonb`,
+    })
+    .where(eq(schema.customers.id, args.customerId));
+
+  return entry;
 }
 
 export async function getTasksAssignedTo(
