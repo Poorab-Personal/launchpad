@@ -27,7 +27,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Same go-forward cutoff as dropoff-reminders.ts (kept in sync — both must
 // agree on what counts as "pre-existing backlog" vs. a real new stall).
-const ROLLOUT_CUTOFF_DATE = new Date('2026-08-06T00:00:00Z');
+// 2026-08-06: lowered to include the existing backlog — see the longer
+// note in dropoff-reminders.ts.
+const ROLLOUT_CUTOFF_DATE = new Date('2020-01-01T00:00:00Z');
 
 export type B2BDigestRow = {
   customerId: string;

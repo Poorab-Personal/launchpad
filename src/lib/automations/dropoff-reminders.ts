@@ -26,14 +26,13 @@
  * Tracks 3/4 (B2B weekly digest) live in dropoff-b2b-digest.ts — different
  * cadence (weekly) and no per-task emails, just a summary table.
  *
- * Go-forward only (per 2026-08-06 decision): only tasks that went Active on
- * or after ROLLOUT_CUTOFF_DATE are eligible. The pre-existing backlog (63
- * customer reminders / 2 team escalations at the time this was decided,
- * some stalled 60+ days) is deliberately NOT swept into the first live run
- * — same grandfathering precedent as daily-checks.ts's DIGEST_CUTOFF_DATE.
- * That backlog doesn't just disappear: it's still visible any time via
- * scripts/audit-stuck-customers.ts / scripts/audit-dropoff-reminders.ts for
- * manual triage, deliberately kept separate from the automated path.
+ * ROLLOUT_CUTOFF_DATE gates which tasks are eligible at all. Originally set
+ * to exclude the pre-existing backlog (go-forward only, matching the
+ * daily-checks.ts DIGEST_CUTOFF_DATE precedent); reversed same-day after
+ * reviewing the backlog via scripts/export-dropoff-backlog.ts (CSV) and
+ * scripts/preview-dropoff-emails.ts (rendered samples) — decision was to
+ * include the existing backlog in the first live run rather than
+ * grandfather it out. See the constant's own comment for the current value.
  *
  * Every send re-checks the task's live status (and, for escalation,
  * `escalatedAt`) immediately before sending — the customer/assignee may
@@ -57,7 +56,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // Go-forward rollout — tasks activated before this are grandfathered out of
 // the automation entirely (see module header). Anchor date, not "N days
 // before deploy": fixed so redeploys don't silently shift the boundary.
-const ROLLOUT_CUTOFF_DATE = new Date('2026-08-06T00:00:00Z');
+//
+// 2026-08-06: after reviewing the backlog (scripts/export-dropoff-backlog.ts
+// CSVs + scripts/preview-dropoff-emails.ts samples), decision reversed —
+// include the existing backlog in the first live run rather than
+// grandfathering it out. Set far enough in the past to cover every current
+// task. Left in place (not removed) as the mechanism for any future reset;
+// harmless once every current task has been processed once, since the
+// day-2/5/8 dedupe then runs on lastReminderAt/escalatedAt as normal.
+const ROLLOUT_CUTOFF_DATE = new Date('2020-01-01T00:00:00Z');
 
 const OPS_ESCALATION_TO = 'success@rejig.ai';
 const OPS_ESCALATION_CC = ['poorab@rejig.ai', 'matt@rejig.ai'];
