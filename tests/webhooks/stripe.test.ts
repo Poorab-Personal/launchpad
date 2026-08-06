@@ -150,6 +150,7 @@ function makeTask(opts: { id?: string; taskName: string; status: Task['status'];
     activatedAt: '',
     daysActive: null,
     lastReminderAt: '',
+    escalatedAt: '',
     createdAt: '2026-01-01T00:00:00.000Z',
     product: 'Core',
   };

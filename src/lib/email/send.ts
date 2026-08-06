@@ -6,10 +6,16 @@ import CredentialsSentEmail from './templates/credentials-sent';
 import MagicLinkEmail from './templates/magic-link';
 import TaskAssignedEmail from './templates/task-assigned';
 import DailyDigestEmail from './templates/daily-digest';
+import DropoffReminderCustomerEmail from './templates/dropoff-reminder-customer';
+import DropoffReminderTeamEmail from './templates/dropoff-reminder-team';
+import DropoffEscalationSalesRepEmail from './templates/dropoff-escalation-salesrep';
+import DropoffEscalationTeamEmail from './templates/dropoff-escalation-team';
+import DropoffB2BDigestEmail from './templates/dropoff-b2b-digest';
 import type {
   Section1Row,
   Section2Row,
 } from '@/lib/automations/daily-checks';
+import type { B2BDigestRow } from '@/lib/automations/dropoff-b2b-digest';
 
 const FROM = 'Rejig.ai Success Team <success@rejig.ai>';
 const REPLY_TO = 'success@rejig.ai';
@@ -26,10 +32,19 @@ const CUSTOMER_FACING_TEMPLATES: ReadonlySet<EmailTemplate> = new Set([
   'welcome',
   'design-ready',
   'credentials-sent',
+  'dropoff-reminder-customer',
 ]);
 const CUSTOMER_EMAIL_BCC = 'poorab@rejig.ai';
 
-export type EmailTemplate = 'welcome' | 'design-ready' | 'credentials-sent' | 'task-assigned';
+export type EmailTemplate =
+  | 'welcome'
+  | 'design-ready'
+  | 'credentials-sent'
+  | 'task-assigned'
+  | 'dropoff-reminder-customer'
+  | 'dropoff-reminder-team'
+  | 'dropoff-escalation-salesrep'
+  | 'dropoff-escalation-team';
 
 interface BaseData {
   firstName: string;
@@ -56,11 +71,49 @@ interface TaskAssignedData {
   instructions?: string | null;
 }
 
+interface DropoffReminderCustomerData {
+  firstName: string;
+  taskName: string;
+  instructions?: string | null;
+  portalUrl: string;
+  isFinalReminder: boolean;
+}
+
+interface DropoffReminderTeamData {
+  firstName: string;
+  taskName: string;
+  customerName: string;
+  instructions?: string | null;
+  workspaceUrl: string;
+  isFinalReminder: boolean;
+}
+
+interface DropoffEscalationSalesRepData {
+  salesRepEmail: string;
+  customerName: string;
+  customerEmail: string;
+  taskName: string;
+  daysStalled: number;
+  portalUrl: string;
+}
+
+interface DropoffEscalationTeamData {
+  taskName: string;
+  customerName: string;
+  assigneeName: string;
+  daysStalled: number;
+  workspaceUrl: string;
+}
+
 type TemplateDataMap = {
   welcome: BaseData;
   'design-ready': DesignReadyData;
   'credentials-sent': CredentialsData;
   'task-assigned': TaskAssignedData;
+  'dropoff-reminder-customer': DropoffReminderCustomerData;
+  'dropoff-reminder-team': DropoffReminderTeamData;
+  'dropoff-escalation-salesrep': DropoffEscalationSalesRepData;
+  'dropoff-escalation-team': DropoffEscalationTeamData;
 };
 
 const subjects: Record<EmailTemplate, string> = {
@@ -71,6 +124,12 @@ const subjects: Record<EmailTemplate, string> = {
   // the task and customer name. This static fallback is only used if a caller
   // forgets the override.
   'task-assigned': 'New task in your queue',
+  // All four drop-off templates below are always called with an explicit
+  // subject override (interpolates task/customer name); these are fallbacks only.
+  'dropoff-reminder-customer': 'You have a next step waiting',
+  'dropoff-reminder-team': 'Still open in your queue',
+  'dropoff-escalation-salesrep': 'A customer of yours could use a nudge',
+  'dropoff-escalation-team': 'Internal task stuck',
 };
 
 function renderTemplate<T extends EmailTemplate>(
@@ -86,6 +145,14 @@ function renderTemplate<T extends EmailTemplate>(
       return React.createElement(CredentialsSentEmail, data as CredentialsData);
     case 'task-assigned':
       return React.createElement(TaskAssignedEmail, data as TaskAssignedData);
+    case 'dropoff-reminder-customer':
+      return React.createElement(DropoffReminderCustomerEmail, data as DropoffReminderCustomerData);
+    case 'dropoff-reminder-team':
+      return React.createElement(DropoffReminderTeamEmail, data as DropoffReminderTeamData);
+    case 'dropoff-escalation-salesrep':
+      return React.createElement(DropoffEscalationSalesRepEmail, data as DropoffEscalationSalesRepData);
+    case 'dropoff-escalation-team':
+      return React.createElement(DropoffEscalationTeamEmail, data as DropoffEscalationTeamData);
   }
   // exhaustiveness guard
   throw new Error(`Unknown email template: ${template}`);
@@ -100,9 +167,11 @@ export async function sendEmail<T extends EmailTemplate>({
 }: {
   template: T;
   to: string;
-  /** Optional CC. Used to loop the sales rep in on the welcome email (deal
-   * owner from HubSpot); passed through unchanged when null/undefined. */
-  cc?: string | null;
+  /** Optional CC — single address or a list. Used to loop the sales rep in
+   * on the welcome email (deal owner from HubSpot) and to CC additional
+   * internal recipients on drop-off escalations; passed through unchanged
+   * when null/undefined. */
+  cc?: string | string[] | null;
   data: TemplateDataMap[T];
   /** Optional override. When omitted, falls back to the static `subjects[template]`. */
   subject?: string;
@@ -210,6 +279,49 @@ export async function sendDailyDigestEmail({
       section1,
       section2,
     }),
+  });
+
+  if (result.error) {
+    throw new Error(`Resend error: ${result.error.message}`);
+  }
+  return result.data;
+}
+
+/**
+ * Send the weekly B2B drop-off digest (Tracks 3/4 of the drop-off reminder
+ * plan). Internal recipients, same shape as sendDailyDigestEmail — separate
+ * from sendEmail() because the data is a row list, not the customer-template map.
+ *
+ * Caller should pre-check rows.length > 0 before calling — empty digests
+ * are skipped at the cron route, same convention as the daily digest.
+ */
+export async function sendDropoffB2BDigestEmail({
+  to,
+  cc,
+  digestDate,
+  rows,
+}: {
+  to: string | string[];
+  cc?: string | string[];
+  digestDate: string; // YYYY-MM-DD
+  rows: B2BDigestRow[];
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set');
+  }
+  const resend = new Resend(apiKey);
+
+  const hotCount = rows.filter((r) => r.isHotCase).length;
+  const subject = `[LaunchPad] B2B drop-off digest — ${rows.length} stalled${hotCount ? `, ${hotCount} hot` : ''} (${digestDate})`;
+
+  const result = await resend.emails.send({
+    from: FROM,
+    to,
+    cc,
+    replyTo: REPLY_TO,
+    subject,
+    react: React.createElement(DropoffB2BDigestEmail, { digestDate, rows }),
   });
 
   if (result.error) {

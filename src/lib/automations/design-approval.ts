@@ -131,6 +131,7 @@ export async function handleDesignChangesRequested(
   const reviewDesigns = existingTasks.find((t) => t.taskName === 'Review Designs');
   const designerId = createDesigns?.assignedToTeamMemberId ?? null;
   const seniorId = reviewDesigns?.assignedToTeamMemberId ?? null;
+  const customerReviewTask = existingTasks.find((t) => t.taskName === REVIEW_TASK);
 
   // 3. Create the 3-task revision chain. Wire task_dependencies via the
   //    junction table directly so we get proper FKs (instead of the legacy
@@ -210,6 +211,21 @@ export async function handleDesignChangesRequested(
       { taskId: reviewTask.id, dependsOnTaskId: reviseTask.id },
       { taskId: uploadTask.id, dependsOnTaskId: reviewTask.id },
     ]);
+
+    // "Review & Approve Your Brand Kit" never leaves Active across revision
+    // rounds — it's the same row the whole time, only ever transitioning
+    // once more (to Completed) when the customer finally approves. A new
+    // round starting here is, for the customer, functionally a fresh stall
+    // clock: reset activatedAt/lastReminderAt/escalatedAt so the drop-off
+    // reminder cron treats this round as a new episode instead of computing
+    // days-stalled off round 0's timestamp forever. Race-guarded on the row
+    // still being Active in case something else transitioned it concurrently.
+    if (customerReviewTask && customerReviewTask.status === 'Active') {
+      await tx
+        .update(schema.tasks)
+        .set({ activatedAt: now, lastReminderAt: null, escalatedAt: null })
+        .where(and(eq(schema.tasks.id, customerReviewTask.id), eq(schema.tasks.status, 'Active')));
+    }
 
     // 4. Increment revision count, reset approval, append the customer's
     //    feedback to the designNotes trail (uploadTask = the proof they're

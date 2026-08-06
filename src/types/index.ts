@@ -217,6 +217,7 @@ export interface Task {
   activatedAt: string;
   daysActive: number | null;
   lastReminderAt: string;
+  escalatedAt: string;
   createdAt: string;
   product: Product;
 }

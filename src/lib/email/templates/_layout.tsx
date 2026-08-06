@@ -65,13 +65,33 @@ export function EmailLayout({ preview, children, portalUrl }: LayoutProps) {
 
 /**
  * Reusable primary CTA button that works in Gmail, Outlook, etc.
+ *
+ * `highlight` adds a soft glow ring around the button via box-shadow, for
+ * emails where the single next action needs to visually dominate the page
+ * (drop-off reminders). Opt-in and defaults off so every other email using
+ * this component (welcome, design-ready, credentials-sent, task-assigned)
+ * renders unchanged. Note: box-shadow doesn't render in Outlook desktop
+ * (Word rendering engine) — degrades gracefully there to the plain button,
+ * no breakage, just no glow for that client.
  */
-export function PortalButton({ portalUrl, label }: { portalUrl: string; label: string }) {
+export function PortalButton({
+  portalUrl,
+  label,
+  highlight = false,
+}: {
+  portalUrl: string;
+  label: string;
+  highlight?: boolean;
+}) {
   return (
     <Section className="my-6 text-center">
       <Link
         href={portalUrl}
-        className="bg-[#05C68E] text-white px-8 py-3 rounded-full text-sm font-semibold no-underline inline-block"
+        className={
+          highlight
+            ? 'bg-[#05C68E] text-white px-8 py-3 rounded-full text-base font-bold no-underline inline-block shadow-[0_0_0_6px_rgba(5,198,142,0.18),0_0_28px_rgba(5,198,142,0.5)]'
+            : 'bg-[#05C68E] text-white px-8 py-3 rounded-full text-sm font-semibold no-underline inline-block'
+        }
       >
         {label}
       </Link>

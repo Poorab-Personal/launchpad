@@ -251,6 +251,7 @@ function mapDbTask(row: TaskRow, dependsOnString = ''): Task {
     activatedAt: iso(row.activatedAt),
     daysActive: null,                             // computed in queries when needed (NOW() can't be a generated column)
     lastReminderAt: iso(row.lastReminderAt),
+    escalatedAt: iso(row.escalatedAt),
     createdAt: iso(row.createdAt),
     product: row.product as Task['product'],
   };

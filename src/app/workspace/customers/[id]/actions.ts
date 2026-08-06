@@ -72,8 +72,13 @@ async function reactivateReviewDesigns(customerId: string) {
   const tasks = await getTasksForCustomer(customerId);
   const reviewTask = tasks.find((t) => t.taskName === 'Review Designs');
   if (!reviewTask) return;
+  // Clear the drop-off reminder cron's clocks along with the reactivation —
+  // otherwise a stale lastReminderAt/escalatedAt from before this task was
+  // parked back to Draft suppresses reminders/escalation for the new cycle.
   await updateTaskFields(reviewTask.id, {
     status: 'Active',
     activatedAt: new Date(),
+    lastReminderAt: null,
+    escalatedAt: null,
   });
 }

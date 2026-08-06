@@ -39,6 +39,9 @@
     },
     "src/app/api/cron/daily-checks/route.ts": {
       "maxDuration": 300
+    },
+    "src/app/api/cron/dropoff-digest/route.ts": {
+      "maxDuration": 300
     }
   }
 }

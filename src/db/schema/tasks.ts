@@ -48,6 +48,11 @@ export const tasks = pgTable(
   product: productEnum('product').notNull().default('Core'),
   // days_active is computed in queries (see header comment) — not a column
   lastReminderAt: timestamp('last_reminder_at', { withTimezone: true }),
+  // One-shot signal for the drop-off reminder cron's escalation step (D2C
+  // sales rep / internal ops trio), kept separate from lastReminderAt so a
+  // failed escalation send isn't silently masked by a successful routine
+  // reminder send sharing the same timestamp. See docs/plans/dropoff-reminder-cron.md.
+  escalatedAt: timestamp('escalated_at', { withTimezone: true }),
   assigneeNotifiedAt: timestamp('assignee_notified_at', { withTimezone: true }),
   activatedAt: timestamp('activated_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
