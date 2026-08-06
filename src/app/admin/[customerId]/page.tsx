@@ -605,6 +605,19 @@ export default async function CustomerDetailPage({
                       {task.status}
                     </span>
 
+                    {/* Outreach — drop-off reminder cron's real state for this
+                        task (src/lib/automations/dropoff-reminders.ts). Plain
+                        fact, not a day-count inference. */}
+                    {task.escalatedAt ? (
+                      <span className="shrink-0 inline-flex rounded-full bg-[#EC531A]/10 px-2 py-0.5 text-[10px] font-medium text-[#EC531A]">
+                        Escalated {relativeTime(task.escalatedAt)}
+                      </span>
+                    ) : task.lastReminderAt ? (
+                      <span className="shrink-0 inline-flex rounded-full bg-[#DABA21]/10 px-2 py-0.5 text-[10px] font-medium text-[#DABA21]">
+                        Reminded {relativeTime(task.lastReminderAt)}
+                      </span>
+                    ) : null}
+
                     {/* Assigned */}
                     <span className="shrink-0 w-24 text-xs text-[#1B2E35]/40 truncate text-right">
                       {task.assignedTo.length > 0 ? memberNameMap.get(task.assignedTo[0]) ?? '—' : '—'}

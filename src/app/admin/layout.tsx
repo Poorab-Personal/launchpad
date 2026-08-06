@@ -28,6 +28,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               LaunchPad Admin
             </Link>
             <Link
+              href="/admin/stuck"
+              className="text-sm text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
+            >
+              Stuck Customers
+            </Link>
+            <Link
               href="/workspace"
               className="text-sm text-[#1B2E35]/70 hover:text-[#6C4AB6] transition-colors"
             >

@@ -23,6 +23,14 @@ function isValidThreshold(n: number): n is StuckThreshold {
   return (STUCK_THRESHOLD_DAYS as readonly number[]).includes(n);
 }
 
+// Plain "Xd ago" from an ISO timestamp — no tier inference, just the fact.
+// Deliberately not derived from `daysStuck` (see StuckCustomerRow's doc
+// comment in db.ts): this is the drop-off reminder cron's own outreach
+// timestamp for this specific task, a different clock than stage-entered.
+function daysAgo(iso: string): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+}
+
 /**
  * Drill-down: customers stuck in pre-launch stages beyond a threshold,
  * filtered by workflow. Linked from the Stuck Customers tile on /admin.
@@ -222,6 +230,15 @@ export default async function StuckCustomersPage({
                                 {b.taskType === 'Client' ? 'Customer' : 'Team'}
                               </span>
                               <span className="text-[#1B2E35]">{b.name}</span>
+                              {b.escalatedAt ? (
+                                <span className="inline-flex rounded-full bg-[#EC531A]/10 px-2 py-0.5 text-[10px] font-medium text-[#EC531A]">
+                                  Escalated {daysAgo(b.escalatedAt)}d ago
+                                </span>
+                              ) : b.lastReminderAt ? (
+                                <span className="inline-flex rounded-full bg-[#DABA21]/10 px-2 py-0.5 text-[10px] font-medium text-[#DABA21]">
+                                  Reminded {daysAgo(b.lastReminderAt)}d ago
+                                </span>
+                              ) : null}
                             </li>
                           ))}
                         </ul>

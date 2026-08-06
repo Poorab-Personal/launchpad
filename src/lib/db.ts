@@ -1410,8 +1410,20 @@ export interface StuckCustomerRow {
    *  actually blocking the stage from advancing. `taskType` says who
    *  needs to act: 'Client' = customer, 'Team' = internal. Empty array
    *  is unusual (would mean stuck-but-nothing-blocking, possibly a
-   *  workflow-template misconfiguration). */
-  blockingTasks: Array<{ name: string; taskType: 'Client' | 'Team' }>;
+   *  workflow-template misconfiguration).
+   *
+   *  `lastReminderAt`/`escalatedAt` are the drop-off reminder cron's real
+   *  outreach state for THIS task (src/lib/automations/dropoff-reminders.ts)
+   *  — shown as-is, no day-count inference. Deliberately not derived from
+   *  `daysStuck` above: that's a different clock (stage-entered vs.
+   *  task-activated — see docs/plans/admin-stuck-cadence-alignment-review.md
+   *  §2 for why conflating the two is wrong). */
+  blockingTasks: Array<{
+    name: string;
+    taskType: 'Client' | 'Team';
+    lastReminderAt: string | null;
+    escalatedAt: string | null;
+  }>;
 }
 
 /**
@@ -1500,7 +1512,10 @@ export async function getStuckCustomers(options: {
   // These are the actual blockers — what the team / customer needs to do
   // to advance the stage. Limited to Core product tasks (the main flow);
   // Voice / Avatar add-on stages have their own tracking elsewhere.
-  const blockingByCustomer = new Map<string, Array<{ name: string; taskType: 'Client' | 'Team' }>>();
+  const blockingByCustomer = new Map<
+    string,
+    Array<{ name: string; taskType: 'Client' | 'Team'; lastReminderAt: string | null; escalatedAt: string | null }>
+  >();
   if (rows.length > 0) {
     const customerIds = rows.map((r) => r.id);
     const blockingRows = await db
@@ -1509,6 +1524,8 @@ export async function getStuckCustomers(options: {
         taskName: schema.tasks.taskName,
         taskType: schema.tasks.taskType,
         stage: schema.tasks.stage,
+        lastReminderAt: schema.tasks.lastReminderAt,
+        escalatedAt: schema.tasks.escalatedAt,
       })
       .from(schema.tasks)
       .where(
@@ -1525,7 +1542,12 @@ export async function getStuckCustomers(options: {
     for (const t of blockingRows) {
       if (t.stage !== stageByCustomer.get(t.customerId)) continue;
       const list = blockingByCustomer.get(t.customerId) ?? [];
-      list.push({ name: t.taskName, taskType: t.taskType as 'Client' | 'Team' });
+      list.push({
+        name: t.taskName,
+        taskType: t.taskType as 'Client' | 'Team',
+        lastReminderAt: iso(t.lastReminderAt) || null,
+        escalatedAt: iso(t.escalatedAt) || null,
+      });
       blockingByCustomer.set(t.customerId, list);
     }
   }
