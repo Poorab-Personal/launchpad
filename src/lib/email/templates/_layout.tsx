@@ -16,6 +16,12 @@ interface LayoutProps {
   preview: string;
   children: React.ReactNode;
   portalUrl?: string;
+  /**
+   * Widen the container from the 560px reading width to 900px. For internal
+   * digests whose payload is a wide table of dates — at 560px those wrap into
+   * an unreadable mess. Customer-facing emails should leave this off.
+   */
+  wide?: boolean;
 }
 
 /**
@@ -23,21 +29,26 @@ interface LayoutProps {
  * Portal link is also surfaced via the `portalUrl` prop so every email always
  * shows the customer's magic link in the footer (even if the body forgets to).
  */
-export function EmailLayout({ preview, children, portalUrl }: LayoutProps) {
+export function EmailLayout({ preview, children, portalUrl, wide }: LayoutProps) {
   return (
     <Html>
       <Head />
       <Preview>{preview}</Preview>
       <Tailwind>
         <Body className="bg-[#F7F4EB] font-sans">
-          <Container className="max-w-[560px] mx-auto py-8 px-4">
+          <Container
+            className={`${wide ? 'max-w-[900px]' : 'max-w-[560px]'} mx-auto py-8 px-4`}
+          >
             <Section className="mb-6">
               <Text className="text-[#6C4AB6] text-2xl font-bold tracking-tight m-0">
                 Rejig.ai
               </Text>
             </Section>
 
-            <Section className="bg-white rounded-xl p-8 shadow-sm">
+            {/* Class order is deliberate — it must match the original
+                non-wide string exactly so existing customer emails render
+                byte-identically. */}
+            <Section className={`bg-white rounded-xl ${wide ? 'p-6' : 'p-8'} shadow-sm`}>
               {children}
             </Section>
 

@@ -6,6 +6,7 @@ import CredentialsSentEmail from './templates/credentials-sent';
 import MagicLinkEmail from './templates/magic-link';
 import TaskAssignedEmail from './templates/task-assigned';
 import DailyDigestEmail from './templates/daily-digest';
+import MonthlyCohortDigestEmail from './templates/monthly-cohort-digest';
 import DropoffReminderCustomerEmail from './templates/dropoff-reminder-customer';
 import DropoffReminderTeamEmail from './templates/dropoff-reminder-team';
 import DropoffEscalationSalesRepEmail from './templates/dropoff-escalation-salesrep';
@@ -17,6 +18,7 @@ import type {
   Section2Row,
 } from '@/lib/automations/daily-checks';
 import type { B2BDigestRow } from '@/lib/automations/dropoff-b2b-digest';
+import type { MonthlyCohortResult } from '@/lib/automations/monthly-cohort-digest';
 
 const FROM = 'Rejig.ai Success Team <success@rejig.ai>';
 const REPLY_TO = 'success@rejig.ai';
@@ -299,6 +301,46 @@ export async function sendDailyDigestEmail({
     throw new Error(`Resend error: ${result.error.message}`);
   }
   return result.data;
+}
+
+/**
+ * Send the monthly B2B cohort digest — last month's new signups per
+ * brokerage with per-milestone dates. Internal recipients.
+ *
+ * Unlike the daily/drop-off digests, this one sends even when the cohort is
+ * empty: "no new signups last month" is itself the reportable result of a
+ * monthly review, not noise to suppress.
+ */
+export async function sendMonthlyCohortDigestEmail({
+  to,
+  cc,
+  result,
+}: {
+  to: string | string[];
+  cc?: string | string[];
+  result: MonthlyCohortResult;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY is not set');
+  }
+  const resend = new Resend(apiKey);
+
+  const subject = `[LaunchPad] ${result.monthLabel} B2B signups — ${result.totalNew} new`;
+
+  const sent = await resend.emails.send({
+    from: FROM,
+    to,
+    cc,
+    replyTo: REPLY_TO,
+    subject,
+    react: React.createElement(MonthlyCohortDigestEmail, { result }),
+  });
+
+  if (sent.error) {
+    throw new Error(`Resend error: ${sent.error.message}`);
+  }
+  return sent.data;
 }
 
 /**

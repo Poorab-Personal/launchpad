@@ -25,6 +25,10 @@
     {
       "path": "/api/cron/daily-checks",
       "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/monthly-cohort",
+      "schedule": "0 14 2 * *"
     }
   ],
   "functions": {
@@ -41,6 +45,9 @@
       "maxDuration": 300
     },
     "src/app/api/cron/dropoff-digest/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/cron/monthly-cohort/route.ts": {
       "maxDuration": 300
     }
   }
