@@ -4,6 +4,7 @@ import type {
   Section1Reason,
   Section1Row,
   Section2Row,
+  Section3Row,
 } from '@/lib/automations/daily-checks';
 import { EmailLayout } from './_layout';
 
@@ -18,6 +19,7 @@ interface DailyDigestProps {
   digestDate: string; // YYYY-MM-DD for the preview / heading
   section1: Section1Row[];
   section2: Section2Row[];
+  section3: Section3Row[];
 }
 
 const REASON_LABEL: Record<Section1Reason, string> = {
@@ -48,12 +50,22 @@ function hoursSince(d: Date): number {
   return Math.floor((Date.now() - d.getTime()) / (60 * 60 * 1000));
 }
 
+function formatSyncDate(d: Date): string {
+  return d.toLocaleString('en-US', {
+    timeZone: 'America/Los_Angeles',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 export default function DailyDigestEmail({
   digestDate,
   section1,
   section2,
+  section3,
 }: DailyDigestProps) {
-  const total = section1.length + section2.length;
+  const total = section1.length + section2.length + section3.length;
   return (
     <EmailLayout
       preview={`LaunchPad daily — ${total} item${total === 1 ? '' : 's'} need attention`}
@@ -64,7 +76,7 @@ export default function DailyDigestEmail({
       <Text className="text-[#1B2E35]/70 text-sm m-0 mb-6">
         {total === 0
           ? 'All clear. (You shouldn’t be receiving this — the cron skips send when empty.)'
-          : `${section1.length} Stripe linking, ${section2.length} unmarked meeting outcome.`}
+          : `${section1.length} Stripe linking, ${section2.length} unmarked meeting outcome, ${section3.length} stale roster.`}
       </Text>
 
       {/* ──────── Section 1 ──────── */}
@@ -186,6 +198,58 @@ export default function DailyDigestEmail({
           );
         })
       )}
+
+      <Hr className="border-[#E0DEE4] my-6" />
+
+      {/* ──────── Section 3 ──────── */}
+      <Heading
+        as="h2"
+        className="text-[#1B2E35] text-lg m-0 mt-2 mb-2 border-l-4 border-[#C0392B] pl-3"
+      >
+        Section 3 · Brokerage roster is stale ({section3.length})
+      </Heading>
+      <Text className="text-[#1B2E35]/70 text-sm m-0 mb-4">
+        The roster cron runs weekly. Anything past 8 days means a run was
+        missed — agents who joined the brokerage since then are being turned
+        away at the landing page with{' '}
+        <em>“We don’t see you in this brokerage’s roster.”</em> A timeout kills
+        the process without throwing, so no failure event is logged; this
+        staleness check is the only signal.
+      </Text>
+
+      {section3.length === 0 ? (
+        <Text className="text-[#1B2E35]/50 text-sm italic m-0 mb-2">
+          No items.
+        </Text>
+      ) : (
+        section3.map((r) => (
+          <Section
+            key={r.brokerageId}
+            className="rounded-lg border border-[#E0DEE4] bg-white px-4 py-3 mb-3"
+          >
+            <Text className="text-[#1B2E35] text-base font-semibold m-0 mb-1">
+              {r.brokerageName}{' '}
+              <span className="text-[#1B2E35]/50 text-xs font-normal">
+                · /{r.landingPageSlug}
+              </span>
+            </Text>
+            <Text className="text-[#1B2E35] text-sm m-0">
+              {r.lastRosterSync ? (
+                <>
+                  Last synced: {formatSyncDate(r.lastRosterSync)}{' '}
+                  <span className="text-[#C0392B] font-semibold">
+                    ({r.daysStale} days ago)
+                  </span>
+                </>
+              ) : (
+                <span className="text-[#C0392B] font-semibold">
+                  Never synced.
+                </span>
+              )}
+            </Text>
+          </Section>
+        ))
+      )}
     </EmailLayout>
   );
 }
@@ -215,6 +279,15 @@ DailyDigestEmail.PreviewProps = {
       brokerageName: 'Keyes',
       hubspotTicketId: '67890',
       callDate: new Date(Date.now() - 22 * 60 * 60 * 1000),
+    },
+  ],
+  section3: [
+    {
+      brokerageId: '00000000-0000-0000-0000-000000000003',
+      brokerageName: 'The Keyes Company',
+      landingPageSlug: 'keyes',
+      lastRosterSync: new Date(Date.now() - 32 * 24 * 60 * 60 * 1000),
+      daysStale: 32,
     },
   ],
 } satisfies DailyDigestProps;

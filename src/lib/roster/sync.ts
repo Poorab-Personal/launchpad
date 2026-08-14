@@ -25,6 +25,15 @@ import type {
   SourceConfig,
 } from './types';
 
+/**
+ * Rows per multi-row UPSERT statement. The binding cap is Postgres' 65535
+ * parameters-per-statement limit: this insert binds 21 columns/row, so the
+ * hard ceiling is ~3,120 rows. 500 (≈10.5k params) leaves generous headroom
+ * if a column is ever added, while still collapsing Keyes' ~3.2k agents into
+ * ~7 statements instead of ~3,200.
+ */
+const UPSERT_BATCH_SIZE = 500;
+
 export interface SyncResult {
   brokerageId: string;
   brokerageSlug: string;
@@ -130,37 +139,64 @@ export async function syncBrokerage(brokerage: Brokerage): Promise<SyncResult> {
   let agentsUpserted = 0;
   let agentsSoftDeleted = 0;
 
+  // Dedupe on the natural key BEFORE batching. A multi-row
+  // `INSERT ... ON CONFLICT DO UPDATE` aborts with "ON CONFLICT DO UPDATE
+  // command cannot affect row a second time" if one statement carries two
+  // rows with the same conflict target. The old row-at-a-time loop tolerated
+  // duplicate UserIds silently (each was its own statement, last write won),
+  // so keep that semantic explicitly: last occurrence wins.
+  const deduped = new Map<string, NormalizedRosterRow>();
+  for (const row of agents) deduped.set(row.sourceUserId, row);
+  const uniqueAgents = [...deduped.values()];
+  if (uniqueAgents.length !== agents.length) {
+    console.log(
+      `[roster sync] ${brokerageSlug}: collapsed ${
+        agents.length - uniqueAgents.length
+      } duplicate source_user_id row(s) before UPSERT`,
+    );
+  }
+
   await db.transaction(async (tx) => {
     // ── UPSERT every agent (preserves customer_id, first_seen_at; clears
     //    deleted_at on re-appearance; never moves last_synced_at backwards).
-    for (const row of agents) {
+    //
+    // Batched: one multi-row statement per UPSERT_BATCH_SIZE agents rather
+    // than one statement per agent. Keyes (~3.2k agents) was ~3,200 sequential
+    // round-trips to Neon at ~100ms each — ~325s, which alone blew the 300s
+    // function ceiling and left the roster a month stale (see the 2026-08-14
+    // investigation). Batching collapses that to ~7 statements.
+    for (let i = 0; i < uniqueAgents.length; i += UPSERT_BATCH_SIZE) {
+      const batch = uniqueAgents.slice(i, i + UPSERT_BATCH_SIZE);
+
       const updated = await tx
         .insert(schema.brokerageRoster)
-        .values({
-          brokerageId: brokerage.id,
-          sourceUserId: row.sourceUserId,
-          accountType: row.accountType,
-          status: row.status,
-          displayName: row.displayName,
-          firstName: row.firstName,
-          lastName: row.lastName,
-          publicEmail: row.publicEmail,
-          privateEmail: row.privateEmail,
-          cellPhone: row.cellPhone,
-          website: row.website,
-          license: row.license,
-          photoUrl: row.photoUrl,
-          bio: row.bio,
-          mlsIds: row.mlsIds,
-          primaryOfficeId: row.primaryOfficeId,
-          officeName: row.officeName,
-          sourceData: row.sourceData,
-          sourceSchemaVersion: row.sourceSchemaVersion,
-          lastSyncedAt: syncStartedAt,
-          // `firstSeenAt` defaults to now() on INSERT and is preserved on
-          // UPDATE (see DO UPDATE SET clause below — not touched).
-          // `customerId` and `deletedAt` similarly handled in DO UPDATE.
-        })
+        .values(
+          batch.map((row) => ({
+            brokerageId: brokerage.id,
+            sourceUserId: row.sourceUserId,
+            accountType: row.accountType,
+            status: row.status,
+            displayName: row.displayName,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            publicEmail: row.publicEmail,
+            privateEmail: row.privateEmail,
+            cellPhone: row.cellPhone,
+            website: row.website,
+            license: row.license,
+            photoUrl: row.photoUrl,
+            bio: row.bio,
+            mlsIds: row.mlsIds,
+            primaryOfficeId: row.primaryOfficeId,
+            officeName: row.officeName,
+            sourceData: row.sourceData,
+            sourceSchemaVersion: row.sourceSchemaVersion,
+            lastSyncedAt: syncStartedAt,
+            // `firstSeenAt` defaults to now() on INSERT and is preserved on
+            // UPDATE (see DO UPDATE SET clause below — not touched).
+            // `customerId` and `deletedAt` similarly handled in DO UPDATE.
+          })),
+        )
         .onConflictDoUpdate({
           target: [
             schema.brokerageRoster.brokerageId,
@@ -197,7 +233,7 @@ export async function syncBrokerage(brokerage: Brokerage): Promise<SyncResult> {
         })
         .returning({ id: schema.brokerageRoster.id });
 
-      if (updated.length > 0) agentsUpserted++;
+      agentsUpserted += updated.length;
     }
 
     // ── Soft-delete sweep: anything not touched this run.

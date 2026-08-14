@@ -14,6 +14,8 @@
  *   2. B2B customers stuck in 'Onboarding Scheduled' past their callDate
  *      — the CSM didn't mark the meeting outcome, so the trial sub
  *      never got created.
+ *   3. A brokerage roster hasn't synced inside its weekly cadence, so the
+ *      landing page is rejecting agents who joined since the last pull.
  *
  * Recipients: success@/poorab@/matt@rejig.ai.
  * Skips send entirely when both sections are empty — quiet days should
@@ -75,12 +77,15 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: 'runDailyChecks failed', detail: msg }, { status: 500 });
   }
 
-  const total = result.section1.length + result.section2.length;
+  const total =
+    result.section1.length + result.section2.length + result.section3.length;
   const summary = {
     durationMs: result.durationMs,
     rejigAccountsFetched: result.rejigAccountsFetched,
     section1Count: result.section1.length,
     section2Count: result.section2.length,
+    section3Count: result.section3.length,
+    sectionErrors: result.sectionErrors,
     total,
     emailSent: false as boolean,
     dryRun,
@@ -88,6 +93,17 @@ export async function GET(request: NextRequest) {
   };
 
   if (total === 0 && !dryRun) {
+    // "Zero rows" only means all-clear if every section actually ran. If a
+    // section threw, zero is an absence of data, not an absence of problems —
+    // return non-200 so the invocation shows as failed in Vercel's cron log
+    // rather than reading as a quiet good day.
+    if (result.sectionErrors.length > 0) {
+      console.error('[daily-checks] no rows, but sections failed', result.sectionErrors);
+      return Response.json(
+        { ...summary, error: 'sections failed; empty result is not all-clear' },
+        { status: 500 },
+      );
+    }
     console.log('[daily-checks] all clear — skipping digest email send');
     return Response.json(summary);
   }
@@ -98,6 +114,7 @@ export async function GET(request: NextRequest) {
       ...summary,
       section1: result.section1,
       section2: result.section2,
+      section3: result.section3,
       dropoffActions: dropoff.actions,
     });
   }
@@ -109,6 +126,7 @@ export async function GET(request: NextRequest) {
       digestDate,
       section1: result.section1,
       section2: result.section2,
+      section3: result.section3,
     });
     summary.emailSent = true;
     console.log('[daily-checks] digest sent', summary);

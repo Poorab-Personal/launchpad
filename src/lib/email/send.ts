@@ -16,6 +16,7 @@ import NewMessageEmail from './templates/new-message';
 import type {
   Section1Row,
   Section2Row,
+  Section3Row,
 } from '@/lib/automations/daily-checks';
 import type { B2BDigestRow } from '@/lib/automations/dropoff-b2b-digest';
 import type { MonthlyCohortResult } from '@/lib/automations/monthly-cohort-digest';
@@ -268,12 +269,14 @@ export async function sendDailyDigestEmail({
   digestDate,
   section1,
   section2,
+  section3,
 }: {
   to: string | string[];
   cc?: string | string[];
   digestDate: string; // YYYY-MM-DD
   section1: Section1Row[];
   section2: Section2Row[];
+  section3: Section3Row[];
 }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -281,7 +284,7 @@ export async function sendDailyDigestEmail({
   }
   const resend = new Resend(apiKey);
 
-  const total = section1.length + section2.length;
+  const total = section1.length + section2.length + section3.length;
   const subject = `[LaunchPad] Daily checks — ${total} item${total === 1 ? '' : 's'} (${digestDate})`;
 
   const result = await resend.emails.send({
@@ -294,6 +297,7 @@ export async function sendDailyDigestEmail({
       digestDate,
       section1,
       section2,
+      section3,
     }),
   });
 

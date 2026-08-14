@@ -11,25 +11,30 @@
  * without issue.)
  *
  *   1. importRejigSnapshot()  — synchronous; writes rejig.* signals
- *   2. runAllActiveSyncs()    — synchronous; refreshes brokerage rosters
- *   3. /api/cron/bi?offset=0  — fired via after() once 1+2 are committed;
+ *   2. /api/cron/bi?offset=0  — fired via after() once 1 is committed;
  *                                the BI route auto-chains its own chunks
- *   4. /api/cron/dropoff-digest — fired via after() alongside BI. Own route
+ *   3. /api/cron/dropoff-digest — fired via after() alongside BI. Own route
  *      (not inlined) because this handler is already close to its
  *      maxDuration budget once BI chunk-0's ~150s await is counted —
  *      see docs/plans/dropoff-reminder-cron-review.md §7.
  *
- * Order matters for 1 → 3: BI reads the `rejig.*` signals written by
+ * Order matters for 1 → 2: BI reads the `rejig.*` signals written by
  * import. Sequencing here is guaranteed because BI is only dispatched
- * after both awaits resolve and the response has returned. Roster sync
- * and the dropoff digest are both independent and just ride along.
+ * after the await resolves and the response has returned. The dropoff
+ * digest is independent and just rides along.
+ *
+ * Roster sync used to be step 2 here. On 2026-08-14 it moved back to its own
+ * cron route (/api/cron/sync-roster-all, which already existed but had never
+ * been registered in vercel.json): importRejigSnapshot() was eating ~170-255s
+ * of the shared 300s budget before roster sync started, so the larger
+ * brokerages were killed mid-sync without logging a failure. See that route's
+ * header for the full post-mortem.
  *
  * Auth: Bearer ${CRON_SECRET}.
  */
 import type { NextRequest } from 'next/server';
 import { after } from 'next/server';
 import { importRejigSnapshot } from '@/lib/integrations/rejig/import';
-import { runAllActiveSyncs } from '@/lib/roster/sync';
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -43,13 +48,11 @@ export async function GET(request: NextRequest) {
   const t0 = Date.now();
   const summary: {
     importRejig: Awaited<ReturnType<typeof importRejigSnapshot>> | { error: string };
-    rosterSync: Awaited<ReturnType<typeof runAllActiveSyncs>> | { error: string };
     biChainDispatched: boolean;
     dropoffDigestDispatched: boolean;
     durationMs: number;
   } = {
     importRejig: { error: 'not run' },
-    rosterSync: { error: 'not run' },
     biChainDispatched: false,
     dropoffDigestDispatched: false,
     durationMs: 0,
@@ -63,13 +66,6 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     summary.importRejig = { error: err instanceof Error ? err.message : String(err) };
     console.error('[weekly cron] importRejigSnapshot failed', err);
-  }
-
-  try {
-    summary.rosterSync = await runAllActiveSyncs();
-  } catch (err) {
-    summary.rosterSync = { error: err instanceof Error ? err.message : String(err) };
-    console.error('[weekly cron] runAllActiveSyncs failed', err);
   }
 
   const baseUrl = (() => {

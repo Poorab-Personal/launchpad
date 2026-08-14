@@ -1,9 +1,32 @@
 /**
  * GET /api/cron/sync-roster-all
  *
- * Weekly roster sync cron — runs Sunday 10:00 UTC via Vercel cron (see
+ * Weekly roster sync cron — runs Sunday 06:30 UTC via Vercel cron (see
  * vercel.json). Fans out to every active brokerage via `runAllActiveSyncs()`
  * (Promise.allSettled inside) so one source outage never blocks another.
+ *
+ * HISTORY (2026-08-14): this route existed but was never registered in
+ * vercel.json — roster sync had been folded into /api/cron/weekly as step 2,
+ * after importRejigSnapshot(). That shared ONE 300s function budget, and
+ * import consumed ~170-255s of it before roster sync even started. Keyes
+ * (535s at the time) never once completed on the cron; it had synced
+ * successfully only twice, both from manual CLI runs, and sat 32 days stale
+ * while its landing page turned away real agents. B&W (~131s) had begun
+ * losing the race too. Nothing alerted, because a maxDuration kill terminates
+ * the process rather than throwing — so neither the failure events below nor
+ * the alert email ever fired.
+ *
+ * The fix was three-part: batch the UPSERTs in src/lib/roster/sync.ts (Keyes'
+ * write phase went from ~325s of sequential round-trips to seconds), register
+ * THIS route so the sync gets a clean 300s instead of import's leftovers, and
+ * add the roster-staleness section to the daily digest
+ * (src/lib/automations/daily-checks.ts §3) so a silent timeout can't hide
+ * again. 300s is a hard ceiling on Hobby; Pro would allow 800s.
+ *
+ * Brokerages fan out in parallel and each commits its own transaction, so
+ * this function only has to outlive the SLOWEST brokerage, not their sum —
+ * which is why one shared route suffices and per-brokerage crons would buy
+ * no additional headroom.
  *
  * Auth: Bearer ${CRON_SECRET} header (Vercel cron sends this automatically
  * when the env var is configured in the Vercel project). The Authorization

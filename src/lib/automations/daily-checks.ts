@@ -1,5 +1,5 @@
 /**
- * Daily-checks automation — surfaces two B2B-onboarding gaps so they
+ * Daily-checks automation — surfaces three onboarding gaps so they
  * can't sit invisibly.
  *
  *  Section 1 — Stripe sub created in LP but NOT linked into Rejig.
@@ -18,9 +18,19 @@
  *    resolved. Excludes billing_relationship in ('comped','internal_demo')
  *    — those legitimately don't need a Stripe sub.
  *
- * Both sections filter to createdAt >= DIGEST_CUTOFF_DATE so legacy
+ *  Section 3 — a brokerage roster has gone stale.
+ *    brokerages.last_roster_sync older than STALE_ROSTER_DAYS. The sync is
+ *    weekly, so anything past 8 days means at least one run was missed and
+ *    the landing page is turning away agents who joined since — exactly the
+ *    2026-08-14 Keyes incident, where the roster sat 32 days stale and a
+ *    real agent (Deborah Dietz) hit "we don't see you in this brokerage's
+ *    roster". That went unnoticed for a month because a maxDuration kill
+ *    terminates the process instead of throwing, so no 'Roster Sync Failed'
+ *    event is ever written. Timestamp staleness is the only reliable signal.
+ *
+ * Sections 1 and 2 filter to createdAt >= DIGEST_CUTOFF_DATE so legacy
  * pilots created before this surfacing system was introduced don't
- * false-positive.
+ * false-positive. Section 3 is brokerage-level and has no such cutoff.
  *
  * No DB writes. State is derived per run: if the gap persists, the row
  * resurfaces tomorrow; once fixed, it drops. No "mark done" tracking
@@ -75,24 +85,109 @@ export type Section2Row = {
   callDate: Date;
 };
 
+export type Section3Row = {
+  brokerageId: string;
+  brokerageName: string;
+  landingPageSlug: string;
+  lastRosterSync: Date | null;
+  daysStale: number | null; // null when never synced
+};
+
 export type DailyChecksResult = {
   section1: Section1Row[];
   section2: Section2Row[];
+  section3: Section3Row[];
+  /**
+   * Per-section failures, e.g. `"section1: Rejig API 524"`. A section that
+   * throws yields [] rather than aborting the run — see runDailyChecks.
+   */
+  sectionErrors: string[];
   rejigAccountsFetched: number;
   durationMs: number;
 };
 
 /**
- * Run both gap-detection sections. Caller decides whether to send the
- * digest email (skip when both sections are empty).
+ * Staleness threshold for section 3. The roster cron is weekly, so 8 days
+ * means a scheduled run was missed rather than merely being mid-week. Note
+ * Hobby crons fire within the hour of their scheduled time, so the extra day
+ * of slack also absorbs that jitter without flapping.
+ */
+const STALE_ROSTER_DAYS = 8;
+
+/**
+ * Section 3 — active brokerages whose roster hasn't synced inside the
+ * weekly cadence. A NULL last_roster_sync (never synced at all) also
+ * surfaces, sorted first, with daysStale = null.
+ */
+async function runSection3(): Promise<Section3Row[]> {
+  const cutoff = new Date(Date.now() - STALE_ROSTER_DAYS * 24 * 60 * 60 * 1000);
+
+  const rows = await db
+    .select({
+      brokerageId: brokerages.id,
+      brokerageName: brokerages.name,
+      landingPageSlug: brokerages.landingPageSlug,
+      lastRosterSync: brokerages.lastRosterSync,
+    })
+    .from(brokerages)
+    .where(
+      and(
+        eq(brokerages.active, true),
+        isNotNull(brokerages.sourceType),
+        or(
+          isNull(brokerages.lastRosterSync),
+          lt(brokerages.lastRosterSync, cutoff),
+        ),
+      ),
+    );
+
+  return rows
+    .map((r) => ({
+      ...r,
+      daysStale: r.lastRosterSync
+        ? Math.floor((Date.now() - r.lastRosterSync.getTime()) / (24 * 60 * 60 * 1000))
+        : null,
+    }))
+    // Never-synced first, then most-stale first.
+    .sort((a, b) => (b.daysStale ?? Infinity) - (a.daysStale ?? Infinity));
+}
+
+/**
+ * Run all three gap-detection sections. Caller decides whether to send the
+ * digest email (skip when every section is empty).
+ *
+ * `allSettled`, deliberately — NOT `all`. The sections are independent, and
+ * section 1 depends on the external Rejig API, which does time out (observed
+ * 524 on 2026-08-14). Under `Promise.all` that one upstream outage blanked
+ * the entire digest, including the section-3 roster-staleness check. Since
+ * section 3 exists precisely to make silent breakage visible, letting an
+ * unrelated API hiccup suppress it would defeat the point. A failing section
+ * degrades to [] and records the reason in `sectionErrors`.
  */
 export async function runDailyChecks(): Promise<DailyChecksResult> {
   const t0 = Date.now();
-  const [section1, section2] = await Promise.all([runSection1(), runSection2()]);
+  const [s1, s2, s3] = await Promise.allSettled([
+    runSection1(),
+    runSection2(),
+    runSection3(),
+  ]);
+
+  const sectionErrors: string[] = [];
+  const reason = (r: PromiseRejectedResult) =>
+    r.reason instanceof Error ? r.reason.message : String(r.reason);
+
+  if (s1.status === 'rejected') sectionErrors.push(`section1: ${reason(s1)}`);
+  if (s2.status === 'rejected') sectionErrors.push(`section2: ${reason(s2)}`);
+  if (s3.status === 'rejected') sectionErrors.push(`section3: ${reason(s3)}`);
+  for (const e of sectionErrors) console.error(`[daily-checks] ${e}`);
+
   return {
-    section1: section1.rows,
-    section2,
-    rejigAccountsFetched: section1.rejigAccountsFetched,
+    section1: s1.status === 'fulfilled' ? s1.value.rows : [],
+    section2: s2.status === 'fulfilled' ? s2.value : [],
+    section3: s3.status === 'fulfilled' ? s3.value : [],
+    sectionErrors,
+    rejigAccountsFetched:
+      s1.status === 'fulfilled' ? s1.value.rejigAccountsFetched : 0,
     durationMs: Date.now() - t0,
   };
 }
