@@ -24,67 +24,12 @@ import { lookupByEmail } from '@/lib/roster/lookup';
 import { createRosterCustomer } from '@/lib/automations/create-roster-customer';
 import { notifyAssigneesForNewCustomer } from '@/lib/automations/notify-assignee';
 import { importRosterCustomerAssets } from '@/lib/roster/import-assets';
-
-interface SourceOffice {
-  Address1?: string | null;
-  Address2?: string | null;
-  Address3?: string | null;
-  City?: string | null;
-  State?: string | null;
-}
-interface SourceRegion {
-  RegionName?: string | null;
-}
-interface RosterSourceData {
-  office?: SourceOffice | null;
-  user?: { Regions?: SourceRegion[] | null } | null;
-}
-
-/** Minimal HTML → plain text. No existing util in the repo; DMG Bio is light
- *  HTML (<p>, <br>, <strong>). Strip tags, decode a few common entities,
- *  collapse whitespace. The agent confirms/edits on the intake form anyway. */
-function stripHtml(input: string | null | undefined): string | null {
-  if (!input) return null;
-  const text = input
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return text.length > 0 ? text : null;
-}
-
-/** Join office address parts: "Address1 Address2 Address3, City, State". */
-function formatOfficeAddress(office: SourceOffice | null | undefined): string | null {
-  if (!office) return null;
-  const street = [office.Address1, office.Address2, office.Address3]
-    .map((s) => s?.trim())
-    .filter((s): s is string => Boolean(s && s.length))
-    .join(' ');
-  const parts = [street, office.City?.trim(), office.State?.trim()].filter(
-    (s): s is string => Boolean(s && s.length),
-  );
-  const joined = parts.join(', ');
-  return joined.length > 0 ? joined : null;
-}
-
-/** Region names joined, dropping internal regions (e.g. "Keyes Employees"). */
-function formatServiceAreas(regions: SourceRegion[] | null | undefined): string | null {
-  if (!regions || regions.length === 0) return null;
-  const names = regions
-    .map((r) => r?.RegionName?.trim())
-    .filter((n): n is string => Boolean(n && n.length))
-    .filter((n) => !/employees/i.test(n));
-  const joined = names.join(', ');
-  return joined.length > 0 ? joined : null;
-}
+import {
+  formatOfficeAddress,
+  formatServiceAreas,
+  stripHtml,
+  type RosterSourceData,
+} from '@/lib/roster/source-fields';
 
 /** Derive the channel code from a brokerage default workflow key.
  *  Workflow key format is `{type}-{code}` (e.g. 'B2B-IPRE' → 'IPRE'). */
