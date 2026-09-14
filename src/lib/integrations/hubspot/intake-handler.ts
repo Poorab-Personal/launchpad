@@ -29,9 +29,11 @@
  * a Deal — Ticket associates to Contact only.
  *
  * Best-effort. Errors logged but don't blow up the LP customer creation
- * response. Idempotent: skips if customer.hubspotTicketId is already set.
+ * response. Idempotent: skips if customer.hubspotTicketId is already set,
+ * and serialized against concurrent invocations by the
+ * customers.hubspot_push_claimed_at mutex (see claimIntakePush).
  */
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull, lt, or } from 'drizzle-orm';
 import { db } from '@/db';
 import * as schema from '@/db/schema';
 import { sendAlertEmail } from '@/lib/email/send';
@@ -59,7 +61,113 @@ export type IntakePushResult =
   | { kind: 'skipped'; reason: string }
   | { kind: 'error'; error: string };
 
+/**
+ * How long a claim is honoured before another invocation may steal it. Only
+ * matters when a push dies without running its release (process killed,
+ * function timeout) — every in-code failure path releases explicitly. Set
+ * well past the Vercel function ceiling (300s) so a still-running push can
+ * never be raced by a "stale" re-claim.
+ */
+const PUSH_CLAIM_STALE_MS = 10 * 60_000;
+
+/**
+ * Take the intake-push mutex for this customer. One conditional UPDATE, so
+ * exactly one of N concurrent invocations wins.
+ *
+ * This is the fix for the self-collision documented in migration 0026: the
+ * browser confirm route and Stripe's setup_intent.succeeded webhook both
+ * complete "Capture Payment Method", and the old
+ * `if (customer.hubspotTicketId) skip` read left a ~1.5s window in which
+ * both callers created a Contact + Ticket.
+ */
+async function claimIntakePush(customerId: string): Promise<boolean> {
+  const staleBefore = new Date(Date.now() - PUSH_CLAIM_STALE_MS);
+  const claimed = await db
+    .update(schema.customers)
+    .set({ hubspotPushClaimedAt: new Date() })
+    .where(
+      and(
+        eq(schema.customers.id, customerId),
+        isNull(schema.customers.hubspotTicketId),
+        or(
+          isNull(schema.customers.hubspotPushClaimedAt),
+          lt(schema.customers.hubspotPushClaimedAt, staleBefore),
+        ),
+      ),
+    )
+    .returning({ id: schema.customers.id });
+  return claimed.length > 0;
+}
+
+/**
+ * Hand the mutex back so the Auto 2 backstop, a later webhook, or a manual
+ * script re-run can try again. Called on every non-'pushed' outcome — a
+ * successful push leaves the claim stamped (harmless; the hubspotTicketId
+ * short-circuit fires first from then on).
+ */
+async function releaseIntakePush(customerId: string): Promise<void> {
+  try {
+    await db
+      .update(schema.customers)
+      .set({ hubspotPushClaimedAt: null })
+      .where(eq(schema.customers.id, customerId));
+  } catch (err) {
+    console.warn(`[HS intake] failed to release push claim for ${customerId}`, err);
+  }
+}
+
+/**
+ * Pull the ID of the contact that already owns an email out of a failed
+ * create. HubSpot phrases the collision two ways:
+ *
+ *   409 CONFLICT       "Contact already exists. Existing ID: 552239500007"
+ *   400 VALIDATION_ERROR
+ *     "Cannot set PropertyValueCoordinates{… propertyName=email,
+ *      value=x@y.com} on 552148386511. 552239500007 already has that value."
+ *
+ * In the 400 the FIRST id is the half-allocated record the create was
+ * writing to; the one we want is the record that "already has that value".
+ * Returns null for any other error so callers rethrow untouched.
+ */
+export function parseConflictingContactId(err: unknown): string | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  const alreadyHas = msg.match(/(\d{5,})\s+already has that value/);
+  if (alreadyHas) return alreadyHas[1];
+  const existing = msg.match(/Existing ID:\s*(\d{5,})/i);
+  if (existing) return existing[1];
+  return null;
+}
+
 export async function pushCustomerIntakeToHubSpot(customerId: string): Promise<IntakePushResult> {
+  // Cheap pre-check so the common "already pushed" backstop call doesn't
+  // churn the claim column. The authoritative guard is the claim below.
+  const existing = await db.query.customers.findFirst({
+    where: eq(schema.customers.id, customerId),
+    columns: { hubspotTicketId: true },
+  });
+  if (!existing) return { kind: 'error', error: 'Customer not found' };
+  if (existing.hubspotTicketId) {
+    return { kind: 'skipped', reason: `already has hubspotTicketId=${existing.hubspotTicketId}` };
+  }
+
+  if (!(await claimIntakePush(customerId))) {
+    return {
+      kind: 'skipped',
+      reason: 'intake push already in flight (claimed by a concurrent invocation)',
+    };
+  }
+
+  try {
+    const result = await runIntakePush(customerId);
+    if (result.kind !== 'pushed') await releaseIntakePush(customerId);
+    return result;
+  } catch (err) {
+    await releaseIntakePush(customerId);
+    throw err;
+  }
+}
+
+async function runIntakePush(customerId: string): Promise<IntakePushResult> {
   // ─── 1. Read customer + (B2B only) brokerage + workflow template ──────
   const customer = await db.query.customers.findFirst({
     where: eq(schema.customers.id, customerId),
@@ -136,15 +244,34 @@ export async function pushCustomerIntakeToHubSpot(customerId: string): Promise<I
         await ensureContactCompanyAssociation(contactId, companyId);
       }
     } else {
-      const created = await createContact({
-        email,
-        firstName,
-        lastName,
-        phone: customer.phone ?? null,
-        companyId,                             // undefined for D2C — createContact handles
-      });
-      contactId = created.contactId;
-      contactWasNew = true;
+      try {
+        const created = await createContact({
+          email,
+          firstName,
+          lastName,
+          phone: customer.phone ?? null,
+          companyId,                           // undefined for D2C — createContact handles
+        });
+        contactId = created.contactId;
+        contactWasNew = true;
+      } catch (err) {
+        // The search said "no such contact" but HubSpot's uniqueness check
+        // disagreed. Two real causes: search-index lag (the contact exists
+        // but isn't indexed yet), and an email held as a *secondary* email
+        // on another record (search on `email` only matches primaries).
+        // Either way HubSpot names the blocking record in the error — adopt
+        // it rather than failing the whole push. Do NOT retry the create;
+        // that's what produced Roberto Cavaliere's second ticket.
+        const blockingId = parseConflictingContactId(err);
+        if (!blockingId) throw err;
+        console.warn(
+          `[HS intake] create conflicted for ${email}; adopting existing contact ${blockingId}`,
+        );
+        contactId = blockingId;
+        if (companyId) {
+          await ensureContactCompanyAssociation(contactId, companyId);
+        }
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -238,24 +365,42 @@ export async function runHubspotIntakePushWithAudit(
         details: result.reason,
       });
     } else {
-      await db.insert(schema.events).values({
-        customerId,
-        eventType: 'HS Ticket Push Failed',
-        actorType: 'System',
-        details: result.error,
-      });
-      void sendOpsAlert(customerId, customerName, result.error);
+      await recordFailure(customerId, customerName, 'HS Ticket Push Failed', result.error);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await db.insert(schema.events).values({
-      customerId,
-      eventType: 'HS Ticket Push Threw',
-      actorType: 'System',
-      details: message.slice(0, 1000),
-    });
-    void sendOpsAlert(customerId, customerName, message);
+    await recordFailure(customerId, customerName, 'HS Ticket Push Threw', message.slice(0, 1000));
   }
+}
+
+/**
+ * Log a failed push and alert ops — unless the customer has a ticket by now,
+ * in which case a concurrent invocation won and the alert's headline claim
+ * ("The HubSpot ticket was NOT created") would be false. That was the case
+ * for every one of the 10 alerts sent between 2026-06 and 2026-09: the
+ * ticket existed, made ~600ms later by the racing caller. The event is still
+ * written either way so the collision stays visible in the audit trail.
+ */
+async function recordFailure(
+  customerId: string,
+  customerName: string,
+  eventType: 'HS Ticket Push Failed' | 'HS Ticket Push Threw',
+  detail: string,
+): Promise<void> {
+  const fresh = await db.query.customers.findFirst({
+    where: eq(schema.customers.id, customerId),
+    columns: { hubspotTicketId: true },
+  });
+  const raced = Boolean(fresh?.hubspotTicketId);
+  await db.insert(schema.events).values({
+    customerId,
+    eventType: raced ? 'HS Ticket Push Raced' : eventType,
+    actorType: 'System',
+    details: raced
+      ? `Lost a concurrent push race; ticket ${fresh?.hubspotTicketId} exists. No action needed. Underlying error: ${detail}`
+      : detail,
+  });
+  if (!raced) void sendOpsAlert(customerId, customerName, detail);
 }
 
 async function sendOpsAlert(customerId: string, customerName: string, reason: string) {

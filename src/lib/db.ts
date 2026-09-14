@@ -768,12 +768,29 @@ export async function updateTaskFields(
     setFields.assigneeNotifiedAt = null;
   }
 
+  // Same Completed race-guard as updateTaskStatus. This path is reached by
+  // the workspace complete-task actions, the Calendly/HubSpot schedule
+  // webhooks and PATCH /api/tasks/[taskId] — all of which can fire twice
+  // (double-click, redelivered webhook, portal + webhook together). Every
+  // caller that sets Completed passes only {status, completedAt}, so losing
+  // the guard costs nothing: the winner already wrote both.
   const [row] = await db
     .update(schema.tasks)
     .set(setFields)
-    .where(eq(schema.tasks.id, taskId))
+    .where(
+      fields.status === 'Completed'
+        ? and(eq(schema.tasks.id, taskId), ne(schema.tasks.status, 'Completed'))
+        : eq(schema.tasks.id, taskId),
+    )
     .returning();
-  if (!row) throw new Error(`Task ${taskId} not found`);
+  if (!row) {
+    if (fields.status === 'Completed') {
+      const existing = await db.query.tasks.findFirst({ where: eq(schema.tasks.id, taskId) });
+      if (!existing) throw new Error(`Task ${taskId} not found`);
+      return mapDbTask(existing);   // already Completed — don't re-fire Auto 2
+    }
+    throw new Error(`Task ${taskId} not found`);
+  }
   if (row.status === 'Completed') {
     const { handleTaskCompleted } = await import('@/lib/automations/activate-dependents');
     await handleTaskCompleted(row.id);
@@ -816,9 +833,18 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus): Prom
   if (status === 'Active') {
     update.assigneeNotifiedAt = now;
   }
+  // Both Active and Completed are race-guarded on the prior status, so a
+  // transition happens at most once no matter how many callers fire it.
+  // Completed matters most: "Capture Payment Method" is completed twice,
+  // ~100-300ms apart, by two independent paths (the browser's
+  // /payment-setup/confirm POST and Stripe's setup_intent.succeeded
+  // webhook). Without this guard both UPDATEs won and handleTaskCompleted
+  // ran twice concurrently — double dependent-activation, double Slack
+  // intake alerts, double HubSpot intake push (which produced duplicate
+  // live HS tickets, see migration 0026). Diagnosed 2026-08-12.
   const whereClause =
-    status === 'Active'
-      ? and(eq(schema.tasks.id, taskId), ne(schema.tasks.status, 'Active'))
+    status === 'Active' || status === 'Completed'
+      ? and(eq(schema.tasks.id, taskId), ne(schema.tasks.status, status))
       : eq(schema.tasks.id, taskId);
   const [row] = await db
     .update(schema.tasks)
@@ -826,8 +852,10 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus): Prom
     .where(whereClause)
     .returning();
   if (!row) {
-    if (status === 'Active') {
+    if (status === 'Active' || status === 'Completed') {
       // Race lost or task missing — re-read to return the current row.
+      // Deliberately does NOT fire handleTaskCompleted: the caller that
+      // won the transition already ran it.
       const existing = await db.query.tasks.findFirst({ where: eq(schema.tasks.id, taskId) });
       if (!existing) throw new Error(`Task ${taskId} not found`);
       return mapDbTask(existing);
