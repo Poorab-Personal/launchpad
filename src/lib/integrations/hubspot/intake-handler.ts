@@ -53,6 +53,7 @@ const CHANNEL_CODE_TO_HUBSPOT_ENUM: Record<string, string> = {
   BW: 'b2b_bw',
   IPRE: 'b2b_ipre',
   RUHL: 'b2b_ruhl',
+  Coach: 'b2b_coach',
   Standard: 'd2c',
 };
 

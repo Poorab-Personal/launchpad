@@ -1456,7 +1456,7 @@ export const STUCK_THRESHOLD_DAYS = [3, 7] as const;
 export type StuckThreshold = (typeof STUCK_THRESHOLD_DAYS)[number];
 
 /** Workflow keys we break stuck-customer counts down by. Matches the seeded set in workflow_templates. */
-export const STUCK_WORKFLOW_KEYS = ['D2C-Standard', 'B2B-Keyes', 'B2B-BW', 'B2B-IPRE', 'B2B-RUHL'] as const;
+export const STUCK_WORKFLOW_KEYS = ['D2C-Standard', 'B2B-Keyes', 'B2B-BW', 'B2B-IPRE', 'B2B-RUHL', 'B2B-Coach'] as const;
 export type StuckWorkflowKey = (typeof STUCK_WORKFLOW_KEYS)[number];
 
 export interface StuckCustomerSummary {

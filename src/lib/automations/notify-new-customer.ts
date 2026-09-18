@@ -32,6 +32,12 @@ import { postSlackMessage, type SlackBlock } from '@/lib/slack/post';
 
 const HUBSPOT_PORTAL_ID = '44956899';
 
+// Coach-only shared folder holding agent-supplied logos. Empty string disables
+// the reminder line (see DESIGN_ASSET_FOLDER below), so unsetting it degrades
+// quietly rather than posting a dead link.
+const COACH_DROPBOX_FOLDER_URL =
+  'https://www.dropbox.com/scl/fo/bxmwrwlr5h26hfc91rvrz/ACQKT2nPOKAbx3OZeaVTI58?rlkey=3yso8uu2zcmvn5n9q9rke1wkz&st=05uxzac9&e=1&dl=0';
+
 interface NextStep {
   next: string;
   court: string;
@@ -48,6 +54,25 @@ const INTAKE_SUBMIT_NEXT: Record<string, NextStep> = {
   'B2B-Keyes': { next: 'Capture Payment Method', court: 'Customer' },
   'B2B-BW': { next: 'Schedule Onboarding Call + Create Designs', court: 'Customer + Rejig' },
   'B2B-RUHL': { next: 'Create Designs', court: 'Rejig' },
+  'B2B-Coach': { next: 'Schedule Onboarding Call + Create Designs', court: 'Customer + Rejig' },
+};
+
+/**
+ * Per-workflow manual design-asset folder. Some brokerages supply agent logos
+ * out-of-band (a shared Dropbox/Drive folder) rather than through the roster
+ * feed — DMG carries no per-agent logo field at all, only a headshot, so for
+ * those brokerages a human has to go look. When set, the intake alert carries
+ * a reminder line so the designer sees it at the moment of submission.
+ *
+ * Hardcoded by workflow key for the same reason INTAKE_SUBMIT_NEXT is: the
+ * alert copy stays stable and readable. Promote to a `brokerages` column if a
+ * third brokerage needs one.
+ */
+const DESIGN_ASSET_FOLDER: Record<string, { label: string; url: string }> = {
+  'B2B-Coach': {
+    label: 'Check Dropbox for this agent\'s logo',
+    url: COACH_DROPBOX_FOLDER_URL,
+  },
 };
 
 export async function notifyCustomerSubmitted(customerId: string): Promise<void> {
@@ -106,6 +131,12 @@ export async function notifyCustomerSubmitted(customerId: string): Promise<void>
   // Line 3: next action + court
   const nextLine = `*Next:* ${nextStep.next}  _(${nextStep.court})_`;
 
+  // Optional manual-asset reminder (brokerages whose agent logos live in a
+  // shared folder rather than the roster feed). Omitted when no URL is set.
+  const folder = DESIGN_ASSET_FOLDER[customer.workflowKey];
+  const folderLine =
+    folder && folder.url ? `\u{1F4C1}  *${folder.label}:*  <${folder.url}|Open folder>` : null;
+
   // Line 4: clickable links (em-dash when unavailable)
   const linkParts = [
     `<${workspaceUrl}|LaunchPad>`,
@@ -114,7 +145,9 @@ export async function notifyCustomerSubmitted(customerId: string): Promise<void>
   ];
   const linkLine = linkParts.join('  ·  ');
 
-  const mrkdwn = [headerLine, contactLine, nextLine, linkLine].filter(Boolean).join('\n');
+  const mrkdwn = [headerLine, contactLine, nextLine, folderLine, linkLine]
+    .filter(Boolean)
+    .join('\n');
 
   const blocks: SlackBlock[] = [
     { type: 'section', text: { type: 'mrkdwn', text: mrkdwn } },

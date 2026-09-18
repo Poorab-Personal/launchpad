@@ -154,8 +154,8 @@ export async function POST(request: NextRequest) {
     brokerageId: brokerage.id,
     channelCode,
     matchedEmail,
-    name: rosterRow.displayName ?? matchedEmail,
-    businessName: rosterRow.displayName ?? null,
+    name: agentDisplayName(rosterRow, matchedEmail),
+    businessName: agentDisplayName(rosterRow, '') || null,
     phone: rosterRow.cellPhone ?? null,
     website: rosterRow.website ?? null,
     bio: stripHtml(rosterRow.bio),
@@ -185,6 +185,33 @@ export async function POST(request: NextRequest) {
   // landing-page email lookup. notifyCustomerSubmitted fires from Auto 2.
 
   return Response.json({ match: true, redirect: `/r/${result.accessToken}` });
+}
+
+/**
+ * Agent display name, with fallbacks.
+ *
+ * DMG returns `DisplayName` as an EMPTY STRING rather than omitting it when
+ * the brokerage never set one, so `displayName ?? email` silently yields ''
+ * — `??` guards null/undefined, not ''. That shipped blank customer names to
+ * production: 4 of 12 B&W agents, plus one each at IPRE and RUHL. The rate is
+ * per-brokerage and tracks how the brokerage populates DMG — Keyes 0.7% and
+ * IPRE 2%, but B&W 49%, Ruhl 26%, and Coach 65%.
+ *
+ * Falls through DisplayName → "First Last" → email. First/Last are present on
+ * every roster row that lacks a DisplayName (verified across all five
+ * brokerages), so the email fallback is a last resort that should never fire.
+ */
+function agentDisplayName(
+  row: { displayName: string | null; firstName: string | null; lastName: string | null },
+  fallback: string,
+): string {
+  const display = row.displayName?.trim();
+  if (display) return display;
+  const composed = [row.firstName?.trim(), row.lastName?.trim()]
+    .filter((p): p is string => Boolean(p))
+    .join(' ');
+  if (composed) return composed;
+  return fallback;
 }
 
 /**
@@ -279,7 +306,7 @@ async function handleTestMode(
   const rosterRow = hit.row;
   const sourceData = (rosterRow.sourceData ?? {}) as RosterSourceData;
   const channelCode = channelCodeForWorkflow(brokerage.defaultWorkflowKey);
-  const realName = rosterRow.displayName ?? agentEmail;
+  const realName = agentDisplayName(rosterRow, agentEmail);
   const targetName = `LP TEST — ${realName}`;
 
   // Recovery / re-entry: per-(receiveEmail, agent). Picking a DIFFERENT agent
@@ -309,7 +336,7 @@ async function handleTestMode(
     channelCode,
     matchedEmail: receiveEmail, // → contact_email + platform_email (tester's inbox)
     name: `LP TEST — ${realName}`,
-    businessName: rosterRow.displayName ?? null,
+    businessName: agentDisplayName(rosterRow, '') || null,
     phone: rosterRow.cellPhone ?? null,
     website: rosterRow.website ?? null,
     bio: stripHtml(rosterRow.bio),

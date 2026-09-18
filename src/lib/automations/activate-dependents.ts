@@ -35,6 +35,7 @@ export const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
   'B2B-Keyes': 'Capture Payment Method',
   'B2B-BW': 'Confirm Your Information',
   'B2B-RUHL': 'Confirm Your Information',
+  'B2B-Coach': 'Confirm Your Information',
 };
 
 // Pilot workflows with no onboarding-call task (group training/rollout
@@ -63,6 +64,7 @@ const SLACK_INTAKE_TRIGGER_TASK: Record<string, string> = {
   'B2B-Keyes': 'Confirm Your Information',
   'B2B-BW': 'Confirm Your Information',
   'B2B-RUHL': 'Confirm Your Information',
+  'B2B-Coach': 'Confirm Your Information',
 };
 
 const NEXT_STAGE_BY_PRODUCT: Record<'Core' | 'Voice' | 'Avatar', { stageField: 'currentStage' | 'voiceStage' | 'avatarStage'; workflowKeyForCustomer: (custType: 'D2C' | 'B2B', channel: string) => string }> = {

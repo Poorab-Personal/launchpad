@@ -69,6 +69,28 @@ const BROKERAGE_THEME: Record<string, LandingTheme> = {
     headlineColor: '#192D6B', // Deep Lake — pops the headline with brand navy
   },
 
+  // Coach Realtors (Howard Hanna | Coach Realtors) — official brand palette.
+  // Deep green primary + off-white ground + tan accent. Brand fonts are
+  // Poynter Old Style Display (headline) and Benton Sans (body), both paid;
+  // serifHeadline routes the h1 to Cormorant Garamond, the closest available
+  // high-contrast old-style serif to Poynter — same substitution approach as
+  // IPRE's Morion and Keyes' The Picnic Club.
+  //
+  // #F2F2F2 and #666666 from the brand palette are intentionally unused here:
+  // #F2F2F2 is indistinguishable from the #F1F2ED ground (cards need white to
+  // read as elevated), and #666666 lacks the contrast for body text on a light
+  // ground, so `ink` keeps the charcoal the other brokerages use.
+  coach: {
+    bg: '#F1F2ED',            // brand off-white
+    surface: '#FFFFFF',
+    primary: '#004538',       // brand deep green
+    primaryHover: '#003027',
+    ink: '#1B2E35',
+    accent: '#D2BA92',        // brand tan
+    serifHeadline: true,
+    headlineColor: '#004538', // deep green — pops the h1 with brand primary
+  },
+
   // Ruhl (RuhlHomes) — colors sampled directly from their logo (no brand
   // book on file yet). Navy + gold, sans-serif to match the logo's bold
   // block lettering.
