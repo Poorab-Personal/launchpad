@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { Task } from '@/types';
+import { TaskInstructions } from '@/components/TaskInstructions';
 
 const MAX_FILE_SIZE = 3_500_000; // 3.5MB
 
@@ -159,7 +160,7 @@ export default function FileUploadTask({
   return (
     <div className="space-y-4">
       {task.instructions && (
-        <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+        <TaskInstructions text={task.instructions} className="text-[#1B2E35]/70 leading-relaxed" />
       )}
 
       {/* File upload zone */}

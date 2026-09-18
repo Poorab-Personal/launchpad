@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import type { Task, Customer, AirtableAttachment } from '@/types';
+import { TaskInstructions } from '@/components/TaskInstructions';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -746,7 +747,7 @@ export default function FormTask({
     return (
       <div className="space-y-6">
         {task.instructions && (
-          <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+          <TaskInstructions text={task.instructions} className="text-[#1B2E35]/70 leading-relaxed" />
         )}
 
         {/* Star rating */}
@@ -1077,8 +1078,14 @@ export default function FormTask({
                   input swallows the newlines, so an agent on two MLSs saw
                   "MLS#283: 164999OneKey MLS: 164999" run together. ~1,400
                   agents across the five brokerages are multi-MLS. */}
+              {/* Sized to the roster value: most agents are on one MLS, but
+                  the tail is long (Keyes tops out at 16 lines, IPRE 7, Ruhl 5)
+                  and a fixed height would hide entries behind a scrollbar on
+                  a field the agent is being asked to verify. Capped at 8 so a
+                  rare outlier can't push the buttons off-screen; still
+                  drag-resizable. */}
               <textarea
-                rows={2}
+                rows={Math.min(Math.max(form.mlsIds.split('\n').length, 2), 8)}
                 className={`${inputClass('mlsIds')} resize-y`}
                 placeholder={'One per line\ne.g.\nMiami MLS: 12345'}
                 value={form.mlsIds}
@@ -1454,7 +1461,7 @@ export default function FormTask({
   return (
     <div className="space-y-4">
       {task.instructions && (
-        <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+        <TaskInstructions text={task.instructions} className="text-[#1B2E35]/70 leading-relaxed" />
       )}
 
       {testFillEnabled && (

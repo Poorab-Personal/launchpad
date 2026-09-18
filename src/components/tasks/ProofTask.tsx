@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { Task, Customer, InternalNoteAttachment } from '@/types';
 import DesignThread from './DesignThread';
 import DesignMessageComposer from './DesignMessageComposer';
+import { TaskInstructions } from '@/components/TaskInstructions';
 
 type Mode = 'idle' | 'confirming-approve' | 'requesting-changes' | 'changes-sent';
 
@@ -132,7 +133,7 @@ export default function ProofTask({
         </div>
       ) : (
         task.instructions && (
-          <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+          <TaskInstructions text={task.instructions} className="text-[#1B2E35]/70 leading-relaxed" />
         )
       )}
 

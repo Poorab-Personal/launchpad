@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Script from 'next/script';
 import type { Task } from '@/types';
+import { TaskInstructions } from '@/components/TaskInstructions';
 
 /**
  * Calendly only fires postMessage events ("calendly.event_scheduled",
@@ -274,7 +275,7 @@ export default function EmbedTask({
   return (
     <div className="space-y-4">
       {task.instructions && (
-        <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+        <TaskInstructions text={task.instructions} className="text-[#1B2E35]/70 leading-relaxed" />
       )}
       {testFillEnabled &&
         (isBookingEmbed || task.taskName.toLowerCase().includes('schedule your onboarding')) && (

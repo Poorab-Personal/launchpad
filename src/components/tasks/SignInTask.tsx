@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { Task, Customer } from '@/types';
 import { resolveTempPassword } from '@/lib/temp-password';
+import { TaskInstructions } from '@/components/TaskInstructions';
 
 const APP_URL = 'https://app.rejig.ai';
 
@@ -77,7 +78,7 @@ export default function SignInTask({
   return (
     <div className="space-y-5">
       {task.instructions && (
-        <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+        <TaskInstructions text={task.instructions} className="text-[#1B2E35]/70 leading-relaxed" />
       )}
 
       <div className="rounded-lg border border-[#E0DEE4] bg-white p-5 space-y-4">

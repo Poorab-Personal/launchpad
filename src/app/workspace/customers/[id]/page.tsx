@@ -25,6 +25,7 @@ import SendCredentialsAction from './SendCredentialsAction';
 import { resolveTempPassword } from '@/lib/temp-password';
 import CopyableField from './CopyableField';
 import { groupDrafts, formatGroupStamp } from './draft-groups';
+import { TaskInstructions } from '@/components/TaskInstructions';
 
 const REVIEW_SOURCE_LABELS: Record<string, string> = {
   google: 'Google',
@@ -670,7 +671,7 @@ export default async function CustomerDetailPage({
                 </div>
               </div>
               {highlighted.instructions && (
-                <p className="text-sm text-[#1B2E35]/70 mb-4">{highlighted.instructions}</p>
+                <TaskInstructions text={highlighted.instructions} className="text-sm text-[#1B2E35]/70 mb-4" />
               )}
               <TaskActionPanel
                 task={highlighted}

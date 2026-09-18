@@ -154,8 +154,10 @@ async function main() {
     }
     console.log(`  Read ${sourceRows.length} source row(s) from ${SOURCE_WORKFLOW_KEY}.`);
 
+    // Markdown link syntax — rendered as a real anchor by
+    // src/components/TaskInstructions.tsx.
     const dropboxNote = DROPBOX_FOLDER_URL
-      ? ` FIRST: check the shared Dropbox folder for an agent-supplied logo before you start — ${DROPBOX_FOLDER_URL}. ${SHORT_NAME} agents' logos are not in the roster feed, so if one exists it is only in that folder.`
+      ? ` FIRST: check the [Dropbox link](${DROPBOX_FOLDER_URL}) for an agent-supplied logo before you start. ${SHORT_NAME} agents' logos are not in the roster feed, so if one exists it is only in that folder.`
       : '';
 
     const cloned: NewWorkflowTemplate[] = sourceRows.map((r) => {

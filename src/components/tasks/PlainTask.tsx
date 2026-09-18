@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { Task } from '@/types';
+import { TaskInstructions } from '@/components/TaskInstructions';
 
 export default function PlainTask({
   task,
@@ -37,7 +38,7 @@ export default function PlainTask({
   return (
     <div className="space-y-4">
       {task.instructions && (
-        <p className="text-[#1B2E35]/70 leading-relaxed">{task.instructions}</p>
+        <TaskInstructions text={task.instructions} className="text-[#1B2E35]/70 leading-relaxed" />
       )}
       {error && (
         <div className="rounded-lg border border-[#EC531A]/30 bg-[#EC531A]/5 px-4 py-3 text-sm text-[#EC531A]">
