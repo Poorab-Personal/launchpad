@@ -1071,14 +1071,20 @@ export default function FormTask({
             </div>
             <div>
               <FieldLabel label="MLS Name & ID" required />
-              <input
-                type="text"
-                className={inputClass('mlsIds')}
-                placeholder="e.g., Miami MLS — 12345"
+              {/* Textarea, not input: the roster prepopulates this as one
+                  "Name: id, id" line PER MLS (newline-separated — the locked
+                  format, see memory/mls_ids_display_format.md). A single-line
+                  input swallows the newlines, so an agent on two MLSs saw
+                  "MLS#283: 164999OneKey MLS: 164999" run together. ~1,400
+                  agents across the five brokerages are multi-MLS. */}
+              <textarea
+                rows={2}
+                className={`${inputClass('mlsIds')} resize-y`}
+                placeholder={'One per line\ne.g.\nMiami MLS: 12345'}
                 value={form.mlsIds}
                 onChange={(e) => update('mlsIds', e.target.value)}
               />
-              <HelperText>Enter both the MLS name and your ID. If you have more than one, list each.</HelperText>
+              <HelperText>Enter both the MLS name and your ID. If you&apos;re on more than one, put each on its own line.</HelperText>
             </div>
           </div>
         );
