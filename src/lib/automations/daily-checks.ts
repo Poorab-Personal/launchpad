@@ -209,6 +209,19 @@ async function runSection1(): Promise<{ rows: Section1Row[]; rejigAccountsFetche
     rejigByEmail.set(key, arr);
   }
 
+  // 2b. Subscription-id index. Email is a proxy; the sub id is the thing this
+  //     section actually asks about ("is this LP sub linked in Rejig?"). Agents
+  //     routinely hold a Rejig account under a different address than LP has —
+  //     a team address, a personal gmail, or an internal one — and matching on
+  //     email alone reported those as "no Rejig account" even though the sub
+  //     was already linked correctly. Checked 2026-09-18 against the live
+  //     857-account snapshot: 2 of the 18 flagged rows were this case
+  //     (Rodolfo Maya → luis.2@rejig.ai, Erin Allen → theallenteamsells@gmail.com).
+  const rejigBySubId = new Map<string, RejigAccount>();
+  for (const acc of rejigAccounts) {
+    if (acc.stripe_subscription_id) rejigBySubId.set(acc.stripe_subscription_id, acc);
+  }
+
   // 3. Candidate LP customers — created after rollout, with both a Stripe
   //    sub id (auto-set by the ticket → Active webhook) AND a selected
   //    price (proof this customer was on a paid plan). selectedStripePriceId
@@ -263,6 +276,14 @@ async function runSection1(): Promise<{ rows: Section1Row[]; rejigAccountsFetche
       hubspotTicketId: c.hubspotTicketId,
       lpStripeSubId: lpSub,
     };
+
+    // Sub-id match short-circuits both ambiguous cases below: if some Rejig
+    // account already carries this exact LP sub, the linking work this section
+    // exists to prompt is DONE, whatever address it sits under. Reporting it
+    // would send someone to re-do a completed task.
+    if (rejigBySubId.has(lpSub)) {
+      continue; // already linked under another email — nothing to do
+    }
 
     if (matched.length === 0) {
       rows.push({ ...base, rejigStripeSubId: null, reason: 'no-rejig-account' });

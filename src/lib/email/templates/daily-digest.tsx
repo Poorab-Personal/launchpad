@@ -112,7 +112,12 @@ export default function DailyDigestEmail({
               </Text>
               <Text className="text-[#1B2E35]/70 text-xs m-0 mb-1">
                 {r.contactEmail}
-                {r.platformEmail !== r.contactEmail
+                {/* Case-insensitive: DMG rosters carry mixed-case addresses
+                    (LodenaWilliams@Keyes.com vs lodenawilliams@keyes.com), and
+                    a raw !== rendered a redundant "platform:" line that reads
+                    as a mismatch. The matcher lowercases both sides, so a
+                    case-only difference is not a real divergence. */}
+                {r.platformEmail.trim().toLowerCase() !== r.contactEmail.trim().toLowerCase()
                   ? ` · platform: ${r.platformEmail}`
                   : ''}
               </Text>
@@ -177,7 +182,12 @@ export default function DailyDigestEmail({
               </Text>
               <Text className="text-[#1B2E35]/70 text-xs m-0 mb-1">
                 {r.contactEmail}
-                {r.platformEmail !== r.contactEmail
+                {/* Case-insensitive: DMG rosters carry mixed-case addresses
+                    (LodenaWilliams@Keyes.com vs lodenawilliams@keyes.com), and
+                    a raw !== rendered a redundant "platform:" line that reads
+                    as a mismatch. The matcher lowercases both sides, so a
+                    case-only difference is not a real divergence. */}
+                {r.platformEmail.trim().toLowerCase() !== r.contactEmail.trim().toLowerCase()
                   ? ` · platform: ${r.platformEmail}`
                   : ''}
               </Text>
