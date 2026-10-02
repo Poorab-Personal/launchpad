@@ -107,9 +107,52 @@ subscriptions resolve. The token-subset tier requires two shared significant
 tokens and a *unique* candidate — ambiguity yields no match, because attaching
 the wrong person's health data is worse than an honest Unclear.
 
-November 2026 left 11 rows Unclear ($3,209), nearly all the Keller Williams
-self-serve tiers ($20/$50/$90) that never passed through LaunchPad at all.
-That is the correct answer, and it was invisible before.
+### Keller Williams self-serve is its own bucket, not Unclear
+
+Core Rejig sells $20 Starter / $50 Pro / $90 Elite tiers directly to Keller
+Williams agents. They buy inside the product and never pass through LaunchPad
+onboarding, so having no LP customer is **expected** — reporting them as
+unmatched invites someone to go chasing data that was never meant to exist.
+They get their own bucket, counted as revenue.
+
+Keyed on product id, not plan name, so a D2C customer who happens to work at a
+KW brokerage is never swept in:
+
+```
+prod_UjC0vQ41wyWTV7  Rejig.ai - Starter Plan for Keller Williams  ($20/mo)
+prod_UjC3qGGvqTajgn  Rejig.ai - Pro plan for Keller Williams      ($50/mo)
+prod_UjC6xw0ZDNvCPK  Rejig.ai - Elite plan for Keller Williams    ($90/mo)
+```
+
+A plan-name regex is kept only as a safety net for a newly added tier, and the
+run warns when it fires so the product id can be added to the set.
+
+With that split, November 2026 left just 5 rows genuinely Unclear ($2,819) and
+October 62 KW rows ($4,080). October's remaining Unclear includes the Keyes
+pilot group plan (Mike Pappas, 14 seats, $2,100/mo) whose LP pointers were
+never moved, and three Keyes agents paying $300/quarter with no LP record —
+real findings that were invisible before.
+
+### Separate subscriptions stay separate
+
+One billing email can front several distinct Stripe customers. Travous Dever
+bills two real subscriptions ($300/3mo each, a rental business and a
+residential one) from `travousdever@gmail.com` across two Stripe customer
+objects, one of them display-named "jennifer lux". Collapsing them would hide
+a genuine second business and look like a double charge.
+
+So the report never merges rows. Where the match was fuzzy (email, name, token
+subset, same Stripe customer) and Stripe bills under a different name, the row
+shows both — `TN Realty (billed as: Tony Ngai)` — otherwise two subscriptions
+resolving to one LP customer render identically. And multiple billable subs are
+flagged two ways, because they can share either key:
+
+- `N subs on this Stripe customer`
+- `N subs on this billing email`
+
+Whether a duplicate is a second business or a billing error is a judgement the
+report surfaces rather than makes. Syndee Yost's two Keyes subs remain
+unresolved on exactly this basis.
 
 ### Trials
 

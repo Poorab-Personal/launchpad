@@ -189,6 +189,68 @@ Deploy: `git push` to `main`. Vercel auto-deploys via GitHub integration.
 ### Channel discipline
 - `Customer.channel_id` is an FK to `channels.id`. Inserting an unknown channel fails at the DB layer. Workflow key resolved at insert as `${type}-${channel.code}`. `CHECK` constraint on `workflow_key` format as belt-and-suspenders.
 
+## Known Data Hazards (read before quoting numbers)
+
+### Subscription state: Stripe is truth, LP is a mirror
+
+`customers.subscription_status` and `customers.stripe_subscription_id` are mirror
+fields. They are written on specific events and go stale silently — nothing
+reconciles them against Stripe on a schedule. **Never quote paying/trialing
+counts from them.** Use `scripts/stripe-subs.ts` (billing reality),
+`scripts/branch-funnel-report.ts --stripe` (funnel + billing reconciled), or
+`scripts/renewals-digest.ts` (upcoming charges by month).
+
+The mirror also silently breaks *selection*, not just display. A report that
+filters rows on `customer_subscriptions.current_period_end` drops any customer
+whose mirror is stale — no error, no unknown row, they simply fail the window
+predicate. That cost the first November 2026 renewals run 4 paying customers
+($3,000 omitted) while 2 already-cancelled subs were counted ($1,800). **Build
+revenue reports by walking Stripe and enriching from LP, never the reverse.**
+`docs/plans/renewals-digest-stripe-truth.md` has the full post-mortem and the
+two upstream bugs that keep the mirror stale (both still unfixed).
+
+### The Keyes pilot subscription
+
+Keyes began as a pilot: ~26 agents billed as **seats on one subscription**
+(`sub_1SVaSPCQTlvKI2ANEPPEOtMI`, Mike Pappas, price `price_1QrNQCC…` — **not in
+`stripe_plans`**), then migrated to individual subscriptions one at a time
+without their LP pointers ever being moved.
+
+**Today that subscription is a Keyes corporate fee (verified 2026-10-02:
+`price_1QrNQCC…` at $150 x 14 seats = $2,100/mo, up from $1,260/mo earlier —
+seat quantity is purely a pricing lever). It covers no agents, and it is
+excluded from Keyes agent-revenue reporting.** Re-read it from Stripe before
+quoting the figure; it has moved once already.
+
+Four rules follow, and they generalise to any brokerage that pilots this way:
+
+1. **A `stripe_subscription_id` shared by several customers is a group plan, not
+   junk data.** Retrieve it before concluding anything. Its seats are a
+   `quantity`, never a named list — Stripe cannot tell you which agents it covers.
+2. **"No individual sub" ≠ churned**, and **"LP says Active" ≠ paying**.
+3. **Agents bill under identities that don't match LP** (spouse, LLC, personal
+   email). Match on email *and* a normalised name key, then search Stripe
+   *customers* directly before declaring anyone churned.
+4. **Rejig absence is the churn signal, not the inactive flag.** The accounts
+   pull returns inactive accounts too. Real churn reads as active →
+   `rejig.account_active = 0` across weekly pulls → gone. Compare **full** pulls
+   only (>500 users); weekday rows are deltas.
+
+Full history, the confirmed identity mismatches, and the resolved state:
+`docs/integrations/keyes-pilot-to-individual.md`.
+
+To send a brokerage their own numbers, use the `branch-report` skill
+(`.claude/skills/branch-report/SKILL.md`) — it enforces `--stripe --external
+--exclude`, without which the counts are wrong or the email leaks phone numbers
+and plan prices.
+
+For "what renews this month / who is at risk", use the `renewals-digest` skill
+(`.claude/skills/renewals-digest/SKILL.md`). It reads Stripe as the source of
+truth, buckets KW self-serve separately from LaunchPad cohorts, and puts
+unmatched Stripe subs in Unclear rather than dropping them. Always pass
+`--exclude @rejig.ai`; internal test subs bill on real plans in the live
+account.
+
 ## What NOT To Do
 
 - **Do NOT write to `Customer.tasks` / `Customer.events` as denormalized arrays.** These are reverse FKs queried via `db.query.customers.findFirst({ with: { tasks: true } })` or the dedicated readers. The mapper hardcodes them to `[]`.

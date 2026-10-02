@@ -150,6 +150,34 @@ function getStripe(): Stripe {
 /** Statuses that represent a subscription which can still bill us money. */
 const BILLABLE_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'paused']);
 
+/**
+ * Core Rejig's Keller Williams self-serve tiers ($20 Starter / $50 Pro /
+ * $90 Elite). These agents buy directly in the product and never pass through
+ * LaunchPad onboarding, so they have no LP customer by design — they are NOT
+ * unmatched data to chase. They get their own bucket.
+ *
+ * Keyed on product id rather than plan name so a D2C customer who happens to
+ * work at a KW brokerage is never swept in. The name regex below is only a
+ * safety net for a newly added tier, and warns so the id can be added here.
+ */
+const KW_SELF_SERVE_PRODUCT_IDS = new Set([
+  'prod_UjC0vQ41wyWTV7', // Rejig.ai - Starter Plan for Keller Williams
+  'prod_UjC3qGGvqTajgn', // Rejig.ai - Pro plan for Keller Williams
+  'prod_UjC6xw0ZDNvCPK', // Rejig.ai - Elite plan for Keller Williams
+]);
+const KW_SELF_SERVE_NAME_RE = /plan for keller williams/i;
+const kwFallbackHits = new Set<string>();
+
+function isKwSelfServe(sub: StripeSub, productNames: Map<string, string>): boolean {
+  if (sub.productId && KW_SELF_SERVE_PRODUCT_IDS.has(sub.productId)) return true;
+  const label = `${sub.nickname ?? ''} ${sub.productId ? productNames.get(sub.productId) ?? '' : ''}`;
+  if (KW_SELF_SERVE_NAME_RE.test(label)) {
+    if (sub.productId) kwFallbackHits.add(`${sub.productId} (${productNames.get(sub.productId) ?? label.trim()})`);
+    return true;
+  }
+  return false;
+}
+
 type StripeSub = {
   subId: string;
   stripeCustomerId: string | null;
@@ -519,7 +547,11 @@ type Row = {
   lp: LpCustomer | null;
   lpGroup: LpCustomer[];
   matchMethod: MatchMethod;
-  bucket: 'trial' | 'renew' | 'risk' | 'unclear';
+  /** Billable subs in this report sharing the same Stripe customer. */
+  siblingSubCount: number;
+  /** Billable subs in this report sharing the same billing email. */
+  sameEmailSubCount: number;
+  bucket: 'trial' | 'renew' | 'risk' | 'unclear' | 'kw_selfserve';
   cadence: 'monthly' | 'non-monthly';
 };
 
@@ -529,7 +561,10 @@ type Row = {
  */
 const CALENDAR_NOISE_REASONS = new Set(['renewal_approaching_2w', 'renewal_approaching_6w']);
 
-function classify(sub: StripeSub, lp: LpCustomer | null): Row['bucket'] {
+function classify(sub: StripeSub, lp: LpCustomer | null, isKw: boolean): Row['bucket'] {
+  // KW self-serve first: having no LP customer is expected for this line, so
+  // it must never be reported as an unmatched row needing investigation.
+  if (isKw) return 'kw_selfserve';
   if (!lp) return 'unclear';
   const reasonIsRisk = lp.attentionReason
     && lp.attentionReason.trim() !== ''
@@ -556,6 +591,24 @@ function formatPlan(sub: StripeSub, productNames: Map<string, string>): string {
     : sub.interval === 'month' ? 'mo' : sub.interval === 'year' ? 'yr' : sub.interval;
   const seats = sub.quantity > 1 ? ` ×${sub.quantity} seats` : '';
   return `$${dollars}/${cadence} ${label}${seats}`;
+}
+
+/**
+ * Display name. When LP was matched by a fuzzy tier and Stripe bills under a
+ * different name, show both — otherwise two subscriptions that resolve to the
+ * same LP customer render identically. Travous Dever bills two real
+ * subscriptions from one email across two Stripe customers, one of them
+ * display-named "jennifer lux"; collapsing them would hide a genuine second
+ * business and look like a duplicate.
+ */
+const FUZZY_METHODS = new Set<MatchMethod>(['email', 'name', 'name_subset', 'same_stripe_customer']);
+
+function displayName(r: Row): string {
+  const lpName = r.lp?.name ?? null;
+  if (!lpName) return r.stripeName ?? '(unknown in LP)';
+  if (!r.stripeName || !FUZZY_METHODS.has(r.matchMethod)) return lpName;
+  if (nameKey(r.stripeName) === nameKey(lpName)) return lpName;
+  return `${lpName} (billed as: ${r.stripeName})`;
 }
 
 function formatEngagement(lp: LpCustomer | null): string {
@@ -585,6 +638,12 @@ function flagsFor(r: Row): string[] {
   if (r.sub.status === 'past_due') f.push('past-due');
   if (r.sub.status === 'unpaid') f.push('unpaid');
   if (r.sub.status === 'paused') f.push('paused');
+  if (r.bucket === 'kw_selfserve') f.push('KW self-serve');
+  // Several billable subs on one Stripe customer, or across several Stripe
+  // customers sharing one billing email: sometimes a genuine second business,
+  // sometimes a duplicate worth cancelling. Surfaced, never merged.
+  if (r.siblingSubCount > 1) f.push(`${r.siblingSubCount} subs on this Stripe customer`);
+  if (r.sameEmailSubCount > 1) f.push(`${r.sameEmailSubCount} subs on this billing email`);
   if (r.sub.quantity > 1) f.push(`group:${r.sub.quantity} seats`);
   if (r.lpGroup.length > 1) f.push(`shared by ${r.lpGroup.length} LP customers`);
   if (r.lp?.atRiskReason) f.push(`at-risk:${r.lp.atRiskReason}`);
@@ -692,7 +751,7 @@ function renderBucket(label: string, rows: Row[], subtotalCents: number, product
 
   const cells = rows.map((r) => ({
     charge: isoDay(r.chargeMs),
-    name: (r.lp?.name ?? r.stripeName ?? '(unknown in LP)'),
+    name: displayName(r),
     workflow: r.lp?.workflowKey ?? '—',
     plan: formatPlan(r.sub, productNames),
     flags: flagsFor(r).join(' · ') || '—',
@@ -813,11 +872,32 @@ async function main() {
       lp,
       lpGroup: group,
       matchMethod: method,
-      bucket: classify(sub, lp),
+      siblingSubCount: 1,
+      sameEmailSubCount: 1,
+      bucket: classify(sub, lp, isKwSelfServe(sub, productNames)),
       cadence: cadenceOf(sub),
     });
   }
   rows.sort((a, b) => a.chargeMs - b.chargeMs);
+
+  // Count billable subs per Stripe customer so duplicates and genuine
+  // second businesses are both visible without being merged.
+  const subsPerStripeCustomer = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.sub.stripeCustomerId) continue;
+    subsPerStripeCustomer.set(r.sub.stripeCustomerId, (subsPerStripeCustomer.get(r.sub.stripeCustomerId) ?? 0) + 1);
+  }
+  const subsPerEmail = new Map<string, number>();
+  for (const r of rows) {
+    const key = (r.stripeEmail ?? r.lp?.contactEmail ?? '').toLowerCase();
+    if (!key) continue;
+    subsPerEmail.set(key, (subsPerEmail.get(key) ?? 0) + 1);
+  }
+  for (const r of rows) {
+    r.siblingSubCount = r.sub.stripeCustomerId ? subsPerStripeCustomer.get(r.sub.stripeCustomerId) ?? 1 : 1;
+    const ekey = (r.stripeEmail ?? r.lp?.contactEmail ?? '').toLowerCase();
+    r.sameEmailSubCount = ekey ? subsPerEmail.get(ekey) ?? 1 : 1;
+  }
 
   // One Stripe customer is one human. If any of their subscriptions resolved
   // to an LP customer, an add-on subscription billed to the same Stripe
@@ -836,15 +916,16 @@ async function main() {
     r.lp = sibling.lp;
     r.lpGroup = sibling.lpGroup;
     r.matchMethod = 'same_stripe_customer';
-    r.bucket = classify(r.sub, r.lp);
+    r.bucket = classify(r.sub, r.lp, isKwSelfServe(r.sub, productNames));
   }
 
   // ---------- partition ----------
 
   const confirmed = rows.filter((r) => r.tier === 'confirmed');
   const projected = rows.filter((r) => r.tier === 'projected');
+  const kwSelfServe = confirmed.filter((r) => r.bucket === 'kw_selfserve');
   const unclear = confirmed.filter((r) => r.bucket === 'unclear');
-  const known = confirmed.filter((r) => r.bucket !== 'unclear');
+  const known = confirmed.filter((r) => r.bucket !== 'unclear' && r.bucket !== 'kw_selfserve');
 
   const isSafe = (r: Row) => r.bucket !== 'risk';
   const nonMonthlySafe = known.filter((r) => r.cadence === 'non-monthly' && isSafe(r));
@@ -857,7 +938,7 @@ async function main() {
   const sum = (rs: Row[]) => rs.reduce((a, r) => a + r.sub.amountCents, 0);
   const nmsTotal = sum(nonMonthlySafe), nmrTotal = sum(nonMonthlyRisk);
   const msTotal = sum(monthlySafe), mrTotal = sum(monthlyRisk);
-  const unclearTotal = sum(unclear), projectedTotal = sum(projected);
+  const unclearTotal = sum(unclear), projectedTotal = sum(projected), kwTotal = sum(kwSelfServe);
   const confirmedTotal = sum(confirmed);
   const expectedTotal = confirmedTotal + projectedTotal;
 
@@ -872,6 +953,7 @@ async function main() {
   console.log('  MONTHLY');
   console.log(`    Safe                               : ${String(monthlySafe.length).padStart(3)}   ${usd(msTotal)}`);
   console.log(`    At-risk                            : ${String(monthlyRisk.length).padStart(3)}   ${usd(mrTotal)}`);
+  console.log(`  KW SELF-SERVE (core Rejig, not LP)   : ${String(kwSelfServe.length).padStart(3)}   ${usd(kwTotal)}`);
   console.log(`  UNCLEAR (in Stripe, no LP match)     : ${String(unclear.length).padStart(3)}   ${usd(unclearTotal)}`);
   console.log('  ─────────────────────────────────────────────────────');
   console.log(`  CONFIRMED BY STRIPE                  : ${String(confirmed.length).padStart(3)}   ${usd(confirmedTotal)}`);
@@ -895,6 +977,13 @@ async function main() {
   console.log('══════════════════════════════════════════════════════════');
   renderBucket('Safe', monthlySafe, msTotal, productNames);
   renderBucket('At-risk', monthlyRisk, mrTotal, productNames);
+
+  console.log('\n══════════════════════════════════════════════════════════');
+  console.log('  KELLER WILLIAMS SELF-SERVE — core Rejig product line');
+  console.log('  (bought in-product, never onboarded through LaunchPad,');
+  console.log('   so no LP customer is expected — not data to chase)');
+  console.log('══════════════════════════════════════════════════════════');
+  renderBucket('KW self-serve', kwSelfServe, kwTotal, productNames);
 
   console.log('\n══════════════════════════════════════════════════════════');
   console.log('  UNCLEAR — billing in Stripe, no LaunchPad match');
@@ -926,12 +1015,15 @@ async function main() {
   if (unresolvedAmounts.length > 0) {
     console.log(`\n⚠  ${unresolvedAmounts.length} sub(s) had no resolvable unit_amount (metered/tiered) — shown as "??" and counted as $0.`);
   }
+  if (kwFallbackHits.size > 0) {
+    console.log(`\n⚠  KW self-serve matched by plan name, not id — add to KW_SELF_SERVE_PRODUCT_IDS:\n   ${[...kwFallbackHits].join('\n   ')}`);
+  }
   if (engagementAsOf) console.log(`\nEngagement signals as of ${engagementAsOf} (Rejig weekly pull).`);
   console.log('');
 
   // ---------- CSV ----------
 
-  const ordered = [...nonMonthlySafe, ...nonMonthlyRisk, ...monthlySafe, ...monthlyRisk, ...unclear, ...projected];
+  const ordered = [...nonMonthlySafe, ...nonMonthlyRisk, ...monthlySafe, ...monthlyRisk, ...kwSelfServe, ...unclear, ...projected];
   const csvBody = buildCsv(ordered, pipeline, productNames);
   const monthSlug = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
   const csvName = `renewals-${monthSlug}-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -951,8 +1043,8 @@ async function main() {
       label,
       windowStart: start.toISOString().slice(0, 10),
       windowEnd: end.toISOString().slice(0, 10),
-      nonMonthlySafe, nonMonthlyRisk, monthlySafe, monthlyRisk, unclear, projected, pipeline,
-      nmsTotal, nmrTotal, msTotal, mrTotal, unclearTotal, projectedTotal, confirmedTotal, expectedTotal,
+      nonMonthlySafe, nonMonthlyRisk, monthlySafe, monthlyRisk, kwSelfServe, unclear, projected, pipeline,
+      nmsTotal, nmrTotal, msTotal, mrTotal, kwTotal, unclearTotal, projectedTotal, confirmedTotal, expectedTotal,
       trialsCount: trials.length,
       workflowFilter: args.workflow,
       note: args.note,
@@ -991,7 +1083,7 @@ function buildCsv(rows: Row[], pipeline: PipelineRow[], productNames: Map<string
       bucket: r.bucket,
       cadence: r.cadence,
       chargeDate: isoDay(r.chargeMs),
-      name: r.lp?.name ?? r.stripeName ?? '',
+      name: displayName(r),
       workflowKey: r.lp?.workflowKey ?? '',
       email: r.lp?.contactEmail ?? r.stripeEmail ?? '',
       planLabel: formatPlan(r.sub, productNames),
@@ -1046,10 +1138,10 @@ function buildEmailHtml(opts: {
   windowEnd: string;
   nonMonthlySafe: Row[]; nonMonthlyRisk: Row[];
   monthlySafe: Row[]; monthlyRisk: Row[];
-  unclear: Row[]; projected: Row[];
+  kwSelfServe: Row[]; unclear: Row[]; projected: Row[];
   pipeline: PipelineRow[];
   nmsTotal: number; nmrTotal: number; msTotal: number; mrTotal: number;
-  unclearTotal: number; projectedTotal: number; confirmedTotal: number; expectedTotal: number;
+  kwTotal: number; unclearTotal: number; projectedTotal: number; confirmedTotal: number; expectedTotal: number;
   trialsCount: number;
   workflowFilter: string | null;
   note?: string | null;
@@ -1058,8 +1150,8 @@ function buildEmailHtml(opts: {
 }): string {
   const {
     label, windowStart, windowEnd,
-    nonMonthlySafe, nonMonthlyRisk, monthlySafe, monthlyRisk, unclear, projected, pipeline,
-    nmsTotal, nmrTotal, msTotal, mrTotal, unclearTotal, projectedTotal, confirmedTotal, expectedTotal,
+    nonMonthlySafe, nonMonthlyRisk, monthlySafe, monthlyRisk, kwSelfServe, unclear, projected, pipeline,
+    nmsTotal, nmrTotal, msTotal, mrTotal, kwTotal, unclearTotal, projectedTotal, confirmedTotal, expectedTotal,
     trialsCount, workflowFilter, note, engagementAsOf, productNames,
   } = opts;
 
@@ -1072,7 +1164,7 @@ function buildEmailHtml(opts: {
   const tdGroup = `${td}background:#eef3ff;font-weight:600;`;
   const tdSub = `${td}background:#f6f6f6;font-weight:600;border-top:1px solid #ccc;`;
 
-  const confirmedCount = nonMonthlySafe.length + nonMonthlyRisk.length + monthlySafe.length + monthlyRisk.length + unclear.length;
+  const confirmedCount = nonMonthlySafe.length + nonMonthlyRisk.length + monthlySafe.length + monthlyRisk.length + kwSelfServe.length + unclear.length;
 
   const summaryTable = `
     <table style="border-collapse:collapse;margin:0 0 24px 0;">
@@ -1083,6 +1175,8 @@ function buildEmailHtml(opts: {
       <tr><td colspan="3" style="${tdGroup}">MONTHLY</td></tr>
       <tr><td style="${td}">&nbsp;&nbsp;Safe</td><td style="${td};text-align:right;">${monthlySafe.length}</td><td style="${td};text-align:right;">${fmt(msTotal)}</td></tr>
       <tr><td style="${td}">&nbsp;&nbsp;At-risk</td><td style="${td};text-align:right;">${monthlyRisk.length}</td><td style="${td};text-align:right;">${fmt(mrTotal)}</td></tr>
+      <tr><td colspan="3" style="${tdGroup}">KELLER WILLIAMS SELF-SERVE — core Rejig, not a LaunchPad cohort</td></tr>
+      <tr><td style="${td}">&nbsp;&nbsp;KW self-serve</td><td style="${td};text-align:right;">${kwSelfServe.length}</td><td style="${td};text-align:right;">${fmt(kwTotal)}</td></tr>
       <tr><td colspan="3" style="${tdGroup}">UNCLEAR — billing in Stripe, no LaunchPad match</td></tr>
       <tr><td style="${td}">&nbsp;&nbsp;Unclear</td><td style="${td};text-align:right;">${unclear.length}</td><td style="${td};text-align:right;">${fmt(unclearTotal)}</td></tr>
       <tr><td style="${tdSub}">CONFIRMED BY STRIPE</td><td style="${tdSub};text-align:right;">${confirmedCount}</td><td style="${tdSub};text-align:right;">${fmt(confirmedTotal)}</td></tr>
@@ -1092,16 +1186,18 @@ function buildEmailHtml(opts: {
     <div style="font-size:12px;color:#555;margin:-14px 0 22px 0;">Of these, <strong>${trialsCount}</strong> ${trialsCount === 1 ? 'is a trial converting' : 'are trials converting'} to a first charge.${pipeline.length > 0 ? ` A further <strong>${pipeline.length}</strong> ${pipeline.length === 1 ? 'agent has' : 'agents have'} a card on file but no Stripe subscription yet — listed at the bottom, excluded from all totals.` : ''}</div>
   `;
 
+  const tdKw = `${td}background:#f4f1fb;`;
   const renderTable = (rows: Row[]) => {
     if (rows.length === 0) return '<div style="font-size:13px;color:#888;margin:0 0 20px 0;">(none)</div>';
     const headers = ['Charges', 'Customer', 'Workflow', 'Plan', 'Flags', 'Engagement', 'Email'];
     const rowsHtml = rows.map((r) => {
       const cell = r.bucket === 'risk' ? tdRisk
         : r.bucket === 'unclear' ? tdUnclear
+        : r.bucket === 'kw_selfserve' ? tdKw
         : r.sub.cancelAtPeriodEnd ? tdCancel : td;
       return `<tr>
         <td style="${cell}">${escHtml(isoDay(r.chargeMs))}</td>
-        <td style="${cell}">${escHtml(r.lp?.name ?? r.stripeName ?? '(unknown in LP)')}</td>
+        <td style="${cell}">${escHtml(displayName(r))}</td>
         <td style="${cell}">${escHtml(r.lp?.workflowKey ?? '—')}</td>
         <td style="${cell}">${escHtml(formatPlan(r.sub, productNames))}</td>
         <td style="${cell}">${escHtml(flagsFor(r).join(' · ') || '—')}</td>
@@ -1165,8 +1261,12 @@ function buildEmailHtml(opts: {
   <h3 style="margin:14px 0 8px 0;font-size:14px;">At-risk (${monthlyRisk.length}) — ${fmt(mrTotal)}</h3>
   ${renderTable(monthlyRisk)}
 
+  <h2 style="margin:28px 0 4px 0;font-size:17px;border-bottom:2px solid #444;padding-bottom:4px;">Keller Williams self-serve (${kwSelfServe.length}) — ${fmt(kwTotal)}</h2>
+  <div style="font-size:12px;color:#666;margin:0 0 10px 0;">Core Rejig's own $20 / $50 / $90 KW tiers. These agents buy inside the product and never go through LaunchPad onboarding, so having no LaunchPad customer is expected — this is revenue, not a data gap to chase.</div>
+  ${renderTable(kwSelfServe)}
+
   <h2 style="margin:28px 0 4px 0;font-size:17px;border-bottom:2px solid #444;padding-bottom:4px;">Unclear — billing in Stripe, no LaunchPad match (${unclear.length}) — ${fmt(unclearTotal)}</h2>
-  <div style="font-size:12px;color:#666;margin:0 0 10px 0;">The money is real. Only the health signals are missing, because these subscriptions can't be tied to a LaunchPad customer by subscription id, Stripe customer id, email, or normalised name. Each one is worth linking.</div>
+  <div style="font-size:12px;color:#666;margin:0 0 10px 0;">The money is real. Only the health signals are missing, because these subscriptions can't be tied to a LaunchPad customer by subscription id, Stripe customer id, email, or normalised name. Each one is worth linking. Note that two rows sharing a billing email are not assumed to be the same person — separate subscriptions stay separate, and a shared Stripe customer is flagged rather than merged.</div>
   ${renderTable(unclear)}
 
   <h2 style="margin:28px 0 4px 0;font-size:17px;border-bottom:2px solid #444;padding-bottom:4px;">Projected — cadence rolls into the month (${projected.length}) — ${fmt(projectedTotal)}</h2>
