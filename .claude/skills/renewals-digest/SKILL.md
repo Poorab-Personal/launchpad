@@ -83,8 +83,24 @@ Tiers:
 - **PROJECTED** — the next-charge date precedes the month but the sub's cadence
   bills again inside it. Stripe advances `current_period_end` only *after* a
   charge, so without this a monthly plan billing on the 26th is invisible in
-  next month's report. Expect ~0 projected when running the **current** month
-  and a large number when running a future one — that is correct, not a bug.
+  next month's report.
+
+### How the confirmed/projected mix shifts with distance — read this before calling anything broken
+
+| Running | Shape to expect |
+|---|---|
+| **Current month** | ~0 projected. Every charge in it is already confirmed by Stripe. |
+| **Next month** | Both populated. Non-monthly mostly confirmed; most monthly rows projected. |
+| **2+ months out** | **Monthly and KW confirmed collapse to ~0** and nearly all monthly revenue sits in Projected. |
+
+That last row is the surprising one. A monthly sub's next-charge date is never
+more than ~1 month ahead, so for December (run in October) *no* monthly
+subscription can be confirmed yet — they are all projections. Observed on
+2026-10-02: October 203 confirmed / 0 projected; November 59 / 148; December
+60 confirmed with monthly **and** KW both showing 0, and 159 projected.
+
+So for a far-out month, quote **Total expected**, not Confirmed — Confirmed
+alone understates by roughly the entire monthly book. Nothing is broken.
 - **PIPELINE** — Keyes/IPRE agent with a captured card but no Stripe sub yet
   (it is created when the HubSpot ticket reaches Active, after the onboarding
   call). Projected from the scheduled call date + the workflow's trial days,
