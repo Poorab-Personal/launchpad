@@ -1028,10 +1028,18 @@ async function main() {
   const monthSlug = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
   const csvName = `renewals-${monthSlug}-${new Date().toISOString().slice(0, 10)}.csv`;
 
-  if (args.csv) {
+  // Always archive the CSV when the report is emailed, even without --csv.
+  // A forecast that exists only in an inbox cannot be scored against actuals
+  // later: no script can reconstruct a past month's forecast, because both
+  // LP's mirror and Stripe's own next-charge dates advance once a sub charges.
+  // Re-running the old LP-based script for September 2026 on 2026-10-02
+  // returned 31 rows / $15,194 against the 147 rows / $57,886 it had actually
+  // sent on 2026-08-25 — the rows that renewed had simply left the window.
+  // See docs/plans/renewals-forecast-accuracy-2026-09.md.
+  if (args.csv || args.email.length > 0) {
     const csvPath = resolve('scripts/data', csvName);
     writeFileSync(csvPath, csvBody);
-    console.log(`CSV written: ${csvPath}`);
+    console.log(`CSV archived: ${csvPath}`);
   }
 
   // ---------- email ----------
