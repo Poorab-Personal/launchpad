@@ -116,7 +116,6 @@ async function main() {
   type CustInfo = { id: string; name: string; email: string; brand: Brand | null; via: string; subIds: Set<string> };
   const custs = new Map<string, CustInfo>();
   const subToCust = new Map<string, string>();
-  const brandSubs = new Map<string, Brand>(); // sub id -> brand, via its product
   let subTotal = 0;
   for await (const sub of stripe.subscriptions.list({ status: 'all', limit: 100, expand: ['data.customer'] })) {
     subTotal++;
@@ -135,7 +134,7 @@ async function main() {
     for (const item of sub.items.data) {
       const prodId = typeof item.price.product === 'string' ? item.price.product : item.price.product.id;
       const b = productBrand.get(prodId);
-      if (b) { info.brand = b; info.via = 'brand product'; brandSubs.set(sub.id, b); }
+      if (b) { info.brand = b; info.via = 'brand product'; }
     }
   }
 
@@ -184,7 +183,7 @@ async function main() {
   // ---- 5. Walk every invoice once; collect paid cash for attributed customers ----
   type CashRow = {
     custId: string; brand: Brand; month: string; net: number; gross: number;
-    onBrandSub: boolean; isPilot: boolean; hasSub: boolean;
+    onBrandProduct: boolean; isPilot: boolean; hasSub: boolean;
   };
   const cash: CashRow[] = [];
   let refundedApplied = 0;
@@ -239,13 +238,24 @@ async function main() {
       continue;
     }
 
+    // Is THIS invoice on the brokerage's own product? Read the line's own
+    // price, not the subscription's current price: a legacy D2C subscription
+    // later switched onto a Keyes price would otherwise drag its whole
+    // pre-Keyes history into the brokerage era.
+    const onBrandProduct = inv.lines.data.some((l) => {
+      const prod = (l as unknown as {
+        pricing?: { price_details?: { product?: string | null } | null } | null;
+      }).pricing?.price_details?.product;
+      return prod ? productBrand.get(prod) === info.brand : false;
+    });
+
     cash.push({
       custId,
       brand: info.brand,
       month: month(paidAt),
       net: netCents / 100,
       gross: gross / 100,
-      onBrandSub: subId ? brandSubs.get(subId) === info.brand : false,
+      onBrandProduct,
       isPilot: subId === PILOT_SUB,
       hasSub: !!subId,
     });
@@ -256,11 +266,18 @@ async function main() {
   // customer paid before that is legacy D2C revenue they earned under a
   // different relationship, so it is reported apart from brokerage revenue
   // rather than silently inflating it.
+  // Per customer where possible (their own first brand-product invoice), with
+  // the brand-wide first as the fallback for anyone attributed by identity who
+  // never bought the core product — an add-on-only payer, or a second Stripe
+  // identity for an agent who pays the core plan under another one.
   const eraStart: Partial<Record<Brand, string>> = {};
+  const custEraStart = new Map<string, string>();
   for (const r of cash) {
-    if (!r.onBrandSub && !r.isPilot) continue;
+    if (!r.onBrandProduct && !r.isPilot) continue;
     const cur = eraStart[r.brand];
     if (!cur || r.month < cur) eraStart[r.brand] = r.month;
+    const cc = custEraStart.get(r.custId);
+    if (!cc || r.month < cc) custEraStart.set(r.custId, r.month);
   }
   console.log(`Invoices scanned: ${invTotal}; refunds netted out: ${usd0(refundedApplied)}`);
   console.log(`Brokerage billing starts: Keyes ${eraStart.Keyes ?? 'n/a'}, IPRE ${eraStart.IPRE ?? 'n/a'}\n`);
@@ -278,7 +295,7 @@ async function main() {
   const preRows: CashRow[] = [];
 
   for (const r of cash) {
-    const era = eraStart[r.brand];
+    const era = custEraStart.get(r.custId) ?? eraStart[r.brand];
     let bucket: Bucket;
     if (r.isPilot) bucket = 'Keyes corporate';
     else if (era && r.month < era) { bucket = 'Pre-brokerage'; preRows.push(r); }
