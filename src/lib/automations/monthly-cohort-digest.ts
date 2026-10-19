@@ -78,13 +78,27 @@ const ONBOARDED_LABEL = 'Onboarded';
  *  - 'call-held'    — the first onboarding call's scheduled date is in the
  *    past. For B&W there is no per-agent Stripe sub (brokerage-paid), so
  *    there is no billing signal to key off.
- *  - 'signed-in'    — the Sign In & Reset Password task completed. Ruhl's
- *    flow has no onboarding call at all (design + account creation only),
- *    so 'call-held' could never fire and nobody would ever count as
- *    onboarded. Sign-in is that flow's terminal state — LaunchPad's
+ *  - 'signed-in'    — the Sign In & Reset Password task completed. Ruhl is
+ *    brokerage-invoiced, so there is no per-agent Stripe signal, and until
+ *    2026-10-18 its flow had no onboarding call either, so 'call-held' could
+ *    never fire. Sign-in is that flow's terminal state — LaunchPad's
  *    definition of Launched.
  *
+ *    Two caveats now that Ruhl has forked (see docs/flows/b2b-ruhl.md):
+ *    a booking task DOES exist as of 2026-10-18, but only self-managed
+ *    agents ever see it; and for Brokerage-Managed agents the Sign In task
+ *    is auto-completed at Send Credentials, so 'signed-in' attests that
+ *    credentials went out, not that the agent logged in. Revisit if Ruhl's
+ *    onboarded numbers start looking implausibly good.
+ *
  * Default for an unlisted workflow: 'subscription'.
+ *
+ * KNOWN BUG (unfixed, flagged 2026-10-18): 'B2B-Coach' is absent from the map
+ * below, so it falls to the 'subscription' default — but Coach is invoiced to
+ * the brokerage and its agents have no Stripe sub, so no Coach agent can ever
+ * count as onboarded here. It should be 'call-held', matching B&W, which it
+ * clones. The same omission exists in scripts/funnel-audit-labels.ts
+ * (ONBOARDED_RULE). Left as-is pending a decision, not an oversight.
  */
 const ONBOARDED_RULE: Record<string, 'subscription' | 'call-held' | 'signed-in'> = {
   'B2B-IPRE': 'subscription',

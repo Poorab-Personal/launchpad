@@ -4,7 +4,9 @@
 
 ## What this is
 
-LaunchPad pushes onboarding state and BI signals to HubSpot Sales Hub Pro, where Mario and Luis (CSMs) work daily. HubSpot is the CSM workspace; LaunchPad is the automation engine that feeds it.
+LaunchPad pushes onboarding state and BI signals to HubSpot Sales Hub Pro, where the CSM team works daily. HubSpot is the CSM workspace; LaunchPad is the automation engine that feeds it.
+
+> **Staffing, 2026-10-18:** Mario and Luis have left. Both are `active = false` in `team_members`, which leaves **no active CSM in LaunchPad**. Onboarding calls are covered by Poorab and Matt until a replacement is hired. Names below are kept because they are still attached to historical records — read them as history, not as the current rota.
 
 Reverses the earlier "build a CSM workspace inside LaunchPad" trajectory. CSMs do not need to open LaunchPad in steady state — they live in HubSpot.
 
@@ -92,7 +94,7 @@ Enum (initial v1 set; extensible):
 
 HubSpot ticket board view (kanban) shows configurable card fields per pipeline. CSMs see on each card:
 - Subject (customer name + brokerage)
-- Owner (Mario / Luis)
+- Owner (currently Poorab / Matt — see the staffing note above)
 - `rejig_attention_reason` (the why)
 - `rejig_attention_set_at` (how long the issue has existed)
 - Last activity date
@@ -183,9 +185,24 @@ The 9 old check-in/pre-renewal stages get **archived** (HubSpot doesn't allow st
 
 ## Owners
 
-CSMs:
-- Mario Giron — `hubspot_owner_id: 88849280` — 121 tickets at PoC time
-- Luis Véliz — `hubspot_owner_id: 91301752` — 30 tickets at PoC time
+**Both CSMs below are former employees (offboarded 2026-10-18).** Their owner IDs
+are retained for reading historical tickets. Whether their open HubSpot tickets
+were reassigned is a HubSpot-side question and has **not** been verified from
+LaunchPad — check before relying on ticket ownership.
+
+- Mario Giron — `hubspot_owner_id: 88849280` — 121 tickets at PoC time — **former**
+- Luis Véliz — `hubspot_owner_id: 91301752` — 30 tickets at PoC time — **former**
+
+### Onboarding meeting link
+
+One HubSpot Meetings link is shared across every workflow:
+`https://meetings-na2.hubspot.com/poorab/social-media-onboarding`
+
+It replaced Mario's personal link on 2026-10-18 in all three places it is stored
+(`brokerages.default_calendly_url`, `workflow_templates.embed_url`, and open
+`tasks.embed_url` rows). `Completed` tasks keep the historical link on purpose.
+A dead Meetings link still returns 200, so a stale copy fails silently — see
+`scripts/offboard-mario-luis.ts` for the repointing procedure.
 
 ## Enterprise Deals (brokerage associations)
 
@@ -250,7 +267,7 @@ The following architectural decisions are locked. Implementation work can procee
 2. **Webhook receiver URL** — currently webhook.site placeholder in `launchpad-integration/`. Update to `/api/webhooks/hubspot` route on Vercel before Phase 3.
 3. **Migration script for 547 existing tickets** — bulk-classify into Active / Watch / At-Risk / Churned based on rules; CSM review before live migration. Phase 1 task.
 4. **Custom Timeline Events** — OAuth-only on HubSpot. Defer indefinitely; reconsider only if CSMs ask for inline LaunchPad event log on Contact timeline.
-5. **Reason code enum** — initial v1 set defined; refine after Mario/Luis review the kanban experience with sample data.
+5. **Reason code enum** — initial v1 set defined; refine after the CSM team reviews the kanban experience with sample data. (Original reviewers Mario/Luis have since left; this is unresolved and now needs a new owner.)
 
 ## Naming convention for custom properties
 

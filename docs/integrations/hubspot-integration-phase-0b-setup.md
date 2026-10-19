@@ -162,7 +162,7 @@ LaunchPad's pushes need to skip stages (Pre-Onboarding → Onboarding Scheduled 
 
 ### Lock-down mechanism instead
 
-1. **Trust:** tell Mario/Luis "BI manages stages; please don't move them. Add a Note explaining why if you must."
+1. **Trust:** tell the CSM team "BI manages stages; please don't move them. Add a Note explaining why if you must." (Written for Mario/Luis, who left 2026-10-18 — re-brief whoever replaces them.)
 2. **Audit:** every CSM-driven stage change is logged via the `ticket.propertyChange:hs_pipeline_stage` webhook into LaunchPad's `hubspot_inbound_events` table. Admin reviews weekly.
 3. **v2 (if needed):** LaunchPad webhook detects CSM-driven stage changes that conflict with BI state, posts a Note + reverts. Build only if data shows CSMs are abusing.
 
