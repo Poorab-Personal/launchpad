@@ -18,11 +18,14 @@ dotenv.config({ path: '.env.local' });
  *   2. brokerages.default_calendly_url  — 3 rows (Keyes, IPRE, B&W).
  *   3. workflow_templates.embed_url     — 5 booking rows (D2C/Keyes/IPRE/BW/Coach).
  *
- * DELIBERATELY OUT OF SCOPE: the 86 already-created open `tasks.embed_url`
- * rows. generate-tasks.ts:214 copies the URL onto each task at customer-create
- * time, so this run only fixes customers created from here on. Leaving the
- * backlog is the user's call (2026-10-18) — those bookings are likely stalled
- * for unrelated reasons and get revisited separately.
+ *   4. tasks.embed_url — the already-created OPEN task rows.
+ *      generate-tasks.ts:214 copies the URL onto each task at customer-create
+ *      time, so steps 2-3 alone only fix customers created from here on.
+ *      Completed tasks are left alone: they keep their historical link.
+ *
+ * Step 4 is a plain data correction, not a state transition — no status
+ * changes, so nothing fires Auto 2. It is conditioned on the old URL, so
+ * re-running it is a no-op.
  *
  * Usage:
  *   npx tsx --env-file=.env.local scripts/offboard-mario-luis.ts          # dry-run
@@ -82,10 +85,21 @@ async function main() {
       .where(eq(s.workflowTemplates.embedUrl, OLD_URL));
   }
 
-  // ── Untouched, for visibility ────────────────────────────────────────────
-  const openTaskRows = await db.select({ id: s.tasks.id }).from(s.tasks)
+  // ── 4. Open task rows ────────────────────────────────────────────────────
+  console.log('\n4. tasks.embed_url (open tasks only)');
+  const openTaskRows = await db.select({ id: s.tasks.id, status: s.tasks.status })
+    .from(s.tasks)
     .where(and(eq(s.tasks.embedUrl, OLD_URL), inArray(s.tasks.status, ['Active', 'Draft'])));
-  console.log(`\n   NOT TOUCHED: ${openTaskRows.length} open tasks.embed_url rows still on the old link (by decision).`);
+  const active = openTaskRows.filter((t) => t.status === 'Active').length;
+  console.log(`   ${openTaskRows.length} open row(s) — ${active} Active, ${openTaskRows.length - active} Draft`);
+  if (apply && openTaskRows.length) {
+    await db.update(s.tasks).set({ embedUrl: NEW_URL })
+      .where(and(eq(s.tasks.embedUrl, OLD_URL), inArray(s.tasks.status, ['Active', 'Draft'])));
+  }
+
+  const done = await db.select({ id: s.tasks.id }).from(s.tasks)
+    .where(and(eq(s.tasks.embedUrl, OLD_URL), eq(s.tasks.status, 'Completed')));
+  console.log(`   left alone: ${done.length} Completed task(s) keep their historical link`);
 
   console.log(`\n${apply ? 'APPLIED.' : 'Dry run — re-run with --apply to write.'}\n`);
   process.exit(0);
