@@ -1362,21 +1362,20 @@ export default function FormTask({
                 the brokerage's marketing team. */}
             {needsServiceOption && (
               <div>
-                <FieldLabel label="How do you want to use Rejig?" required />
+                <FieldLabel label="Who will be managing Rejig?" required />
                 <select
                   className={inputClass('serviceOption')}
                   value={form.serviceOption}
                   onChange={(e) => update('serviceOption', e.target.value)}
                 >
                   <option value="">Select an option…</option>
-                  <option value="Self-Managed">Self Post — Agent Access</option>
-                  <option value="Brokerage-Managed">Done For You Posts &amp; Content</option>
+                  <option value="Self-Managed">I&apos;ll manage it myself</option>
+                  <option value="Brokerage-Managed">Ruhl Marketing Team</option>
                 </select>
                 <HelperText>
-                  Choose <strong>Self Post</strong> if you&apos;ll be posting yourself — we&apos;ll
-                  set up an onboarding session to train you. Choose{' '}
-                  <strong>Done For You</strong> if the Ruhl marketing team will run your
-                  account for you.
+                  If you&apos;re managing it yourself, we&apos;ll set up an onboarding session
+                  to get you trained. If the Ruhl marketing team is running your account,
+                  we&apos;ll send them your login and skip the training.
                 </HelperText>
               </div>
             )}
@@ -1487,12 +1486,12 @@ export default function FormTask({
                 { label: 'Account Email', value: form.platformEmail },
                 // Ruhl only; empty elsewhere → ReviewSection hides the row.
                 {
-                  label: 'How You\u2019ll Use Rejig',
+                  label: 'Managed By',
                   value: needsServiceOption
                     ? form.serviceOption === 'Self-Managed'
-                      ? 'Self Post \u2014 Agent Access'
+                      ? 'I\u2019ll manage it myself'
                       : form.serviceOption === 'Brokerage-Managed'
-                        ? 'Done For You Posts & Content'
+                        ? 'Ruhl Marketing Team'
                         : ''
                     : '',
                 },

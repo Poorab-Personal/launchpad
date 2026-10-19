@@ -49,6 +49,54 @@ export const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
 // The client-facing booking task. Brokerage-Managed agents never attend one.
 const SCHEDULE_ONBOARDING_TASK = 'Schedule Your Onboarding Call';
 
+// The client intake form. Shared task name across every B2B workflow.
+const INTAKE_TASK = 'Confirm Your Information';
+
+/**
+ * Close the onboarding booking task for an agent whose account is run by the
+ * brokerage, and let Auto 2 react to it.
+ *
+ * We can't fork the task list at generation time — the customer row is created
+ * when the agent lands on the brokerage page, long before the intake form tells
+ * us which option they picked — so the booking task is always created, then
+ * closed here.
+ *
+ * This routes through handleTaskCompleted rather than stopping at the UPDATE:
+ * the booking task lives in the FIRST stage, and the stage-advance check only
+ * re-evaluates the stage of the task that triggered the run. Closing it
+ * silently would pin the customer at "Getting Started" forever, and the
+ * terminal advance to Launched is conditional on the stage field already
+ * reading "Prepare for Onboarding".
+ *
+ * Idempotent: the UPDATE is conditioned on the task still being open, so a
+ * second call returns no row and does nothing.
+ */
+async function closeBookingForBrokerageManaged(customerId: string): Promise<void> {
+  const [booking] = await db
+    .update(schema.tasks)
+    .set({ status: 'Completed', completedAt: new Date() })
+    .where(and(
+      eq(schema.tasks.customerId, customerId),
+      eq(schema.tasks.taskName, SCHEDULE_ONBOARDING_TASK),
+      inArray(schema.tasks.status, ['Active', 'Draft']),
+    ))
+    .returning({ id: schema.tasks.id });
+
+  if (!booking) return;
+
+  await db.insert(schema.events).values({
+    customerId,
+    eventType: 'Task Completed',
+    actorType: 'System',
+    details:
+      `Task "${SCHEDULE_ONBOARDING_TASK}" auto-completed — the brokerage's ` +
+      `marketing team manages this account, so no onboarding session is needed.`,
+    relatedTaskId: booking.id,
+  });
+
+  await handleTaskCompleted(booking.id);
+}
+
 const SEND_CREDENTIALS_TICKET_PUSH: Record<string, string> = {
   'B2B-RUHL': 'Active',
 };
@@ -196,42 +244,11 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
         serviceOption: schema.customers.serviceOption,
       });
 
-    // Brokerage-Managed agents have no onboarding session — the brokerage's
-    // marketing team runs the account. We can't fork the task list at
-    // generation time (the customer row is created when the agent lands on
-    // the brokerage page, long before the intake form tells us which option
-    // they picked), so the booking task is always created and closed here
-    // instead. Sending credentials is the moment that agent is done.
-    //
-    // This has to go through handleTaskCompleted rather than a bare UPDATE:
-    // the booking task lives in the FIRST stage, and the stage-advance check
-    // below only re-evaluates the stage of the task that triggered this run.
-    // Closing it silently would leave the customer pinned at "Getting Started"
-    // forever, and the terminal advance to Launched is conditional on their
-    // stage field already reading "Prepare for Onboarding".
+    // Safety net only. The booking is normally closed the moment the intake
+    // form is submitted (see the branch below) — this catches an agent whose
+    // service option was corrected after they'd already submitted.
     if (updatedCust?.serviceOption === 'Brokerage-Managed') {
-      const [booking] = await db
-        .update(schema.tasks)
-        .set({ status: 'Completed', completedAt: new Date() })
-        .where(and(
-          eq(schema.tasks.customerId, customerId),
-          eq(schema.tasks.taskName, SCHEDULE_ONBOARDING_TASK),
-          inArray(schema.tasks.status, ['Active', 'Draft']),
-        ))
-        .returning({ id: schema.tasks.id });
-
-      if (booking) {
-        await db.insert(schema.events).values({
-          customerId,
-          eventType: 'Task Completed',
-          actorType: 'System',
-          details:
-            `Task "${SCHEDULE_ONBOARDING_TASK}" auto-completed — agent is ` +
-            `Brokerage-Managed, so no onboarding session is needed.`,
-          relatedTaskId: booking.id,
-        });
-        await handleTaskCompleted(booking.id);
-      }
+      await closeBookingForBrokerageManaged(customerId);
     }
 
     // Pilot workflows with no onboarding-call task: this is their real
@@ -245,6 +262,23 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
       } catch (err) {
         console.warn(`[Auto 2] HS ticket stage push to "${pushStage}" failed for customer ${customerId} (non-blocking)`, err);
       }
+    }
+  } else if (completedTask.taskName === INTAKE_TASK) {
+    // The intake form is where the agent tells us who runs their account, so
+    // it is the first moment we can act on it. Brokerage-Managed agents never
+    // attend an onboarding session — the brokerage's marketing team posts for
+    // them — so close the booking task now rather than leaving an Active,
+    // client-visible "Schedule Your Onboarding Call" sitting in their portal
+    // nagging them about a meeting that will never happen.
+    //
+    // No-op for every other workflow: service_option is only ever set for
+    // brokerages that fork this way, and NULL never matches.
+    const cust = await db.query.customers.findFirst({
+      where: eq(schema.customers.id, customerId),
+      columns: { serviceOption: true },
+    });
+    if (cust?.serviceOption === 'Brokerage-Managed') {
+      await closeBookingForBrokerageManaged(customerId);
     }
   } else if (completedTask.taskName === 'Mark Onboarding Call Complete') {
     // Auto 4 port: the actual CSM (whoever the task was routed to) becomes
