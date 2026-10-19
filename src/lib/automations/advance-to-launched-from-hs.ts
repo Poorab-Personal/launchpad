@@ -29,6 +29,11 @@ export type AdvanceResult =
 const TERMINAL_CLIENT_TASKS = [
   'Sign In & Reset Password',
   'Watch Setup Video',
+  // The HS ticket only reaches Active once the onboarding meeting actually
+  // happened, so a still-open booking task is moot by definition. Leaving it
+  // Active would hold the customer's first stage open and block the advance
+  // to Launched, which is conditional on the stage field.
+  'Schedule Your Onboarding Call',
 ];
 
 export async function advanceToLaunchedFromHsActive(

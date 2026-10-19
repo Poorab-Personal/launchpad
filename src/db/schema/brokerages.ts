@@ -23,6 +23,9 @@ export const brokerages = pgTable(
     defaultWorkflowKey: text('default_workflow_key').notNull(),
     lastRosterSync: timestamp('last_roster_sync', { withTimezone: true }),
     defaultCalendlyUrl: text('default_calendly_url'),
+    // cc'd on the credentials email for Brokerage-Managed agents, so the team
+    // that actually runs the account gets the login alongside the agent.
+    managedCcEmail: text('managed_cc_email'),
     billingContact: text('billing_contact'),
     notes: text('notes'),
     // HubSpot Company ID for the brokerage's master record. Used by the B2B

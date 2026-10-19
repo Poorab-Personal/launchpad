@@ -11,6 +11,7 @@ export type AttachmentType = 'None' | 'Form' | 'File Upload' | 'Embed' | 'Proof'
 export type DesignApproval = 'Pending' | 'Approved' | 'Changes Requested';
 
 export type ProductTier = 'Premium' | 'Luxury';
+export type ServiceOption = 'Self-Managed' | 'Brokerage-Managed';
 
 export type PaymentStatus = 'Paid' | 'Waived';
 
@@ -128,6 +129,12 @@ export interface Customer {
   stripePaymentId: string;
   addOnStripePaymentId: string;
   productTier: ProductTier | null;
+  /**
+   * B2B only. Whether the agent runs their own account (needs onboarding) or
+   * the brokerage's marketing team runs it for them (does not).
+   * null = never asked — true for everyone onboarded before 2026-10-18.
+   */
+  serviceOption: ServiceOption | null;
   paymentStatus: PaymentStatus | null;
 
   // HubSpot integration cross-system anchors (added 2026-05-13 with /api/webhooks/hubspot)
@@ -280,6 +287,8 @@ export interface Brokerage {
   defaultWorkflowKey: string;
   lastRosterSync: string;
   defaultCalendlyUrl: string;
+  /** cc'd on credentials for Brokerage-Managed agents. */
+  managedCcEmail: string | null;
   billingContact: string;
   notes: string;
   active: boolean;

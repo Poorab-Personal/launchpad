@@ -142,6 +142,7 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
 
     // Assignment
     csmAssigned: arrFromId(row.csmTeamMemberId),
+    serviceOption: row.serviceOption as Customer['serviceOption'],
 
     // Design workflow (D2C)
     designApproval: row.designApproval as Customer['designApproval'],
@@ -307,6 +308,7 @@ function mapDbBrokerage(row: BrokerageRow): Brokerage {
     landingPageSlug: row.landingPageSlug,
     defaultWorkflowKey: row.defaultWorkflowKey,
     defaultCalendlyUrl: row.defaultCalendlyUrl ?? '',
+    managedCcEmail: row.managedCcEmail ?? null,
     lastRosterSync: iso(row.lastRosterSync),
     billingContact: row.billingContact ?? '',
     notes: row.notes ?? '',

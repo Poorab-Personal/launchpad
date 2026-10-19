@@ -148,3 +148,12 @@ export const verificationModeEnum = pgEnum('verification_mode', [
   'soft',
   'magic_link_required',
 ]);
+
+// Whether a brokerage agent runs their own Rejig account (and so needs
+// onboarding/training) or the brokerage's marketing team runs it for them.
+// Generic on purpose — Ruhl labels these "Self Post — Agent Access" and
+// "Done For You Posts & Content" in its own intake copy.
+export const serviceOptionEnum = pgEnum('service_option', [
+  'Self-Managed',
+  'Brokerage-Managed',
+]);

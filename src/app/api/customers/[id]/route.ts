@@ -39,6 +39,7 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'noShowCount',
   'designRevisionCount',
   'otherEmails',
+  'serviceOption',
   'subscriptionStatus',
   'billingCycle',
   'mrr',
@@ -80,6 +81,14 @@ export async function PATCH(
         fields.reviewSources = [
           ...new Set(value.filter((v) => typeof v === 'string' && VALID_REVIEW_SOURCES.has(v))),
         ];
+      }
+      continue;
+    }
+    if (key === 'serviceOption') {
+      // Postgres enum — validate against the closed set here so a bad value
+      // is a dropped field, not a 500 from the driver.
+      if (value === 'Self-Managed' || value === 'Brokerage-Managed') {
+        fields.serviceOption = value;
       }
       continue;
     }

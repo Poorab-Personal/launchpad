@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { requireSession } from '@/lib/auth/dal';
 import {
   createEvent,
+  getBrokerageById,
   getCustomerById,
   getTaskById,
   updateCustomerFields,
@@ -94,9 +95,19 @@ export async function POST(request: NextRequest) {
   const portalUrl = `${portalBase}/r/${customer.accessToken}`;
   const firstName = customer.name.trim().split(/\s+/)[0] || 'there';
 
+  // Brokerage-Managed agents: the brokerage's marketing team runs the account
+  // day to day, so they need the login too. The agent still gets it directly —
+  // they own the account, they just aren't the one posting.
+  let managedCc: string | null = null;
+  if (customer.serviceOption === 'Brokerage-Managed' && customer.brokerage?.[0]) {
+    const brokerage = await getBrokerageById(customer.brokerage[0]);
+    managedCc = brokerage?.managedCcEmail || null;
+  }
+
   await sendEmail({
     template: 'credentials-sent',
     to: customer.contactEmail,
+    ...(managedCc ? { cc: managedCc } : {}),
     data: {
       firstName,
       portalUrl,

@@ -22,6 +22,7 @@ import {
   designApprovalEnum,
   paymentStatusEnum,
   productTierEnum,
+  serviceOptionEnum,
   subscriptionStatusEnum,
 } from './enums';
 import { roster } from './roster';
@@ -126,6 +127,11 @@ export const customers = pgTable(
 
     // Assignment
     csmTeamMemberId: uuid('csm_team_member_id').references(() => teamMembers.id, { onDelete: 'set null' }),
+
+    // B2B only: did the agent say they self-manage, or does the brokerage's
+    // marketing team run the account? Drives whether onboarding is required.
+    // NULL = never asked (every customer created before 2026-10-18).
+    serviceOption: serviceOptionEnum('service_option'),
 
     // Design workflow (D2C)
     designApproval: designApprovalEnum('design_approval'),

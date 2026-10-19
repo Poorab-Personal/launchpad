@@ -46,6 +46,9 @@ export const INTAKE_PUSH_TRIGGER_TASK: Record<string, string> = {
 // the moment "Send Credentials" completes (the real "agent is onboarded"
 // moment for this pilot), and the Launched-time push is skipped for these
 // workflow keys since their push already happened here.
+// The client-facing booking task. Brokerage-Managed agents never attend one.
+const SCHEDULE_ONBOARDING_TASK = 'Schedule Your Onboarding Call';
+
 const SEND_CREDENTIALS_TICKET_PUSH: Record<string, string> = {
   'B2B-RUHL': 'Active',
 };
@@ -187,7 +190,49 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
       .update(schema.customers)
       .set({ credentialsSent: true })
       .where(and(eq(schema.customers.id, customerId), eq(schema.customers.credentialsSent, false)))
-      .returning({ workflowKey: schema.customers.workflowKey, hubspotTicketId: schema.customers.hubspotTicketId });
+      .returning({
+        workflowKey: schema.customers.workflowKey,
+        hubspotTicketId: schema.customers.hubspotTicketId,
+        serviceOption: schema.customers.serviceOption,
+      });
+
+    // Brokerage-Managed agents have no onboarding session — the brokerage's
+    // marketing team runs the account. We can't fork the task list at
+    // generation time (the customer row is created when the agent lands on
+    // the brokerage page, long before the intake form tells us which option
+    // they picked), so the booking task is always created and closed here
+    // instead. Sending credentials is the moment that agent is done.
+    //
+    // This has to go through handleTaskCompleted rather than a bare UPDATE:
+    // the booking task lives in the FIRST stage, and the stage-advance check
+    // below only re-evaluates the stage of the task that triggered this run.
+    // Closing it silently would leave the customer pinned at "Getting Started"
+    // forever, and the terminal advance to Launched is conditional on their
+    // stage field already reading "Prepare for Onboarding".
+    if (updatedCust?.serviceOption === 'Brokerage-Managed') {
+      const [booking] = await db
+        .update(schema.tasks)
+        .set({ status: 'Completed', completedAt: new Date() })
+        .where(and(
+          eq(schema.tasks.customerId, customerId),
+          eq(schema.tasks.taskName, SCHEDULE_ONBOARDING_TASK),
+          inArray(schema.tasks.status, ['Active', 'Draft']),
+        ))
+        .returning({ id: schema.tasks.id });
+
+      if (booking) {
+        await db.insert(schema.events).values({
+          customerId,
+          eventType: 'Task Completed',
+          actorType: 'System',
+          details:
+            `Task "${SCHEDULE_ONBOARDING_TASK}" auto-completed — agent is ` +
+            `Brokerage-Managed, so no onboarding session is needed.`,
+          relatedTaskId: booking.id,
+        });
+        await handleTaskCompleted(booking.id);
+      }
+    }
 
     // Pilot workflows with no onboarding-call task: this is their real
     // "agent is onboarded" moment (see SEND_CREDENTIALS_TICKET_PUSH above).

@@ -23,6 +23,12 @@ interface FormData {
   specialInstructions: string;
   otherEmails: string;
 
+  // Step 4 — Account Access
+  // B2B-RUHL only: does the agent post for themselves, or does the brokerage's
+  // marketing team run the account? Drives whether onboarding is required.
+  // Empty string = not yet chosen; there is deliberately no default.
+  serviceOption: string;
+
   // Step 3 — Content Direction
   serviceAreas: string;
   localContentAreas: string;
@@ -91,6 +97,7 @@ function emptyForm(): FormData {
     bio: '',
     specialInstructions: '',
     otherEmails: '',
+    serviceOption: '',
     serviceAreas: '',
     localContentAreas: '',
     topics: '',
@@ -145,6 +152,9 @@ const TEST_STUB: FormData = {
   bio: 'Miami-based agent specializing in residential real estate. 10+ years experience helping clients find homes across South Florida. Bilingual English/Spanish.',
   specialInstructions: 'Brand should feel modern and approachable. Use coastal-inspired tones.',
   otherEmails: '',
+  // ?test=fill defaults to self-managed; flip the dropdown to exercise the
+  // brokerage-managed path.
+  serviceOption: 'Self-Managed',
   serviceAreas: 'Miami, Coral Gables, Coconut Grove, Brickell',
   localContentAreas: 'Miami, Coral Gables, Coconut Grove',
   topics: 'First-time buyers, Luxury condos, Investment properties',
@@ -165,6 +175,7 @@ function prefillFromCustomer(customer: Customer): FormData {
     bio: customer.bio || '',
     specialInstructions: customer.specialInstructions || '',
     otherEmails: customer.otherEmails || '',
+    serviceOption: customer.serviceOption || '',
     serviceAreas: customer.serviceAreas || '',
     // Default Neighborhood News to their service areas (often the same) so it's
     // not empty — independent from then on (no runtime mirroring).
@@ -665,6 +676,14 @@ export default function FormTask({
   // never sees any nudge. (Gating on type, not just value, matters for website:
   // an admin-created D2C customer could have a website but no brokerage.)
   const isB2B = customer?.type === 'B2B';
+  // Ruhl is the only brokerage that forks on service option today. Everyone
+  // else never sees the field and never has it required.
+  const needsServiceOption = customer?.workflowKey === 'B2B-RUHL';
+  // Base map + the one conditional entry. Kept as a derived value rather than
+  // mutating REQUIRED_FIELDS so other workflows are provably untouched.
+  const requiredFields: Record<number, (keyof FormData)[]> = needsServiceOption
+    ? { ...REQUIRED_FIELDS, 3: [...REQUIRED_FIELDS[3], 'serviceOption'] }
+    : REQUIRED_FIELDS;
   const websitePrefilled = isB2B && Boolean(customer?.website);
   const photoPrefilled = isB2B && (customer?.agentPhoto?.length ?? 0) > 0;
   const brokerLogoPresent = isB2B && (customer?.businessLogo?.length ?? 0) > 0;
@@ -819,7 +838,7 @@ export default function FormTask({
   }
 
   function isRequired(field: keyof FormData) {
-    for (const fields of Object.values(REQUIRED_FIELDS)) {
+    for (const fields of Object.values(requiredFields)) {
       if (fields.includes(field)) return true;
     }
     return false;
@@ -865,7 +884,7 @@ export default function FormTask({
 
   function handleNext() {
     // Required text fields for current step
-    const required = REQUIRED_FIELDS[step];
+    const required = requiredFields[step];
     if (required) {
       setTouched((prev) => {
         const next = new Set(prev);
@@ -908,7 +927,7 @@ export default function FormTask({
 
   async function handleSubmit() {
     // Re-check ALL required text fields
-    const allRequired = Object.values(REQUIRED_FIELDS).flat();
+    const allRequired = Object.values(requiredFields).flat();
     const missingText = allRequired.filter((f) => !form[f].trim());
     // Re-check ALL required files
     const allRequiredFiles = Object.values(REQUIRED_FILES).flat();
@@ -1338,6 +1357,29 @@ export default function FormTask({
                 This is the email you&apos;ll use to sign in at app.rejig.ai. We&apos;ll also send a notification here whenever new content is published to your account.
               </HelperText>
             </div>
+            {/* Ruhl-only. No default — the agent must choose, because the
+                answer decides whether we train them or hand the account to
+                the brokerage's marketing team. */}
+            {needsServiceOption && (
+              <div>
+                <FieldLabel label="How do you want to use Rejig?" required />
+                <select
+                  className={inputClass('serviceOption')}
+                  value={form.serviceOption}
+                  onChange={(e) => update('serviceOption', e.target.value)}
+                >
+                  <option value="">Select an option…</option>
+                  <option value="Self-Managed">Self Post — Agent Access</option>
+                  <option value="Brokerage-Managed">Done For You Posts &amp; Content</option>
+                </select>
+                <HelperText>
+                  Choose <strong>Self Post</strong> if you&apos;ll be posting yourself — we&apos;ll
+                  set up an onboarding session to train you. Choose{' '}
+                  <strong>Done For You</strong> if the Ruhl marketing team will run your
+                  account for you.
+                </HelperText>
+              </div>
+            )}
           </div>
         );
 
@@ -1443,6 +1485,17 @@ export default function FormTask({
               onEdit={setStep}
               fields={[
                 { label: 'Account Email', value: form.platformEmail },
+                // Ruhl only; empty elsewhere → ReviewSection hides the row.
+                {
+                  label: 'How You\u2019ll Use Rejig',
+                  value: needsServiceOption
+                    ? form.serviceOption === 'Self-Managed'
+                      ? 'Self Post \u2014 Agent Access'
+                      : form.serviceOption === 'Brokerage-Managed'
+                        ? 'Done For You Posts & Content'
+                        : ''
+                    : '',
+                },
               ]}
             />
 
