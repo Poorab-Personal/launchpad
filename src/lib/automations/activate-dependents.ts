@@ -52,6 +52,15 @@ const SCHEDULE_ONBOARDING_TASK = 'Schedule Your Onboarding Call';
 // The client intake form. Shared task name across every B2B workflow.
 const INTAKE_TASK = 'Confirm Your Information';
 
+// Client-facing tasks that only make sense for an agent who operates their own
+// account. Closed automatically when credentials go out to a brokerage-managed
+// agent — see the Send Credentials branch for why leaving them open strands
+// the customer.
+const BROKERAGE_MANAGED_TERMINAL_TASKS = [
+  'Watch Setup Video',
+  'Sign In & Reset Password',
+];
+
 /**
  * Close the onboarding booking task for an agent whose account is run by the
  * brokerage, and let Auto 2 react to it.
@@ -244,11 +253,49 @@ export async function handleTaskCompleted(taskId: string): Promise<void> {
         serviceOption: schema.customers.serviceOption,
       });
 
-    // Safety net only. The booking is normally closed the moment the intake
-    // form is submitted (see the branch below) — this catches an agent whose
-    // service option was corrected after they'd already submitted.
     if (updatedCust?.serviceOption === 'Brokerage-Managed') {
+      // Safety net only — the booking is normally closed the moment the intake
+      // form is submitted. This catches an agent whose service option was
+      // corrected after they'd already submitted.
       await closeBookingForBrokerageManaged(customerId);
+
+      // Sending credentials is the end of the line for a brokerage-managed
+      // agent. The brokerage's marketing team runs the account, so the agent
+      // is never going to watch a training video or sign in to a dashboard
+      // they don't operate — those tasks would sit Active forever and strand
+      // the customer at "Prepare for Onboarding".
+      //
+      // Nothing would rescue them: the only automatic path to Launched is the
+      // HubSpot webhook, and for these workflows the ticket reaches Active via
+      // LP's OWN push a few lines above, which the webhook correctly drops as
+      // a self-write. So close the tasks here and let the customer finish.
+      //
+      // No handleTaskCompleted recursion needed, unlike the booking task:
+      // these live in the SAME stage as Send Credentials, so the stage-advance
+      // check at the end of this run already re-evaluates them and carries the
+      // customer through to Launched.
+      const closed = await db
+        .update(schema.tasks)
+        .set({ status: 'Completed', completedAt: new Date() })
+        .where(and(
+          eq(schema.tasks.customerId, customerId),
+          inArray(schema.tasks.taskName, BROKERAGE_MANAGED_TERMINAL_TASKS),
+          inArray(schema.tasks.status, ['Active', 'Draft']),
+        ))
+        .returning({ id: schema.tasks.id, taskName: schema.tasks.taskName });
+
+      for (const t of closed) {
+        await db.insert(schema.events).values({
+          customerId,
+          eventType: 'Task Completed',
+          actorType: 'System',
+          details:
+            `Task "${t.taskName}" auto-completed — the brokerage's marketing ` +
+            `team manages this account, so the agent has no training or ` +
+            `sign-in step to complete.`,
+          relatedTaskId: t.id,
+        });
+      }
     }
 
     // Pilot workflows with no onboarding-call task: this is their real
