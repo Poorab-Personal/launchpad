@@ -43,13 +43,24 @@ export function getStateLabel(workflowKey: string, taskTitle: string): string | 
  * - 'stage' — currentStage advanced past 'Getting Started'. Looser, but
  *   the only signal for workflows without Stripe trials (e.g. BW).
  *
- * Default when a workflow isn't listed: 'subscription' (conservative
- * for the B2B trial cohort). Add an entry to opt out.
+ * EVERY brokerage-invoiced workflow needs an explicit 'stage' entry. The
+ * 'subscription' default is NOT conservative for them, it is simply wrong:
+ * an invoiced agent never gets a Stripe sub, so the rule can never be
+ * satisfied and nobody in that workflow can count as onboarded — silently.
+ * B2B-Coach was missing here from its 2026-09-18 launch until 2026-10-18 and
+ * reported 0 onboarded out of 6. If you add a brokerage, add it here too.
+ *
+ * (The equivalent map in src/lib/automations/monthly-cohort-digest.ts derives
+ * this default from `payment_mode` instead. This module is a pure constants
+ * file with no DB access, so the list is maintained by hand.)
+ *
+ * Default when a workflow isn't listed: 'subscription'.
  */
 export const ONBOARDED_RULE: Record<string, 'subscription' | 'stage'> = {
   'B2B-IPRE': 'subscription',
   'B2B-Keyes': 'subscription',
   'B2B-BW': 'stage',
+  'B2B-Coach': 'stage',
   'B2B-RUHL': 'stage',
 };
 

@@ -76,36 +76,47 @@ const ONBOARDED_LABEL = 'Onboarded';
  *    created when the HubSpot ticket flips to Active, which only happens
  *    post-meeting, so the sub is a reliable "the meeting happened" signal.
  *  - 'call-held'    — the first onboarding call's scheduled date is in the
- *    past. For B&W there is no per-agent Stripe sub (brokerage-paid), so
- *    there is no billing signal to key off.
- *  - 'signed-in'    — the Sign In & Reset Password task completed. Ruhl is
- *    brokerage-invoiced, so there is no per-agent Stripe signal, and until
- *    2026-10-18 its flow had no onboarding call either, so 'call-held' could
- *    never fire. Sign-in is that flow's terminal state — LaunchPad's
- *    definition of Launched.
+ *    past. The right signal for a brokerage-invoiced workflow, where there
+ *    is no per-agent Stripe sub to key off.
+ *  - 'signed-in'    — the Sign In & Reset Password task completed. Used only
+ *    where neither of the above can fire. It UNDER-counts: a Sign In task
+ *    left Active is known LP drift rather than a real blocker (HubSpot
+ *    Active is authoritative), so prefer 'call-held' wherever calls exist.
  *
- *    Two caveats now that Ruhl has forked (see docs/flows/b2b-ruhl.md):
- *    a booking task DOES exist as of 2026-10-18, but only self-managed
- *    agents ever see it; and for Brokerage-Managed agents the Sign In task
- *    is auto-completed at Send Credentials, so 'signed-in' attests that
- *    credentials went out, not that the agent logged in. Revisit if Ruhl's
- *    onboarded numbers start looking implausibly good.
+ * The default for an unlisted workflow is DERIVED from its `payment_mode`,
+ * not hardcoded, because the two are causally linked: 'subscription' can only
+ * work where the agent actually pays. An `invoice` workflow has no per-agent
+ * Stripe sub, so defaulting it to 'subscription' means nobody in it can ever
+ * count as onboarded — silently, with no error and no empty-set warning.
+ * That bug sat in B2B-Coach from launch (2026-09-18) until 2026-10-18,
+ * reporting 0 of 6 onboarded agents.
  *
- * Default for an unlisted workflow: 'subscription'.
- *
- * KNOWN BUG (unfixed, flagged 2026-10-18): 'B2B-Coach' is absent from the map
- * below, so it falls to the 'subscription' default — but Coach is invoiced to
- * the brokerage and its agents have no Stripe sub, so no Coach agent can ever
- * count as onboarded here. It should be 'call-held', matching B&W, which it
- * clones. The same omission exists in scripts/funnel-audit-labels.ts
- * (ONBOARDED_RULE). Left as-is pending a decision, not an oversight.
+ * Explicit entries below still win; the derivation exists so that adding a
+ * sixth invoice brokerage is not a silent outage.
  */
 const ONBOARDED_RULE: Record<string, 'subscription' | 'call-held' | 'signed-in'> = {
   'B2B-IPRE': 'subscription',
   'B2B-Keyes': 'subscription',
   'B2B-BW': 'call-held',
+  'B2B-Coach': 'call-held',
+  // Ruhl stays 'signed-in' and must NOT inherit the invoice default: it had no
+  // booking task at all until 2026-10-18, so historical cohorts have zero
+  // `calls` rows and 'call-held' would report zero for them. Revisit once only
+  // post-fork cohorts fall in the window — and note that for Brokerage-Managed
+  // agents sign-in is auto-completed at Send Credentials, so it attests to
+  // credentials going out, not to the agent logging in.
   'B2B-RUHL': 'signed-in',
 };
+
+/** Explicit rule if set, else derived from payment_mode. See ONBOARDED_RULE. */
+function onboardedRuleFor(
+  workflowKey: string,
+  paymentMode: string | null | undefined,
+): 'subscription' | 'call-held' | 'signed-in' {
+  return (
+    ONBOARDED_RULE[workflowKey] ?? (paymentMode === 'invoice' ? 'call-held' : 'subscription')
+  );
+}
 
 /** Tasks read for post-funnel context, beyond the Stage 1 milestones. */
 const CREDENTIALS_TASK = 'Send Credentials';
@@ -248,6 +259,7 @@ export async function computeMonthlyCohort(
       workflowKey: schema.workflowTemplates.workflowKey,
       taskTitle: schema.workflowTemplates.taskTitle,
       taskOrder: schema.workflowTemplates.taskOrder,
+      paymentMode: schema.workflowTemplates.paymentMode,
     })
     .from(schema.workflowTemplates)
     .where(
@@ -260,10 +272,12 @@ export async function computeMonthlyCohort(
     .orderBy(asc(schema.workflowTemplates.taskOrder));
 
   const milestonesByWorkflow = new Map<string, string[]>();
+  const paymentModeByWorkflow = new Map<string, string | null>();
   for (const t of templateRows) {
     const arr = milestonesByWorkflow.get(t.workflowKey) ?? [];
     arr.push(t.taskTitle);
     milestonesByWorkflow.set(t.workflowKey, arr);
+    if (t.paymentMode) paymentModeByWorkflow.set(t.workflowKey, t.paymentMode);
   }
 
   const unmapped = new Set<string>();
@@ -380,7 +394,7 @@ export async function computeMonthlyCohort(
 
     const milestoneTitles = milestonesByWorkflow.get(workflowKey) ?? [];
     const milestoneLabels = milestoneTitles.map(labelFor);
-    const rule = ONBOARDED_RULE[workflowKey] ?? 'subscription';
+    const rule = onboardedRuleFor(workflowKey, paymentModeByWorkflow.get(workflowKey));
 
     const rows: CohortRow[] = cohortCustomers
       .filter((c) => c.workflowKey === workflowKey)
