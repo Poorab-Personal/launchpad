@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireSession, getEffectiveContext } from '@/lib/auth/dal';
 import {
+  getBrokerageById,
   getCustomerById,
   getInternalNotes,
   getTasksForCustomer,
@@ -312,6 +313,27 @@ export default async function CustomerDetailPage({
 
   if (!customer) notFound();
 
+  // `service_option` is only set on workflows that offer a done-for-you tier
+  // (B2B-RUHL today), so this stays blank — and the field stays hidden — for
+  // every other brokerage. Fetch the brokerage only when we need its cc
+  // address, which is the one case where the credentials email isn't just the
+  // agent. See docs/flows/b2b-ruhl.md.
+  const managedBrokerage =
+    customer.serviceOption === 'Brokerage-Managed' && customer.brokerage?.[0]
+      ? await getBrokerageById(customer.brokerage[0])
+      : null;
+  const managedByLabel =
+    customer.serviceOption === 'Brokerage-Managed'
+      ? [
+          `${managedBrokerage?.name ?? 'Brokerage'} marketing team`,
+          managedBrokerage?.managedCcEmail ? `(cc ${managedBrokerage.managedCcEmail})` : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+      : customer.serviceOption === 'Self-Managed'
+        ? 'Agent (self-managed)'
+        : '';
+
   const memberMap = new Map<string, TeamMember>(members.map((m) => [m.id, m]));
   const coreTasks = tasks.filter((t) => t.product === 'Core');
   const stageGroups = groupByStage(coreTasks);
@@ -602,6 +624,9 @@ export default async function CustomerDetailPage({
               <CopyableField label="Other Emails" value={customer.otherEmails} />
               <CopyableField label="License Number" value={customer.licenseNumber} />
               <CopyableField label="MLS IDs" value={customer.mlsIds} />
+              {customer.serviceOption && (
+                <CopyableField label="Managed By" value={managedByLabel} />
+              )}
             </SubSection>
 
             <SubSection title="Bio">

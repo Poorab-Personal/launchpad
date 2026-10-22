@@ -89,6 +89,17 @@ function TaskCard({ row, showAssignees }: { row: Row; showAssignees: boolean }) 
           → {assigneeNames || 'unassigned'}
         </p>
       )}
+      {/* Brokerage-managed agents are the exception worth flagging here: their
+          credentials also cc the brokerage's marketing inbox, and they have no
+          onboarding call by design — so "no call" above is expected, not a
+          stall. Self-managed is the default and needs no badge. */}
+      {customer?.serviceOption === 'Brokerage-Managed' && (
+        <p className="mt-1.5">
+          <span className="inline-flex items-center rounded-full bg-[#EDE7F6] px-2 py-0.5 text-xs font-medium text-[#6C4AB6]">
+            Brokerage-Managed
+          </span>
+        </p>
+      )}
       <div className="flex items-center justify-between mt-2 text-xs">
         <span className="inline-flex items-center rounded-full bg-[#F7F4EB] px-2 py-0.5 text-[#1B2E35]/70">
           📞 {customer?.callDate ? call.label : 'no call'}
