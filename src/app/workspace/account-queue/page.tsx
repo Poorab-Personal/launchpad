@@ -118,6 +118,37 @@ function TaskCard({ row, showAssignees }: { row: Row; showAssignees: boolean }) 
   );
 }
 
+/**
+ * Which brokerage a card belongs to, as a column sub-heading.
+ *
+ * Reads the channel code already on the customer (no extra query). 'Standard'
+ * is the D2C channel, which is a brokerage-less flow, so it reads as 'D2C'.
+ */
+function brokerageLabel(customer: Customer | undefined): string {
+  const channel = customer?.channel?.trim();
+  if (!channel) return 'Unknown';
+  return channel === 'Standard' ? 'D2C' : channel.toUpperCase();
+}
+
+/**
+ * Group a column's cards by brokerage, preserving the incoming sort.
+ *
+ * `rows` arrives sorted by call date (most urgent first), and a Map keeps
+ * insertion order — so a group's position is set by its most urgent member.
+ * The brokerage with the soonest call stays at the top of the column rather
+ * than being pushed down by an alphabetical ordering.
+ */
+function groupByBrokerage(rows: Row[]): [string, Row[]][] {
+  const groups = new Map<string, Row[]>();
+  for (const r of rows) {
+    const label = brokerageLabel(r.customer);
+    const arr = groups.get(label) ?? [];
+    arr.push(r);
+    groups.set(label, arr);
+  }
+  return [...groups.entries()];
+}
+
 function Column({
   title,
   emoji,
@@ -140,14 +171,21 @@ function Column({
         </h2>
         <span className="text-xs text-[#1B2E35]/50">{rows.length}</span>
       </div>
-      <div className="space-y-2 min-h-[60px]">
+      <div className="space-y-4 min-h-[60px]">
         {rows.length === 0 ? (
           <p className="text-xs text-[#1B2E35]/40 italic px-3 py-4 rounded-lg border border-dashed border-[#E0DEE4]">
             {emptyMessage}
           </p>
         ) : (
-          rows.map((r) => (
-            <TaskCard key={r.task.id} row={r} showAssignees={showAssignees} />
+          groupByBrokerage(rows).map(([label, groupRows]) => (
+            <div key={label} className="space-y-2">
+              <p className="px-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#1B2E35]/40">
+                {label}
+              </p>
+              {groupRows.map((r) => (
+                <TaskCard key={r.task.id} row={r} showAssignees={showAssignees} />
+              ))}
+            </div>
           ))
         )}
       </div>
@@ -241,7 +279,7 @@ export default async function AccountQueuePage({
           <h1 className="text-2xl font-bold text-[#1B2E35]">{heading}</h1>
           <p className="text-sm text-[#1B2E35]/60 mt-1">
             {rows.length} active task{rows.length === 1 ? '' : 's'}
-            {broadView && ' (all assignees)'} · sorted by call date
+            {broadView && ' (all assignees)'} · grouped by brokerage, sorted by call date
           </p>
         </div>
         <div className="flex items-center gap-4">
