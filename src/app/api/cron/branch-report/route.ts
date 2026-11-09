@@ -40,34 +40,39 @@ type Recipient = {
   subject: string;
 };
 
-const INTERNAL = ['poorab@rejig.ai', 'matt@rejig.ai', 'success@rejig.ai'];
+/**
+ * Keyes and Illustrated Properties share one distribution list: Illustrated
+ * Properties is a Keyes Company brand, and the same team oversees both. That
+ * is why @keyes.com addresses legitimately receive the IPRE report.
+ *
+ * Do not copy this list onto a brokerage outside that family. A report names
+ * the brokerage's agents, their office and where each one stalled, so a
+ * cross-listed address would hand one brokerage another's roster. The subject
+ * line names the brokerage precisely because one reader gets both.
+ */
+const KEYES_FAMILY_DISTRO = [
+  'poorab@rejig.ai',
+  'matt@rejig.ai',
+  'success@rejig.ai',
+  'MadelineMordarski@keyes.com',
+  'brigitteprado@keyes.com',
+  'aaronfisk@keyes.com',
+];
 
 /**
  * Who gets which report. Add a brokerage here once its roster sync and Stripe
  * plans are live — nothing else needs to change.
- *
- * Each list is PER BROKERAGE and must stay that way. A report names that
- * brokerage's agents, their office, and where each one stalled, so a
- * cross-listed address would hand one brokerage another's roster. Keyes staff
- * belong on the Keyes entry only.
  */
 const RECIPIENTS: Recipient[] = [
   {
     slug: 'keyes',
-    to: [
-      ...INTERNAL,
-      'MadelineMordarski@keyes.com',
-      'brigitteprado@keyes.com',
-      'aaronfisk@keyes.com',
-    ],
+    to: KEYES_FAMILY_DISTRO,
     exclude: ['@rejig.ai', 'mattmadden@kw.com'],
     subject: 'Rejig across Keyes — where every agent stands',
   },
   {
-    // Internal only: no Illustrated Properties contacts supplied yet. Add them
-    // here — do NOT reuse the Keyes list.
     slug: 'ipre',
-    to: INTERNAL,
+    to: KEYES_FAMILY_DISTRO,
     exclude: ['@rejig.ai'],
     subject: 'Rejig across Illustrated Properties — where every agent stands',
   },
