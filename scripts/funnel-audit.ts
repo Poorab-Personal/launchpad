@@ -491,7 +491,7 @@ async function main() {
   if (unmapped.length > 0) {
     console.log(`⚠  Unmapped milestone(s) in ${workflowKey} — showing raw task title:`);
     for (const u of unmapped) console.log(`     - "${u}"`);
-    console.log(`   Add to scripts/funnel-audit-labels.ts BASE_LABELS or PER_WORKFLOW['${workflowKey}'].\n`);
+    console.log(`   Add to src/lib/reports/branch-report-labels.ts BASE_LABELS or PER_WORKFLOW['${workflowKey}'].\n`);
   }
 
   console.log('Funnel stage:');
@@ -668,7 +668,7 @@ function buildEmailHtml(opts: {
       : `
     <div style="background:#fff4e5;border:1px solid #f0b67f;padding:10px 14px;margin:0 0 20px 0;font-size:13px;color:#7a4a00;">
       <strong>⚠ Unmapped milestone(s):</strong> ${unmapped.map((u) => escHtml(`"${u}"`)).join(', ')}.
-      <br/>Add to <code>scripts/funnel-audit-labels.ts</code> to label them.
+      <br/>Add to <code>src/lib/reports/branch-report-labels.ts</code> to label them.
     </div>
   `;
 

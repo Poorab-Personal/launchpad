@@ -221,7 +221,7 @@ async function main() {
   if (unmapped.length > 0) {
     console.log(`⚠  Unmapped milestone(s) in ${workflowKey} — showing raw task title:`);
     for (const u of unmapped) console.log(`     - "${u}"`);
-    console.log(`   Add to scripts/funnel-audit-labels.ts.\n`);
+    console.log(`   Add to src/lib/reports/branch-report-labels.ts.\n`);
   }
   const sumCols: Array<{ label: string; get: (s: SummaryRow) => string; right?: boolean }> = [
     { label: 'Branch', get: (s) => s.branch },

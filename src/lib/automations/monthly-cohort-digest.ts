@@ -56,9 +56,20 @@ export const REPORT_TIMEZONE = 'America/Chicago';
  * titles fall back to the raw title and are surfaced in `unmappedMilestones`
  * so a new brokerage's odd task name is visible rather than silently ugly.
  *
- * Mirrors scripts/funnel-audit-labels.ts. Kept as a separate copy on
- * purpose: scripts/ is excluded from the Next build (see tsconfig), so
- * src/ cannot import from it.
+ * Deliberately NOT shared with src/lib/reports/branch-report-labels.ts, which
+ * the branch report uses. The two answer different questions and must not be
+ * collapsed:
+ *
+ *   branch report  "Submitted, no card"  — where an agent is STUCK, for a push list
+ *   this report    "Submitted"           — what an agent DID, for a dated timeline
+ *
+ * ONBOARDED_RULE below has diverged further still: three outcomes here against
+ * the branch report's two, plus a payment_mode-derived default. Importing that
+ * file would relabel this digest and silently re-introduce the B2B-Coach
+ * zero-onboarded bug described under ONBOARDED_RULE.
+ *
+ * (The old note here pointed at scripts/funnel-audit-labels.ts, which is now
+ * only a re-export shim; the definitions moved under src/ on 2026-11-09.)
  */
 const MILESTONE_LABELS: Record<string, string> = {
   'Confirm Your Information': 'Submitted',
