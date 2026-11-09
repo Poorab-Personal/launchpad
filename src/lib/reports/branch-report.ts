@@ -729,6 +729,17 @@ export async function computeBranchReport(rawOpts: BranchReportOptions) {
     labelOrder.push(...kept, SUBSCRIBED, UNBILLED, LAPSED);
   }
 
+  /**
+   * The stages worth chasing: agents who began sign-up and stalled part-way.
+   *
+   * Derived by exclusion rather than listed by name, so a workflow that adds a
+   * milestone picks it up automatically. 'Booked' is deliberately NOT here —
+   * those agents have a call on the calendar and are already moving. Lapsed is
+   * a win-back, a different motion, and Unbilled is ours to fix, not theirs.
+   */
+  const settled = new Set<string>([SUBSCRIBED, UNBILLED, LAPSED, 'Booked', 'Onboarded', EXISTING]);
+  const opportunityStages = labelOrder.filter((l) => !settled.has(l));
+
   // ---------- ordering ----------
   const stageRank: Record<string, number> = Object.fromEntries(
     [SUBSCRIBED, EXISTING, 'Onboarded', UNBILLED, LAPSED, ...milestones.map((m) => m.bucketLabel).reverse(), STARTED_LABEL].map((s, i) => [s, i]),
@@ -957,6 +968,7 @@ export async function computeBranchReport(rawOpts: BranchReportOptions) {
     internalHeader,
     externalHeader,
     labelOrder,
+    opportunityStages,
     shortLabel,
     unmapped,
     summary,
@@ -1021,24 +1033,35 @@ function statTiles(cells: Array<{ n: string; l: string; s: string }>): string {
   // Width and type size follow the tile count so a five-tile row does not
   // overflow 100% or wrap the numbers. Email clients ignore flexbox, so this
   // is a real table with explicit widths.
-  const w = (100 / Math.max(1, cells.length)).toFixed(2);
-  const numSize = cells.length > 4 ? 26 : 30;
-  const pad = cells.length > 4 ? '14px 12px' : '14px 16px';
-  return `
-  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:0 0 26px -8px;">
-    <tr>${cells
-      .map(
-        (c) => `<td style="width:${w}%;background:#fbf8ef;border:1px solid #e4dcc6;border-radius:4px;padding:${pad};vertical-align:top;">
+  // Past five, a single row squeezes each tile below the width its own number
+  // needs, so the row wraps mid-figure. Chunk into rows of three instead.
+  const perRow = cells.length > 5 ? 3 : cells.length;
+  const rows: Array<typeof cells> = [];
+  for (let i = 0; i < cells.length; i += perRow) rows.push(cells.slice(i, i + perRow));
+  const w = (100 / Math.max(1, perRow)).toFixed(2);
+  const numSize = perRow > 4 ? 26 : 30;
+  const pad = perRow > 4 ? '14px 12px' : '14px 16px';
+  const row = (cs: typeof cells) => `<tr>${cs
+    .map(
+      (c) => `<td style="width:${w}%;background:#fbf8ef;border:1px solid #e4dcc6;border-radius:4px;padding:${pad};vertical-align:top;">
           <div style="font-size:${numSize}px;line-height:1;color:#044439;font-weight:700;">${escHtml(c.n)}</div>
           <div style="font-size:12px;color:#4e6259;padding-top:5px;">${escHtml(c.l)}</div>
           <div style="font-size:11px;color:#7c8d85;padding-top:2px;">${c.s}</div>
         </td>`,
-      )
-      .join('')}</tr>
+    )
+    .join('')}</tr>`;
+  return `
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;border-spacing:8px 8px;margin:0 0 26px -8px;">
+    ${rows.map(row).join('')}
   </table>`;
 }
 
-function funnelBar(labelOrder: string[], stages: Record<string, number>, total: number): string {
+function funnelBar(
+  labelOrder: string[],
+  stages: Record<string, number>,
+  total: number,
+  opportunityStages: string[] = [],
+): string {
   const shown = labelOrder.filter((l) => (stages[l] ?? 0) > 0);
   if (!shown.length || !total) return '';
   const cells = shown
@@ -1050,22 +1073,42 @@ function funnelBar(labelOrder: string[], stages: Record<string, number>, total: 
       return `<td width="${pct.toFixed(2)}%" bgcolor="${ink.bg}" style="background:${ink.bg};color:${ink.on};font-size:11px;font-weight:700;text-align:center;padding:13px 0;">${label}</td>`;
     })
     .join('');
+  const opportunity = new Set(opportunityStages);
+  const chip =
+    `<span style="display:inline-block;background:#F6E8D2;color:#8A5114;font-size:10px;` +
+    `font-weight:700;padding:1px 7px;border-radius:9px;margin-left:7px;white-space:nowrap;">` +
+    `QUICK WIN</span>`;
   const legend = labelOrder
     .map((l) => {
       const ink = STAGE_INK[l] ?? { bg: '#5C6E75', on: '#F7F3E5' };
+      const isOpp = opportunity.has(l) && (stages[l] ?? 0) > 0;
       return `<tr>
         <td width="14" style="padding:5px 8px 5px 0;vertical-align:top;"><div style="width:11px;height:11px;border-radius:2px;background:${ink.bg};"></div></td>
-        <td style="padding:5px 0;font-size:12px;color:#14241f;"><strong>${escHtml(l)}</strong>
+        <td style="padding:5px 0;font-size:12px;color:#14241f;"><strong>${escHtml(l)}</strong>${isOpp ? chip : ''}
           <span style="color:#4e6259;"> &mdash; ${escHtml(STAGE_BLURB[l] ?? '')}</span></td>
         <td style="padding:5px 0 5px 12px;font-size:13px;color:#14241f;text-align:right;font-weight:700;white-space:nowrap;">${stages[l] ?? 0}</td>
       </tr>`;
     })
     .join('');
+
+  // The part-way total, called out once. These agents have already said yes
+  // to something; they close faster than anyone on the untouched list, which
+  // is the whole argument for working this list before cold outreach.
+  const oppTotal = opportunityStages.reduce((a, l) => a + (stages[l] ?? 0), 0);
+  const callout = oppTotal
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 28px 0;">
+        <tr><td style="background:#FBF4E8;border-left:3px solid #B06A24;border-radius:3px;padding:11px 14px;font-size:12.5px;color:#14241f;line-height:1.5;">
+          <strong>${oppTotal} agent${oppTotal === 1 ? '' : 's'} stopped part-way through sign-up.</strong>
+          <span style="color:#4e6259;">Marked <strong style="color:#8A5114;">QUICK WIN</strong> above &mdash; they have already started, so a nudge from the office usually finishes it. Worth clearing before working the untouched list.</span>
+        </td></tr>
+      </table>`
+    : '';
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 14px 0;border-radius:3px;overflow:hidden;">
     <tr>${cells}</tr>
   </table>
-  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 28px 0;">${legend}</table>`;
+  <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 14px 0;">${legend}</table>
+  ${callout}`;
 }
 
 function branchBars(
@@ -1102,6 +1145,7 @@ function buildEmailHtml(o: {
   totalRow: { branch: string; rosterAgents: number; inLp: number; pct: string; stages: Record<string, number>; trial: number; paying: number };
   branches: Branch[];
   branchLabel: (b: Branch) => string;
+  opportunityStages: string[];
   detail: boolean;
   slug: string;
   external: boolean;
@@ -1188,6 +1232,10 @@ function buildEmailHtml(o: {
     const rosterBase = oneOffice ? scoped[0].rosterAgents : o.totals.rosterAgents;
     const reachBase = oneOffice ? scoped[0].agents.length : reached;
     const pct = (num: number, den: number) => (den ? `${((num / den) * 100).toFixed(1)}%` : '—');
+    const ofBase = oneOffice ? 'Of the office' : 'Of the roster';
+    // Counts first, then the three rates that connect them. The rates read as
+    // one chain: this share of the roster engaged, this share of those
+    // subscribed, which leaves this share of the roster live today.
     const stats = [
       {
         n: reachBase.toLocaleString('en-US'),
@@ -1202,8 +1250,13 @@ function buildEmailHtml(o: {
         s: `${o.totals.paying} paying &middot; ${o.totals.trial} on trial`,
       },
       {
+        n: Math.max(0, rosterBase - reachBase).toLocaleString('en-US'),
+        l: 'Not yet started',
+        s: 'the push list',
+      },
+      {
         n: pct(reachBase, rosterBase),
-        l: oneOffice ? 'Of the office' : 'Of the roster',
+        l: ofBase,
         s: 'have raised a hand',
       },
       {
@@ -1212,9 +1265,9 @@ function buildEmailHtml(o: {
         s: 'have subscribed',
       },
       {
-        n: Math.max(0, rosterBase - reachBase).toLocaleString('en-US'),
-        l: 'Not yet started',
-        s: 'the push list',
+        n: pct(subscribed, rosterBase),
+        l: ofBase,
+        s: 'are subscribed today',
       },
     ];
 
@@ -1229,7 +1282,7 @@ function buildEmailHtml(o: {
     visualsHtml =
       statTiles(stats) +
       `<h3 style="margin:0 0 10px 0;font-size:14px;color:#14241f;">Where they stand</h3>` +
-      funnelBar(o.labelOrder, stageTotals, stageSum) +
+      funnelBar(o.labelOrder, stageTotals, stageSum, o.opportunityStages) +
       (oneOffice
         ? ''
         : `<h3 style="margin:0 0 10px 0;font-size:14px;color:#14241f;">Reach by office</h3>` +
@@ -1326,6 +1379,7 @@ export function renderBranchReportHtml(
     totalRow: r.totalRow,
     branches: r.branches,
     branchLabel: r.branchLabel,
+    opportunityStages: r.opportunityStages,
     detail,
     slug: r.slug,
     external: r.external,
