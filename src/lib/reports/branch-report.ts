@@ -1018,12 +1018,18 @@ const STAGE_BLURB: Record<string, string> = {
 };
 
 function statTiles(cells: Array<{ n: string; l: string; s: string }>): string {
+  // Width and type size follow the tile count so a five-tile row does not
+  // overflow 100% or wrap the numbers. Email clients ignore flexbox, so this
+  // is a real table with explicit widths.
+  const w = (100 / Math.max(1, cells.length)).toFixed(2);
+  const numSize = cells.length > 4 ? 26 : 30;
+  const pad = cells.length > 4 ? '14px 12px' : '14px 16px';
   return `
   <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;border-spacing:8px 0;margin:0 0 26px -8px;">
     <tr>${cells
       .map(
-        (c) => `<td style="width:25%;background:#fbf8ef;border:1px solid #e4dcc6;border-radius:4px;padding:14px 16px;vertical-align:top;">
-          <div style="font-size:30px;line-height:1;color:#044439;font-weight:700;">${escHtml(c.n)}</div>
+        (c) => `<td style="width:${w}%;background:#fbf8ef;border:1px solid #e4dcc6;border-radius:4px;padding:${pad};vertical-align:top;">
+          <div style="font-size:${numSize}px;line-height:1;color:#044439;font-weight:700;">${escHtml(c.n)}</div>
           <div style="font-size:12px;color:#4e6259;padding-top:5px;">${escHtml(c.l)}</div>
           <div style="font-size:11px;color:#7c8d85;padding-top:2px;">${c.s}</div>
         </td>`,
@@ -1172,19 +1178,45 @@ function buildEmailHtml(o: {
 
   let visualsHtml = '';
   if (o.external) {
-    const stats = oneOffice
-      ? [
-          { n: String(scoped[0].agents.length), l: 'Raised a hand', s: `of ${scoped[0].rosterAgents} agents at this office` },
-          { n: String(o.totals.paying + o.totals.trial), l: 'Subscribed', s: `${o.totals.paying} paying &middot; ${o.totals.trial} on trial` },
-          { n: scoped[0].rosterAgents ? `${((scoped[0].agents.length / scoped[0].rosterAgents) * 100).toFixed(1)}%` : '', l: 'Of the office', s: 'have raised a hand' },
-          { n: String(Math.max(0, scoped[0].rosterAgents - scoped[0].agents.length)), l: 'Not yet started', s: 'the push list' },
-        ]
-      : [
-          { n: reached.toLocaleString('en-US'), l: 'Raised a hand', s: `of ${o.totals.rosterAgents.toLocaleString('en-US')} agents on the roster` },
-          { n: String(o.totals.paying + o.totals.trial), l: 'Subscribed', s: `${o.totals.paying} paying &middot; ${o.totals.trial} on trial` },
-          { n: o.totals.rosterAgents ? `${((reached / o.totals.rosterAgents) * 100).toFixed(1)}%` : '', l: 'Company-wide', s: `across ${o.summary.filter((x) => x.rosterAgents > 0).length} offices` },
-          { n: Math.max(0, o.totals.rosterAgents - reached).toLocaleString('en-US'), l: 'Not yet started', s: 'the push list' },
-        ];
+    // Two rates, not one. Reach (of the roster, how many engaged at all) is the
+    // size of the opportunity; conversion (of those who engaged, how many
+    // subscribed) is what the opportunity is worth. A single blended
+    // percentage hides which of the two is the actual constraint — and for
+    // every brokerage so far it is reach, not conversion.
+    const subscribed = o.totals.paying + o.totals.trial;
+    const officeCount = o.summary.filter((x) => x.rosterAgents > 0).length;
+    const rosterBase = oneOffice ? scoped[0].rosterAgents : o.totals.rosterAgents;
+    const reachBase = oneOffice ? scoped[0].agents.length : reached;
+    const pct = (num: number, den: number) => (den ? `${((num / den) * 100).toFixed(1)}%` : '—');
+    const stats = [
+      {
+        n: reachBase.toLocaleString('en-US'),
+        l: 'Raised a hand',
+        s: oneOffice
+          ? `of ${rosterBase.toLocaleString('en-US')} agents at this office`
+          : `of ${rosterBase.toLocaleString('en-US')} agents across ${officeCount} offices`,
+      },
+      {
+        n: String(subscribed),
+        l: 'Subscribed',
+        s: `${o.totals.paying} paying &middot; ${o.totals.trial} on trial`,
+      },
+      {
+        n: pct(reachBase, rosterBase),
+        l: oneOffice ? 'Of the office' : 'Of the roster',
+        s: 'have raised a hand',
+      },
+      {
+        n: pct(subscribed, reachBase),
+        l: 'Of those who started',
+        s: 'have subscribed',
+      },
+      {
+        n: Math.max(0, rosterBase - reachBase).toLocaleString('en-US'),
+        l: 'Not yet started',
+        s: 'the push list',
+      },
+    ];
 
     const stageTotals = oneOffice
       ? o.labelOrder.reduce<Record<string, number>>((acc, l) => {

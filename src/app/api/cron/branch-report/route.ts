@@ -40,23 +40,34 @@ type Recipient = {
   subject: string;
 };
 
+const INTERNAL = ['poorab@rejig.ai', 'matt@rejig.ai', 'success@rejig.ai'];
+
 /**
  * Who gets which report. Add a brokerage here once its roster sync and Stripe
  * plans are live — nothing else needs to change.
  *
- * Currently routed internally while the format is reviewed; swap `to` for the
- * brokerage's own distribution list to send direct.
+ * Each list is PER BROKERAGE and must stay that way. A report names that
+ * brokerage's agents, their office, and where each one stalled, so a
+ * cross-listed address would hand one brokerage another's roster. Keyes staff
+ * belong on the Keyes entry only.
  */
 const RECIPIENTS: Recipient[] = [
   {
     slug: 'keyes',
-    to: ['poorab@rejig.ai'],
+    to: [
+      ...INTERNAL,
+      'MadelineMordarski@keyes.com',
+      'brigitteprado@keyes.com',
+      'aaronfisk@keyes.com',
+    ],
     exclude: ['@rejig.ai', 'mattmadden@kw.com'],
     subject: 'Rejig across Keyes — where every agent stands',
   },
   {
+    // Internal only: no Illustrated Properties contacts supplied yet. Add them
+    // here — do NOT reuse the Keyes list.
     slug: 'ipre',
-    to: ['poorab@rejig.ai'],
+    to: INTERNAL,
     exclude: ['@rejig.ai'],
     subject: 'Rejig across Illustrated Properties — where every agent stands',
   },
