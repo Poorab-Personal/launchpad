@@ -81,6 +81,10 @@ export const brokerageRoster = pgTable(
     unboardedIdx: index('idx_brokerage_roster_unboarded')
       .on(table.brokerageId)
       .where(sql`${table.customerId} IS NULL AND ${table.deletedAt} IS NULL`),
+    // Rejig sync panel resolves agent first/last name by customer_id.
+    customerIdIdx: index('idx_brokerage_roster_customer_id')
+      .on(table.customerId)
+      .where(sql`${table.customerId} IS NOT NULL`),
   }),
 );
 

@@ -51,12 +51,12 @@ Layer 3: Next.js                    — /r portal (customers), /b landing (B2B
 - **Customer portal at `/r/[accessToken]`** where `accessToken` is a UUID on the `customers` table (not the row id — separate, indexed, unique).
 - **Atomic customer creation.** `POST /api/customers` inserts the Customer + generates all tasks + wires dependencies + logs the Customer Created event inside a single `db.transaction`. Either all happens or none does — replaces the legacy Airtable Auto-1 race.
 
-## Data Model (17 Postgres tables + 22 enums)
+## Data Model (18 Postgres tables + 22 enums)
 
 Operational:
 | Table | Purpose |
 |---|---|
-| `customers` | One row per customer/agent being onboarded (87 columns) |
+| `customers` | One row per customer/agent being onboarded (90 columns, incl. `brand_kit`) |
 | `tasks` | All tasks (client + team) per customer |
 | `task_dependencies` | Junction table for task graph |
 | `calls` | CSM/onboarding calls per customer (Calendly-keyed for idempotency) |
@@ -67,6 +67,7 @@ Operational:
 | `customer_state_transitions` | Append-only onboarding-state log; also the HubSpot echo-suppression ledger |
 | `customer_usage_signals` | Rejig product-engagement signals, written by the Sunday BI cron |
 | `hubspot_inbound_events` | Raw inbound HubSpot webhook events, for idempotency + replay |
+| `rejig_sync_attempts` | Every push of a customer to Rejig's onboarding staging API (dev/prod), for audit + the sync panel |
 
 Config / reference:
 | Table | Purpose |

@@ -4,6 +4,11 @@ import { updateCustomerFields } from '@/lib/db';
 // Whitelist of customer fields the PATCH endpoint accepts. Anything outside
 // this list is silently dropped (prevents accidental writes to system fields
 // like access_token, id, created_at). Drizzle accepts camelCase keys directly.
+//
+// This route is unauthenticated (the portal form uses it), so nothing that is
+// pushed to Rejig as designer/ops-owned data may be listed here: productTier
+// (→ account_type), brandKit, firstName, lastName. Those are written only by
+// role-checked workspace server actions.
 const ALLOWED: ReadonlySet<string> = new Set([
   'name',
   'contactEmail',
@@ -26,7 +31,6 @@ const ALLOWED: ReadonlySet<string> = new Set([
   'hubspotDealId',
   'stripePaymentId',
   'addOnStripePaymentId',
-  'productTier',
   'paymentStatus',
   'designApproval',
   'currentStage',

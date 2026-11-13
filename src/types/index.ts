@@ -1,3 +1,5 @@
+import type { BrandKit } from '@/lib/brand-kit';
+
 // ─── Enums / Union Types ─────────────────────────────────────────────
 
 export type CustomerType = 'D2C' | 'B2B';
@@ -96,6 +98,9 @@ export interface Customer {
 
   // Identity
   name: string;
+  /** Agent first / last name as last sent to Rejig. null = never synced. */
+  firstName: string | null;
+  lastName: string | null;
   type: CustomerType;
   channel: string;
   workflowKey: string;
@@ -171,6 +176,8 @@ export interface Customer {
   designDrafts: AirtableAttachment[];
   /** Stamped only when Kaushal sends a curated set to the customer (Upload Proof to Customer or Upload Revised Proof). */
   designProofsUpdatedAt: string;
+  /** Structured brand kit (designer). null = not started. Pushed to Rejig. */
+  brandKit: BrandKit | null;
 
   // Add-ons
   hasVoice: boolean;

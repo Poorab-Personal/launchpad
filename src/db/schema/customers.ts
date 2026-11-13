@@ -50,6 +50,12 @@ export const customers = pgTable(
 
     // Identity
     name: text('name').notNull(),
+    // Agent first / last name as last sent to Rejig. `name` is often the
+    // business ("The Zeuner Team"), so the Rejig sync panel resolves these
+    // from the roster and saves whatever the Account Creator confirms.
+    // NULL = never synced; no backfill.
+    firstName: text('first_name'),
+    lastName: text('last_name'),
     type: customerTypeEnum('type').notNull(),
     channelId: uuid('channel_id').notNull().references(() => channels.id),         // FK — typo-class sealed
     workflowKey: text('workflow_key').notNull(),                                   // resolved at insert from channels.code: `${type}-${code}`
@@ -145,6 +151,10 @@ export const customers = pgTable(
     designProof: jsonb('design_proof'),                                            // customer-facing curated set
     designDrafts: jsonb('design_drafts'),                                          // internal WIP, never customer-visible
     designProofsUpdatedAt: timestamp('design_proofs_updated_at', { withTimezone: true }),
+    // Structured brand kit the designer fills during Create Designs; source of
+    // every design field pushed to Rejig. Shape: BrandKit in src/lib/brand-kit.ts.
+    // NULL = not started. See docs/plans/rejig-account-sync.md.
+    brandKit: jsonb('brand_kit'),
 
     // Add-ons
     hasVoice: boolean('has_voice').notNull().default(false),

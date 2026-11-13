@@ -33,7 +33,7 @@ in Rejig (that also sends the customer the credentials email downstream).
 | # | Decision |
 |---|---|
 | D1 | Brand kit lives **per customer**, filled by the designer. No brokerage-level defaults for now — designers almost always upload right-sized logos, and agent logos are often combined with the brokerage logo. |
-| D2 | Designer owns: logos, palette, logo selection, team logo selection, fonts, toggles, logo sizes, `account_type`, `footer_label`, `affiliation`, search tags. Account Creator only presses Sync. |
+| D2 | Designer owns: logos, palette, logo selection, team logo selection, fonts, toggles, logo sizes, `account_type`, `footer_label`, `affiliation`, search tags. Account Creator presses Sync, and can also edit the kit to fix it up before syncing (decided 2026-11-12). |
 | D3 | `account_type` is designer-entered. LaunchPad does not know it: `customers.product_tier` (Premium/Luxury enum) exists but is NULL on all 964 customers, and plan names don't encode a tier. We reuse `product_tier` rather than add a column. |
 | D4 | **Block `Create Designs` completion until the brand kit's required fields are filled** (applies to D2C too). Empty data must not be pushed. |
 | D5 | Sync does NOT complete any task. Mark Account Created stays manual. |
@@ -192,8 +192,14 @@ Selection row, Apply Fixed Logo Height toggle, Brand Fonts with toggle,
 font dropdowns and line heights, Brand / Team Logo Sizes, then Account type,
 Footer label, Affiliation, Search tags.
 
-Editable by Designer + Admin at any time (D2C revisions can change it later).
-Visible read-only to the Account Creator. The `Create Designs` action panel
+Editable by Designer, Senior Designer, Account Creator and Admin at any time
+(D2C revisions can change it later). Read-only for everyone else.
+
+Placement and modes (agreed 2026-11-12 from a preview): the card sits between
+"Sent to Customer" and "Intake Form Details". It opens as the full editor only
+when the viewer can edit and the kit is incomplete; otherwise it shows a
+compact summary (logos, palette with each chosen logo, fonts, account fields)
+with an Edit button for editors. The `Create Designs` action panel
 shows a completeness checklist and disables Upload & Mark Complete until it's
 complete.
 

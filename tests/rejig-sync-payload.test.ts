@@ -6,7 +6,13 @@
  * (saved → roster → guessed), and the "no empty data pushed" pre-flight.
  */
 import { describe, it, expect } from 'vitest';
-import { brandKitMissing, emptyBrandKit, type BrandKit } from '@/lib/brand-kit';
+import {
+  brandKitMissing,
+  emptyBrandKit,
+  parseBrandKit,
+  sanitizeBrandKitFields,
+  type BrandKit,
+} from '@/lib/brand-kit';
 import {
   buildRejigPayload,
   normalizeWebsite,
@@ -269,5 +275,42 @@ describe('syncPreflight', () => {
 
   it('passes a complete customer', () => {
     expect(syncPreflight({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() })).toEqual([]);
+  });
+});
+
+describe('sanitizeBrandKitFields / parseBrandKit', () => {
+  it('coerces junk form input into a safe draft', () => {
+    const f = sanitizeBrandKitFields({
+      palette: ['#00395D', '#fff', 42, '#F2F2F2', '#666666', '#EXTRA0'],
+      logoSelection: ['logo', 'not-a-variant'],
+      applyCustomFont: 'yes',
+      fonts: { primary: { value: 'Inter', lineHeight: '1.15' }, secondary: { value: '' } },
+      brandLogoSizes: { facebookSquare: -5, instagram: '80' },
+      footerLabel: '  Keyes-Deb-Slavin-Footer  ',
+      affiliation: { value: 'Keyes' },
+      imageSearchTags: ['keyes', 'keyes', '', 'luxury'],
+      logos: { primary: { url: 'https://evil.example/x.png' } },
+    });
+    expect(f.palette).toEqual(['#00395D', '#fff', '', '#F2F2F2', '#666666']);
+    expect(f.logoSelection).toEqual(['logo', 'logo']);
+    expect(f.applyCustomFont).toBe(false);
+    expect(f.fonts.primary).toEqual({ value: 'Inter', label: 'Inter', lineHeight: 1.15 });
+    expect(f.fonts.secondary).toBeUndefined();
+    expect(f.brandLogoSizes).toEqual({ facebookSquare: 100, instagram: 80 });
+    expect(f.footerLabel).toBe('Keyes-Deb-Slavin-Footer');
+    expect(f.affiliation).toEqual({ value: 'Keyes', label: 'Keyes' });
+    expect(f.imageSearchTags).toEqual(['keyes', 'luxury']);
+    // The form never writes logos — they have their own action.
+    expect('logos' in f).toBe(false);
+  });
+
+  it('parses stored kits and rejects non-objects', () => {
+    expect(parseBrandKit(null)).toBeNull();
+    expect(parseBrandKit([])).toBeNull();
+    const k = parseBrandKit({ logos: { primary: { url: 'https://x/l.png', filename: 'l.png' } }, footerLabel: 'F' });
+    expect(k?.logos.primary?.url).toBe('https://x/l.png');
+    expect(k?.logos.black).toBeUndefined();
+    expect(k?.footerLabel).toBe('F');
+    expect(k?.brandLogoSizes).toEqual({ facebookSquare: 100, instagram: 100 });
   });
 });

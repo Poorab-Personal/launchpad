@@ -20,6 +20,8 @@ dotenv.config({ path: '.env.local' });
  *   npx tsx scripts/rejig-sync-preview.ts --ids <uuid>,<uuid> # specific customers
  *   npx tsx scripts/rejig-sync-preview.ts --ids <uuid> --send-dev
  *   npx tsx scripts/rejig-sync-preview.ts --brand-kit path/to/kit.json
+ *   npx tsx scripts/rejig-sync-preview.ts --ids <uuid> --saved-kit --send-dev
+ *     (use the kit filled in LaunchPad's Brand Kit card instead of the fixture)
  */
 
 import fs from 'node:fs';
@@ -32,6 +34,7 @@ function arg(flag: string): string | undefined {
 
 async function main() {
   const sendDev = process.argv.includes('--send-dev');
+  const useSavedKit = process.argv.includes('--saved-kit');
   const idsArg = arg('--ids');
   const kitPath = arg('--brand-kit') ?? 'scripts/fixtures/rejig-brand-kit.example.json';
 
@@ -90,15 +93,20 @@ async function main() {
 
     const fallbackLogo =
       customer.businessLogo[0]?.url || brokerage?.masterLogoUrl || '';
-    const brandKit: BrandKit = {
-      ...fixture.brandKit,
-      logos: {
-        ...fixture.brandKit.logos,
-        primary: fixture.brandKit.logos?.primary ?? (fallbackLogo ? { url: fallbackLogo } : undefined),
-      },
-    };
+    const brandKit: BrandKit | null = useSavedKit
+      ? customer.brandKit
+      : {
+          ...fixture.brandKit,
+          logos: {
+            ...fixture.brandKit.logos,
+            primary: fixture.brandKit.logos?.primary ?? (fallbackLogo ? { url: fallbackLogo } : undefined),
+          },
+        };
+    const productTier = useSavedKit
+      ? customer.productTier
+      : (customer.productTier ?? fixture.accountType ?? null);
     const input = {
-      customer: { ...customer, productTier: customer.productTier ?? fixture.accountType ?? null },
+      customer: { ...customer, productTier },
       brokerage: brokerage ? { name: brokerage.name, shortName: brokerage.shortName } : null,
       name,
       brandKit,

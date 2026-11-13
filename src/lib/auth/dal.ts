@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { readSessionCookie, type SessionPayload } from './session';
 import { readViewAs } from './view-as';
-import { getTeamMemberById } from '@/lib/db';
+import { getTeamMemberAccess, getTeamMemberById } from '@/lib/db';
 
 // Sessions issued pre-Postgres-migration stored Airtable rec IDs as
 // memberId (`recXXXXXXXXXXXXX`). Post-migration, memberId is a Postgres
@@ -87,6 +87,21 @@ export async function requireAdminWrite(): Promise<SessionPayload> {
     throw new Error('Forbidden: admin write access required');
   }
   return session;
+}
+
+/**
+ * Whether the signed-in member *currently* holds one of `allowedRoles`.
+ * Reads team_members live: `session.role` is roles[0] frozen at sign-in, so
+ * it misses multi-role members, role changes, and deactivation. Admin always
+ * passes. Use for write actions; page rendering can keep using the session.
+ */
+export async function hasLiveRole(
+  session: SessionPayload,
+  allowedRoles: readonly string[],
+): Promise<boolean> {
+  const access = await getTeamMemberAccess(session.memberId);
+  if (!access?.active) return false;
+  return access.roles.some((r) => r === 'Admin' || allowedRoles.includes(r));
 }
 
 export type EffectiveContext = {

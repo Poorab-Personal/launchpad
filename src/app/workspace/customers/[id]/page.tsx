@@ -25,6 +25,13 @@ import CreateAccountAction from './CreateAccountAction';
 import SendCredentialsAction from './SendCredentialsAction';
 import { resolveTempPassword } from '@/lib/temp-password';
 import CopyableField from './CopyableField';
+import BrandKitCard from './BrandKitCard';
+import { BRAND_KIT_EDITOR_ROLES } from '@/lib/brand-kit';
+import {
+  getAffiliations,
+  getFonts,
+  REJIG_OPTIONS_ARE_PLACEHOLDERS,
+} from '@/lib/integrations/rejig/options';
 import { groupDrafts, formatGroupStamp } from './draft-groups';
 import { TaskInstructions } from '@/components/TaskInstructions';
 
@@ -303,12 +310,14 @@ export default async function CustomerDetailPage({
   const { id: customerId } = await params;
   const { taskId: highlightTaskId } = await searchParams;
 
-  const [customer, tasks, members, ctx, internalNotes] = await Promise.all([
+  const [customer, tasks, members, ctx, internalNotes, affiliations, fonts] = await Promise.all([
     getCustomerById(customerId),
     getTasksForCustomer(customerId),
     getTeamMembers(),
     getEffectiveContext(session),
     getInternalNotes(customerId),
+    getAffiliations(),
+    getFonts(),
   ]);
 
   if (!customer) notFound();
@@ -370,6 +379,17 @@ export default async function CustomerDetailPage({
     ctx.role === 'Admin' ||
     ctx.role === 'CSM' ||
     ctx.role === 'Senior CSM';
+  // Designers fill the brand kit; the Account Creator can fix it before
+  // syncing. Effective role, so view-as previews the right UI; the server
+  // action re-checks live roles.
+  const canEditBrandKit =
+    ctx.role === 'Admin' || (BRAND_KIT_EDITOR_ROLES as readonly string[]).includes(ctx.role);
+  const brandKitInProgress = coreTasks.some(
+    (t) =>
+      t.status === 'Active' &&
+      (t.taskName === 'Create Designs' || t.taskName === 'Create Customer Account'),
+  );
+
   const csmOptions: CSMOption[] = members
     .filter((m) => (m.role === 'CSM' || m.role === 'Senior CSM') && m.active)
     .map((m) => ({ id: m.id, name: m.name }));
@@ -465,6 +485,7 @@ export default async function CustomerDetailPage({
             </div>
             <InternalNotesThread notes={internalNotes} mode="full" />
           </section>
+
 
           <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
             <div className="mb-4">
@@ -608,6 +629,17 @@ export default async function CustomerDetailPage({
               </div>
             )}
           </section>
+
+          <BrandKitCard
+            customerId={customerId}
+            brandKit={customer.brandKit}
+            productTier={customer.productTier}
+            canEdit={canEditBrandKit}
+            kitInProgress={brandKitInProgress}
+            affiliations={affiliations}
+            fonts={fonts}
+            optionsArePlaceholders={REJIG_OPTIONS_ARE_PLACEHOLDERS}
+          />
 
           <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1B2E35]/70 mb-5">

@@ -23,6 +23,7 @@ import { and, asc, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { db as defaultDb } from '@/db';
 import * as schema from '@/db/schema';
 import type { ChangeSource } from '@/db/schema/customerStateTransitions';
+import { LOGO_SLOTS, parseBrandKit, type BrandKitFields, type LogoSlot } from '@/lib/brand-kit';
 import type {
   AirtableAttachment,
   Brokerage,
@@ -32,6 +33,7 @@ import type {
   Event,
   InternalNote,
   InternalNoteAttachment,
+  ProductTier,
   RosterAgent,
   StripePlan,
   Task,
@@ -88,6 +90,8 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
 
     // Identity
     name: row.name,
+    firstName: row.firstName ?? null,
+    lastName: row.lastName ?? null,
     type: row.type,
     channel: channelCode,
     workflowKey: row.workflowKey,
@@ -151,6 +155,7 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
     designProof: mapAttachments(row.designProof),
     designDrafts: mapAttachments(row.designDrafts),
     designProofsUpdatedAt: iso(row.designProofsUpdatedAt),
+    brandKit: parseBrandKit(row.brandKit),
 
     // Status tracking
     currentStage: row.currentStage,
@@ -498,6 +503,69 @@ export async function updateCustomerFields(
     .returning();
   if (!row) throw new Error(`Customer ${id} not found`);
   return mapDbCustomer(row, await channelCodeFor(row.channelId));
+}
+
+// ─── Public API: Brand kit ──────────────────────────────────────────────
+//
+// The form and the logo uploads write disjoint parts of customers.brand_kit
+// so neither can clobber the other: the form merges every top-level key
+// except `logos`; a logo upload sets one `logos.<slot>`.
+
+/** Rejig copies whatever URL we send, so only accept our own Blob store. */
+function isOwnBlobUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname.endsWith('.public.blob.vercel-storage.com');
+  } catch {
+    return false;
+  }
+}
+
+export async function saveBrandKitFields(
+  customerId: string,
+  fields: BrandKitFields,
+  productTier: ProductTier | null,
+  actorId: string,
+): Promise<void> {
+  const patch = { ...fields, updatedAt: new Date().toISOString(), updatedBy: actorId };
+  const [row] = await db
+    .update(schema.customers)
+    .set({
+      brandKit: sql`COALESCE(${schema.customers.brandKit}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`,
+      productTier,
+    })
+    .where(eq(schema.customers.id, customerId))
+    .returning({ id: schema.customers.id });
+  if (!row) throw new Error(`Customer ${customerId} not found`);
+}
+
+/** Set (or, with `attachment` null, clear) one brand-kit logo slot. */
+export async function saveBrandKitLogo(
+  customerId: string,
+  slot: LogoSlot,
+  attachment: AirtableAttachment | null,
+  actorId: string,
+): Promise<void> {
+  if (!(LOGO_SLOTS as readonly string[]).includes(slot)) {
+    throw new Error(`Unknown logo slot: ${slot}`);
+  }
+  if (attachment && !isOwnBlobUrl(attachment.url)) {
+    throw new Error('Logo must be uploaded to LaunchPad storage.');
+  }
+  const stamp = JSON.stringify({ updatedAt: new Date().toISOString(), updatedBy: actorId });
+  // Make sure `logos` exists before jsonb_set — it won't create a missing parent.
+  const base = sql`(COALESCE(${schema.customers.brandKit}, '{}'::jsonb)
+    || jsonb_build_object('logos', COALESCE(${schema.customers.brandKit} -> 'logos', '{}'::jsonb))
+    || ${stamp}::jsonb)`;
+  const next = attachment
+    ? sql`jsonb_set(${base}, ARRAY['logos', ${slot}]::text[], ${JSON.stringify(attachment)}::jsonb)`
+    : sql`${base} #- ARRAY['logos', ${slot}]::text[]`;
+  const [row] = await db
+    .update(schema.customers)
+    .set({ brandKit: next })
+    .where(eq(schema.customers.id, customerId))
+    .returning({ id: schema.customers.id });
+  if (!row) throw new Error(`Customer ${customerId} not found`);
 }
 
 // ─── Public API: Post-launch state transitions (BI write primitive) ─────
@@ -1247,6 +1315,20 @@ export async function getTeamMemberByEmail(email: string): Promise<TeamMember | 
     where: eq(schema.teamMembers.email, email),
   });
   return row ? mapDbTeamMember(row) : null;
+}
+
+/**
+ * Live role check for write actions. The session's `role` is `roles[0]`
+ * frozen at sign-in (30 days) and ignores `active`; this reads the row now.
+ */
+export async function getTeamMemberAccess(
+  id: string,
+): Promise<{ active: boolean; roles: string[] } | null> {
+  const row = await db.query.teamMembers.findFirst({
+    where: eq(schema.teamMembers.id, id),
+    columns: { active: true, roles: true },
+  });
+  return row ? { active: row.active, roles: row.roles ?? [] } : null;
 }
 
 export async function getTeamMemberById(id: string): Promise<TeamMember | null> {
