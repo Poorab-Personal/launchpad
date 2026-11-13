@@ -60,6 +60,80 @@ function splitTags(raw: string): string[] {
   return raw.split(',').map((t) => t.trim()).filter(Boolean);
 }
 
+const MAX_MATCHES = 50;
+
+/**
+ * Type-to-filter picker for Rejig's long lists. Only an option from the list can be picked; clearing the text
+ * clears the pick. A saved value missing from the list still shows.
+ */
+function SearchSelect({
+  options,
+  selected,
+  disabled,
+  placeholder,
+  onChange,
+}: {
+  options: RejigOption[];
+  selected: RejigOption | null;
+  disabled: boolean;
+  placeholder: string;
+  onChange: (opt: RejigOption | null) => void;
+}) {
+  const [query, setQuery] = useState<string | null>(null);
+  const q = (query ?? '').trim().toLowerCase();
+  const matches = useMemo(
+    () => (query === null ? [] : options.filter((o) => o.label.toLowerCase().includes(q)).slice(0, MAX_MATCHES)),
+    [options, query, q],
+  );
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        disabled={disabled}
+        value={query ?? selected?.label ?? ''}
+        placeholder={placeholder}
+        onFocus={() => setQuery('')}
+        onBlur={() => setQuery(null)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          if (e.target.value === '' && selected) onChange(null);
+        }}
+        className={inputClass}
+      />
+      {query !== null && (
+        <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[#E0DEE4] bg-white py-1 text-sm shadow-lg">
+          {matches.length === 0 ? (
+            <li className="px-3 py-1.5 text-[#1B2E35]/40">No matches</li>
+          ) : (
+            matches.map((o) => (
+              <li key={o.value}>
+                <button
+                  type="button"
+                  // mousedown, not click: fires before the input's blur closes the list.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onChange(o);
+                    setQuery(null);
+                  }}
+                  className={`block w-full px-3 py-1.5 text-left hover:bg-[#6C4AB6]/10 ${
+                    o.value === selected?.value ? 'font-semibold text-[#6C4AB6]' : 'text-[#1B2E35]'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              </li>
+            ))
+          )}
+          {matches.length === MAX_MATCHES && (
+            <li className="px-3 py-1.5 text-xs text-[#1B2E35]/40">Keep typing to narrow the list</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function BrandKitCard({
   customerId,
   brandKit,
@@ -68,7 +142,6 @@ export default function BrandKitCard({
   kitInProgress,
   affiliations,
   fonts,
-  optionsArePlaceholders,
 }: {
   customerId: string;
   brandKit: BrandKit | null;
@@ -78,7 +151,6 @@ export default function BrandKitCard({
   kitInProgress: boolean;
   affiliations: RejigOption[];
   fonts: RejigOption[];
-  optionsArePlaceholders: boolean;
 }) {
   const router = useRouter();
   const initial = brandKit ?? emptyBrandKit();
@@ -361,20 +433,13 @@ export default function BrandKitCard({
               return (
                 <div key={key} className="space-y-2">
                   <label className={labelClass}>{label} Font</label>
-                  <select
+                  <SearchSelect
+                    options={fonts}
+                    selected={f?.value ? { value: f.value, label: f.label } : null}
                     disabled={disabled}
-                    value={f?.value ?? ''}
-                    onChange={(e) => {
-                      const opt = fonts.find((o) => o.value === e.target.value);
-                      setFont(key, { value: opt?.value ?? '', label: opt?.label ?? '' });
-                    }}
-                    className={inputClass}
-                  >
-                    <option value="">Choose…</option>
-                    {fonts.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
+                    placeholder="Search fonts…"
+                    onChange={(opt) => setFont(key, { value: opt?.value ?? '', label: opt?.label ?? '' })}
+                  />
                   <label className={labelClass}>{label} Line Height</label>
                   <input
                     type="number"
@@ -462,17 +527,13 @@ export default function BrandKitCard({
         </div>
         <div>
           <label className={labelClass}>Affiliation</label>
-          <select
+          <SearchSelect
+            options={affiliations}
+            selected={kit.affiliation}
             disabled={disabled}
-            value={kit.affiliation?.value ?? ''}
-            onChange={(e) => update({ affiliation: affiliations.find((o) => o.value === e.target.value) ?? null })}
-            className={inputClass}
-          >
-            <option value="">Choose…</option>
-            {affiliations.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+            placeholder="Search affiliations…"
+            onChange={(opt) => update({ affiliation: opt })}
+          />
         </div>
         <div>
           <label className={labelClass}>Other affiliation</label>
@@ -516,9 +577,10 @@ export default function BrandKitCard({
           />
         </div>
       </div>
-      {optionsArePlaceholders && (
-        <p className="text-xs text-[#1B2E35]/40">
-          Affiliation and font lists are placeholders until Rejig&apos;s endpoints are ready.
+      {(affiliations.length === 0 || fonts.length === 0) && (
+        <p className="text-xs text-[#B45309]">
+          Couldn&apos;t load Rejig&apos;s {affiliations.length === 0 ? 'affiliation' : 'font'} list. Try reloading in a
+          minute.
         </p>
       )}
 

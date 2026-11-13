@@ -107,7 +107,9 @@ async function main() {
       : (customer.productTier ?? fixture.accountType ?? null);
     const input = {
       customer: { ...customer, productTier },
-      brokerage: brokerage ? { name: brokerage.name, shortName: brokerage.shortName } : null,
+      brokerage: brokerage
+        ? { name: brokerage.name, shortName: brokerage.shortName, rejigBrokerId: brokerage.rejigBrokerId }
+        : null,
       name,
       brandKit,
     };

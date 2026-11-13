@@ -43,6 +43,10 @@ export const brokerages = pgTable(
     // posts". Tokens `{Name}` and `{shortName}` are substituted in
     // pricing_tagline + workflow_templates.plan_features at API render time.
     shortName: text('short_name'),
+    // Rejig's id for this brokerage ("keyes", "baird"), sent as associated_brokerage on
+    // the onboarding sync. Same string in Rejig dev and prod. We choose it
+    // when adding a brokerage and send it to Rejig. NULL = not registered.
+    rejigBrokerId: text('rejig_broker_id'),
     active: boolean('active').notNull().default(true),
     includesVoice: boolean('includes_voice').notNull().default(false),
     includesAvatar: boolean('includes_avatar').notNull().default(false),

@@ -85,8 +85,7 @@ Source legend: **C** = existing customer column, **R** = brokerage_roster,
 | `google_place_id` | — | null (Rejig resolves in its Reviews panel) |
 | `zillow` | C `zillowProfile` | |
 | `customer_type` | C `type` | `"B2B"` / `"D2C"` |
-| `associated_brokerage` | B `shortName` | null for D2C. Confirm Rejig's expected values (e.g. "Keyes", "BW"). |
-| `broker` | B `shortName` | Rejig sample shows `"broker": "Keyes"`. Confirm whether it differs from `associated_brokerage`. |
+| `associated_brokerage` | B `rejig_broker_id` | Rejig's broker id (`keyes`, `baird`). null for D2C. `broker` is not sent (Rejig is removing it). |
 | `account_type` | K → C `productTier` | D3 |
 | `industry` | constant `"Realtor"` | All current customers are agents. |
 | `footer_label` | K | Designer text, e.g. `Keyes-Kristi-Dye-Footer`. It is a body field (the "endpoint" in Riccardo's screenshot is the same POST). |
@@ -238,12 +237,27 @@ Revise Design rounds are **not** gated: the kit was already gated at Create
 Designs, and the sync pre-flight is the final backstop. (Verified: all six
 live workflows have a Create Designs task.)
 
-### Option lists (stubbed)
+### Option lists (live, 2026-11-12)
 
-`src/lib/integrations/rejig/options.ts` exports `getAffiliations()` and
-`getFonts()`. They return a hardcoded placeholder list until Rejig ships the
-endpoints, then fetch with a short cache. One server action backs both
-dropdowns.
+`src/lib/integrations/rejig/options.ts` reads Rejig's lists, from prod when
+`REJIG_ONBOARDING_PROD_API_KEY` is set (else dev), cached one day:
+
+- Affiliations: `GET /rejig-auth/industries`. Only affiliations whose
+  `industrie_id` is the `Realtor` industry; stored and sent by **name**
+  (Rejig maps it to its id).
+- Fonts: `GET /generator/get_font_list`. One row per weight/style, collapsed
+  to one option per **`fontFamily`**, which is what's sent.
+
+Both pickers are searchable and only fetched for brand-kit editors. A failed
+fetch isn't cached; the card says the list couldn't load.
+
+### Brokerage id
+
+`brokerages.rejig_broker_id` (migration 0029) is sent as
+`associated_brokerage` (Rejig is removing the `broker` field): a text
+slug that is the same in Rejig dev and prod (`keyes`, `baird`, `ipre`, `ruhl`,
+`coach`). We pick it for a new brokerage and send it to Rejig. NULL blocks the
+sync for that brokerage's agents.
 
 ## Sync
 
@@ -334,7 +348,7 @@ clean, and prod is locked by a missing env var rather than by a branch).
 | P2 | Migration: `brand_kit`, `first_name`, `last_name`, `rejig_sync_attempts`. Brand Kit card for designers, **non-blocking**. | Designers see a new card. Nothing gated yet. |
 | P3 | Sync panel on `Create Customer Account`: names, pre-flight, Dev button, history. Prod button visible but disabled. | Account Creator gets the Dev button. |
 | P4 | Flip D4: `Create Designs` requires a complete brand kit. | Behaviour change for designers — announce first; in-flight tasks are affected. |
-| P5 | Real affiliation/font endpoints replace stubs; add prod env vars → Prod button live. | Prod pushes begin. |
+| P5 | Real affiliation/font endpoints replace stubs (done with P3), `broker_id`; prod URL confirmed → Prod button live. | Prod pushes begin. |
 
 P4 is separate from P2 so designers aren't blocked mid-task the day the card
 appears. In P3, expect most customers to show the Dev button disabled by
@@ -421,7 +435,11 @@ For Rejig:
 4. Add `apply_custom_font`, `apply_fixed_logo_height`, `team_derived_logos`.
 5. `brand_logo_sizes.instagram` — is that the "Instagram 4_5" field?
 6. Exact expected strings for `managed_by`, `associated_brokerage`, `broker`.
-7. Prod base URL.
+7. ~~Prod base URL.~~ **Answered 2026-11-12:** same paths on `api.rejig.ai`.
+8. ~~Brokerage id field.~~ `associated_brokerage` = broker id; `broker` removed.
+9. ~~Affiliation / font value.~~ Affiliation name; font `fontFamily`. Realtor
+   affiliations only.
+10. Add Coach (`coach`) to the **dev** broker list — Rejig will add.
 
 For the user: none open. Confirmed 2026-11-12 — the required set above stands
 (black / white logos optional), and `industry` is always `"Realtor"`.

@@ -323,6 +323,7 @@ function mapDbBrokerage(row: BrokerageRow): Brokerage {
     pricingTagline: row.pricingTagline ?? '',
     masterLogoUrl: row.masterLogoUrl ?? '',
     shortName: row.shortName ?? '',
+    rejigBrokerId: row.rejigBrokerId ?? null,
     createdAt: iso(row.createdAt),
   };
 }
@@ -537,6 +538,83 @@ export async function saveBrandKitFields(
     .where(eq(schema.customers.id, customerId))
     .returning({ id: schema.customers.id });
   if (!row) throw new Error(`Customer ${customerId} not found`);
+}
+
+// ─── Public API: Rejig sync ─────────────────────────────────────────────
+
+/**
+ * Agent first / last name from the live DMG roster row linked to this
+ * customer. `customer_id` isn't unique on brokerage_roster, so take the
+ * freshest live row.
+ */
+export async function getRosterNameForCustomer(
+  customerId: string,
+): Promise<{ firstName: string | null; lastName: string | null } | null> {
+  const [row] = await db
+    .select({
+      firstName: schema.brokerageRoster.firstName,
+      lastName: schema.brokerageRoster.lastName,
+    })
+    .from(schema.brokerageRoster)
+    .where(
+      and(
+        eq(schema.brokerageRoster.customerId, customerId),
+        sql`${schema.brokerageRoster.deletedAt} IS NULL`,
+      ),
+    )
+    .orderBy(desc(schema.brokerageRoster.lastSyncedAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function recordRejigSyncAttempt(
+  attempt: typeof schema.rejigSyncAttempts.$inferInsert,
+): Promise<void> {
+  await db.insert(schema.rejigSyncAttempts).values(attempt);
+}
+
+export type RejigSyncSummary = {
+  outcome: string;
+  httpStatus: number | null;
+  message: string | null;
+  actorName: string | null;
+  at: string;
+};
+
+/** Most recent push to each Rejig environment, for the sync panel. */
+export async function getLatestRejigSyncs(
+  customerId: string,
+): Promise<Partial<Record<'dev' | 'prod', RejigSyncSummary>>> {
+  const rows = await db
+    .selectDistinctOn([schema.rejigSyncAttempts.environment], {
+      environment: schema.rejigSyncAttempts.environment,
+      outcome: schema.rejigSyncAttempts.outcome,
+      httpStatus: schema.rejigSyncAttempts.httpStatus,
+      response: schema.rejigSyncAttempts.response,
+      actorName: schema.teamMembers.name,
+      createdAt: schema.rejigSyncAttempts.createdAt,
+    })
+    .from(schema.rejigSyncAttempts)
+    .leftJoin(
+      schema.teamMembers,
+      eq(schema.teamMembers.id, schema.rejigSyncAttempts.actorTeamMemberId),
+    )
+    .where(eq(schema.rejigSyncAttempts.customerId, customerId))
+    .orderBy(schema.rejigSyncAttempts.environment, desc(schema.rejigSyncAttempts.createdAt));
+
+  const out: Partial<Record<'dev' | 'prod', RejigSyncSummary>> = {};
+  for (const r of rows) {
+    if (r.environment !== 'dev' && r.environment !== 'prod') continue;
+    const body = (r.response ?? null) as { message?: unknown } | null;
+    out[r.environment] = {
+      outcome: r.outcome,
+      httpStatus: r.httpStatus,
+      message: typeof body?.message === 'string' ? body.message : null,
+      actorName: r.actorName,
+      at: iso(r.createdAt),
+    };
+  }
+  return out;
 }
 
 /** Set (or, with `attachment` null, clear) one brand-kit logo slot. */

@@ -5,6 +5,8 @@ import {
   getBrokerageById,
   getCustomerById,
   getInternalNotes,
+  getLatestRejigSyncs,
+  getRosterNameForCustomer,
   getTasksForCustomer,
   getTeamMembers,
 } from '@/lib/db';
@@ -26,11 +28,13 @@ import SendCredentialsAction from './SendCredentialsAction';
 import { resolveTempPassword } from '@/lib/temp-password';
 import CopyableField from './CopyableField';
 import BrandKitCard from './BrandKitCard';
+import RejigSyncCard from './RejigSyncCard';
+import { recordMissing, resolveAgentName } from '@/lib/rejig-sync/payload';
+import { isRejigEnvConfigured } from '@/lib/integrations/rejig/onboarding';
 import { BRAND_KIT_EDITOR_ROLES } from '@/lib/brand-kit';
 import {
   getAffiliations,
   getFonts,
-  REJIG_OPTIONS_ARE_PLACEHOLDERS,
 } from '@/lib/integrations/rejig/options';
 import { groupDrafts, formatGroupStamp } from './draft-groups';
 import { TaskInstructions } from '@/components/TaskInstructions';
@@ -310,14 +314,12 @@ export default async function CustomerDetailPage({
   const { id: customerId } = await params;
   const { taskId: highlightTaskId } = await searchParams;
 
-  const [customer, tasks, members, ctx, internalNotes, affiliations, fonts] = await Promise.all([
+  const [customer, tasks, members, ctx, internalNotes] = await Promise.all([
     getCustomerById(customerId),
     getTasksForCustomer(customerId),
     getTeamMembers(),
     getEffectiveContext(session),
     getInternalNotes(customerId),
-    getAffiliations(),
-    getFonts(),
   ]);
 
   if (!customer) notFound();
@@ -384,6 +386,26 @@ export default async function CustomerDetailPage({
   // action re-checks live roles.
   const canEditBrandKit =
     ctx.role === 'Admin' || (BRAND_KIT_EDITOR_ROLES as readonly string[]).includes(ctx.role);
+  // Only editors see the pickers. Cached a day, so this is rarely a live call.
+  const [affiliations, fonts] = canEditBrandKit
+    ? await Promise.all([getAffiliations(), getFonts()])
+    : [[], []];
+  // Sync panel: Account Creator + Admin only (effective role, so view-as
+  // previews it; the action re-checks the live role).
+  const canSyncToRejig = ctx.role === 'Admin' || ctx.role === 'Account Creator';
+  const [rosterName, lastRejigSyncs, syncBrokerage] = canSyncToRejig
+    ? await Promise.all([
+        getRosterNameForCustomer(customerId),
+        getLatestRejigSyncs(customerId),
+        customer.brokerage?.[0] ? getBrokerageById(customer.brokerage[0]) : null,
+      ])
+    : [null, {}, null];
+  const rejigName = resolveAgentName({
+    saved: { firstName: customer.firstName ?? '', lastName: customer.lastName ?? '' },
+    roster: rosterName,
+    name: customer.name,
+  });
+
   const brandKitInProgress = coreTasks.some(
     (t) =>
       t.status === 'Active' &&
@@ -638,7 +660,6 @@ export default async function CustomerDetailPage({
             kitInProgress={brandKitInProgress}
             affiliations={affiliations}
             fonts={fonts}
-            optionsArePlaceholders={REJIG_OPTIONS_ARE_PLACEHOLDERS}
           />
 
           <section className="rounded-xl bg-white border border-[#E0DEE4] p-6">
@@ -773,6 +794,23 @@ export default async function CustomerDetailPage({
                 No active tasks for you on this customer.
               </p>
             </section>
+          )}
+
+          {canSyncToRejig && (
+            <RejigSyncCard
+              customerId={customerId}
+              initialName={rejigName}
+              recordMissing={recordMissing(
+                customer,
+                syncBrokerage
+                  ? { name: syncBrokerage.name, shortName: syncBrokerage.shortName, rejigBrokerId: syncBrokerage.rejigBrokerId }
+                  : null,
+                customer.brandKit,
+              )}
+              lastSyncs={lastRejigSyncs}
+              devConfigured={isRejigEnvConfigured('dev')}
+              prodConfigured={isRejigEnvConfigured('prod')}
+            />
           )}
 
           {/* Tasks grouped by stage */}

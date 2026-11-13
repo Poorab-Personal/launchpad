@@ -307,6 +307,8 @@ export interface Brokerage {
   masterLogoUrl: string;
   /** Short display name ("IPRE", "Keyes", "B&W") for agent-facing copy. Empty = caller falls back to `name`. */
   shortName: string;
+  /** Rejig's id for this brokerage ("keyes"), sent as associated_brokerage on the onboarding sync. Null = not registered with Rejig. */
+  rejigBrokerId: string | null;
   createdAt: string;
 }
 

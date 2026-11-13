@@ -67,7 +67,7 @@ function completeKit(overrides: Partial<BrandKit> = {}): BrandKit {
   };
 }
 
-const ruhl = { name: 'RuhlHomes', shortName: 'Ruhl' };
+const ruhl = { name: 'RuhlHomes', shortName: 'Ruhl', rejigBrokerId: 'ruhl' };
 const name = { firstName: 'Kenny', lastName: 'Hora' };
 
 describe('buildRejigPayload', () => {
@@ -82,8 +82,8 @@ describe('buildRejigPayload', () => {
     expect(p.review_sources).toBe('Google, Testimonial Tree');
     expect(p.managed_by).toBe('Agent (self-managed)');
     expect(p.customer_type).toBe('B2B');
-    expect(p.associated_brokerage).toBe('Ruhl');
-    expect(p.broker).toBe('Ruhl');
+    expect(p.associated_brokerage).toBe('ruhl');
+    expect(p).not.toHaveProperty('broker');
     expect(p.industry).toBe('Realtor');
     expect(p.account_type).toBe('Premium');
     expect(p.profile_image_url).toBe('https://x.public.blob.vercel-storage.com/headshot.png');
@@ -148,19 +148,19 @@ describe('buildRejigPayload', () => {
       brandKit: completeKit(),
     });
     expect(p.associated_brokerage).toBeNull();
-    expect(p.broker).toBeNull();
     expect(p.managed_by).toBeNull();
     expect(p.business_name).toBe('Kenny Hora');
   });
 
   it('falls back to the full brokerage name when short name is empty', () => {
     const p = buildRejigPayload({
-      customer: customer(),
-      brokerage: { name: 'Coach Realtors', shortName: '' },
+      customer: customer({ serviceOption: 'Brokerage-Managed' }),
+      brokerage: { name: 'Coach Realtors', shortName: '', rejigBrokerId: 'coach' },
       name,
       brandKit: completeKit(),
     });
-    expect(p.associated_brokerage).toBe('Coach Realtors');
+    expect(p.managed_by).toBe('Coach Realtors Marketing Team');
+    expect(p.associated_brokerage).toBe('coach');
   });
 });
 
@@ -270,7 +270,18 @@ describe('syncPreflight', () => {
         name: { firstName: 'Kenny', lastName: '' },
         brandKit: completeKit(),
       }),
-    ).toEqual(['Website', 'Last name', 'Account type']);
+    ).toEqual(['Last name', 'Website', 'Account type']);
+  });
+
+  it("blocks a brokerage agent whose brokerage has no Rejig id", () => {
+    expect(
+      syncPreflight({
+        customer: customer(),
+        brokerage: { ...ruhl, rejigBrokerId: null },
+        name,
+        brandKit: completeKit(),
+      }),
+    ).toEqual(["Brokerage's Rejig ID (ask an admin)"]);
   });
 
   it('passes a complete customer', () => {

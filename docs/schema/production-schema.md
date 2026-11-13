@@ -28,7 +28,7 @@ npm run db:studio         # Drizzle Studio in your browser
 |---|---|---|
 | `workflow_templates` | `workflowTemplates.ts` | Blueprint rows defining stages/tasks per `workflow_key`. Read by Auto 1 (`generateTasksFromTemplate`) at customer creation. |
 | `channels` | `channels.ts` | Lookup: `Standard`, `Keyes`, `BW`. Seeded once at migration. FK target for `customers.channel_id` — prevents the `"BW"` vs `"Baird & Warner"` typo class. |
-| `brokerages` | `brokerages.ts` | Brokerage-level config (landing page slug, default Calendly URL, default workflow key) |
+| `brokerages` | `brokerages.ts` | Brokerage-level config (landing page slug, default Calendly URL, default workflow key, `rejig_broker_id` sent to Rejig on sync) |
 | `team_members` | `teamMembers.ts` | Internal team. `roles` is a `team_role[]` array (multi-role). `is_default` flags the default member per role for Auto 1 assignments. |
 | `stripe_plans` | `stripePlans.ts` | Per-workflow Stripe price options. Read by Capture Payment Method task to populate the plan picker. |
 | `settings` | `settings.ts` | Key-value app settings (e.g. `portal_base_url`) |

@@ -41,8 +41,8 @@ export type RejigCustomerPayload = {
   zillow: string | null;
   account_type: string | null;
   footer_label: string | null;
-  broker: string | null;
   customer_type: string;
+  /** Rejig's brokerage id ("keyes", "baird"), from brokerages.rejig_broker_id. */
   associated_brokerage: string | null;
   industry: string;
   generate_brand_template: null;
@@ -94,7 +94,7 @@ export type PayloadCustomer = Pick<
   | 'productTier'
 >;
 
-export type PayloadBrokerage = { name: string; shortName: string } | null;
+export type PayloadBrokerage = { name: string; shortName: string; rejigBrokerId: string | null } | null;
 
 export type AgentName = { firstName: string; lastName: string };
 
@@ -194,17 +194,29 @@ export function resolveAgentName(args: {
  * (no empty data pushed — decision D4).
  */
 export function syncPreflight(input: PayloadInput): string[] {
-  const missing: string[] = [];
-  if (!normalizeWebsite(input.customer.website)) missing.push('Website');
-  if (!str(input.name.firstName)) missing.push('First name');
-  if (!str(input.name.lastName)) missing.push('Last name');
-  missing.push(...brandKitMissing(input.brandKit, input.customer.productTier));
-  return missing;
+  return [...nameMissing(input.name), ...recordMissing(input.customer, input.brokerage, input.brandKit)];
+}
+
+/** Gaps in the stored record — what the sync panel lists while names are still being typed. */
+export function recordMissing(
+  customer: Pick<PayloadCustomer, 'website' | 'productTier'>,
+  brokerage: PayloadBrokerage,
+  brandKit: BrandKit | null,
+): string[] {
+  return [
+    ...(normalizeWebsite(customer.website) ? [] : ['Website']),
+    // A brokerage agent sent without broker_id would land in Rejig unattached.
+    ...(brokerage && !str(brokerage.rejigBrokerId) ? ["Brokerage's Rejig ID (ask an admin)"] : []),
+    ...brandKitMissing(brandKit, customer.productTier),
+  ];
+}
+
+export function nameMissing(name: AgentName): string[] {
+  return [...(str(name.firstName) ? [] : ['First name']), ...(str(name.lastName) ? [] : ['Last name'])];
 }
 
 export function buildRejigPayload(input: PayloadInput): RejigCustomerPayload {
   const { customer, brokerage, name, brandKit: kit } = input;
-  const label = brokerageLabel(brokerage);
   const fonts = kit?.applyCustomFont
     ? (['primary', 'secondary', 'tertiary'] as const).flatMap((type) => {
         const f = kit.fonts?.[type];
@@ -239,9 +251,8 @@ export function buildRejigPayload(input: PayloadInput): RejigCustomerPayload {
     zillow: str(customer.zillowProfile),
     account_type: customer.productTier ?? null,
     footer_label: str(kit?.footerLabel),
-    broker: label,
     customer_type: customer.type,
-    associated_brokerage: label,
+    associated_brokerage: str(brokerage?.rejigBrokerId),
     industry: INDUSTRY,
     generate_brand_template: null,
     pick_specific_to_search_tag: null,

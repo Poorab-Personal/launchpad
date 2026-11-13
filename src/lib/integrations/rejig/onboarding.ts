@@ -15,9 +15,9 @@ export type RejigEnv = 'dev' | 'prod';
 
 const ENDPOINTS: Record<RejigEnv, string | null> = {
   dev: 'https://devapi.rejig.ai/onboarding/source/customers',
-  // Prod base URL not confirmed by Rejig yet. Second lock alongside the
-  // missing REJIG_ONBOARDING_PROD_API_KEY.
-  prod: null,
+  // Confirmed by Rejig 2026-11-12. Prod stays locked until
+  // REJIG_ONBOARDING_PROD_API_KEY is set in Vercel Production.
+  prod: 'https://api.rejig.ai/onboarding/source/customers',
 };
 
 const KEY_VARS: Record<RejigEnv, string> = {
