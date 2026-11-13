@@ -41,6 +41,7 @@ const LOGO_TILES: { slot: LogoSlot; label: string; hint: string; dark: boolean; 
   { slot: 'primary', label: 'Primary Logo', hint: 'Full colour', dark: false, required: true },
   { slot: 'black', label: 'Black Logo', hint: 'For light backgrounds', dark: false, required: false },
   { slot: 'white', label: 'White Logo', hint: 'For dark backgrounds', dark: true, required: false },
+  { slot: 'headshot', label: 'Headshot', hint: 'Only if different from the profile photo', dark: false, required: false },
 ];
 const FONT_ROLES = [
   { key: 'primary', label: 'Primary' },
@@ -281,8 +282,8 @@ export default function BrandKitCard({
 
       {/* Logos */}
       <div>
-        <h3 className="text-sm font-semibold text-[#1B2E35] mb-3">Brand Logo</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <h3 className="text-sm font-semibold text-[#1B2E35] mb-3">Brand Logo &amp; Headshot</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {LOGO_TILES.map((t) => {
             const current = logos[t.slot];
             return (
@@ -296,7 +297,9 @@ export default function BrandKitCard({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={current.url} alt={t.label} className="max-h-full max-w-full object-contain" />
                   ) : (
-                    <span className={`text-xs ${t.dark ? 'text-white/50' : 'text-[#1B2E35]/40'}`}>No logo</span>
+                    <span className={`text-xs ${t.dark ? 'text-white/50' : 'text-[#1B2E35]/40'}`}>
+                      {t.slot === 'headshot' ? 'Same as profile photo' : 'No logo'}
+                    </span>
                   )}
                 </div>
                 <div>
@@ -341,7 +344,9 @@ export default function BrandKitCard({
             );
           })}
         </div>
-        <p className="mt-2 text-xs text-[#1B2E35]/50">PNG, JPEG or WebP. Use a large PNG with a transparent background.</p>
+        <p className="mt-2 text-xs text-[#1B2E35]/50">
+          PNG, JPEG or WebP. Use a large PNG with a transparent background for logos.
+        </p>
       </div>
 
       {/* Colours + logo selection */}
@@ -683,7 +688,7 @@ function BrandKitSummary({
         <p className="mt-4 text-sm italic text-[#1B2E35]/40">Not started yet.</p>
       ) : (
         <div className="mt-5 grid grid-cols-1 md:grid-cols-[auto_1fr] gap-x-8 gap-y-5">
-          <p className={rowLabel}>Logos</p>
+          <p className={rowLabel}>Logos &amp; headshot</p>
           <div className="flex flex-wrap gap-3">
             {LOGO_TILES.map((t) => {
               const logo = kit.logos[t.slot];
@@ -698,7 +703,9 @@ function BrandKitSummary({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={logo.url} alt={t.label} className="max-h-full max-w-full object-contain" />
                     ) : (
-                      <span className={`text-[11px] ${t.dark ? 'text-white/50' : 'text-[#1B2E35]/40'}`}>None</span>
+                      <span className={`text-[11px] ${t.dark ? 'text-white/50' : 'text-[#1B2E35]/40'}`}>
+                        {t.slot === 'headshot' ? 'Profile photo' : 'None'}
+                      </span>
                     )}
                   </div>
                   <p className="text-[11px] text-[#1B2E35]/60">{t.label.replace(' Logo', '')}</p>

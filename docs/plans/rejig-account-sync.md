@@ -65,6 +65,7 @@ Source legend: **C** = existing customer column, **R** = brokerage_roster,
 |---|---|---|
 | `source_customer_id` | C `id` | D8 |
 | `first_name`, `last_name` | S → R → split(`name`) | See "Names" |
+| `is_team` | S `customers.is_team` → guess ("team"/"group" in name or business name) | Account voice: true = we / us, false = I / me. Account Creator confirms in the sync panel (red while guessed). Added 2026-11-13; field name to confirm with Rejig. |
 | `business_name` | C `businessName` | fallback `name` |
 | `website` | C `website` | **required by Rejig** — sync blocked if empty |
 | `phone` | C `phone` | |
@@ -97,6 +98,7 @@ Source legend: **C** = existing customer column, **R** = brokerage_roster,
 | `pick_specific_to_search_tag` | — | null — Rejig's "enforce narrow search tag" lives in their create panel |
 | `generate_brand_template` | — | null |
 | `profile_image_url` | C `agentPhoto[0].url` | |
+| `headshot_url` | K `logos.headshot`, else C `agentPhoto[0].url` | Added at Rejig's request 2026-11-13. Optional upload on the Brand Kit card, only when the headshot differs from the profile photo. |
 | `logo_url` | K primary logo | |
 | `logo_black_url` | K black logo (for light backgrounds) | |
 | `logo_white_url` | K white logo (for dark backgrounds) | |

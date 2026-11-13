@@ -19,6 +19,7 @@ export async function syncToRejigAction(args: {
   env: RejigEnv;
   firstName: string;
   lastName: string;
+  isTeam: boolean;
 }): Promise<SyncResult> {
   const session = await requireSession();
   if (args.env !== 'dev' && args.env !== 'prod') {
@@ -40,6 +41,7 @@ export async function syncToRejigAction(args: {
     customerId: args.customerId,
     env: args.env,
     name: { firstName: String(args.firstName ?? ''), lastName: String(args.lastName ?? '') },
+    isTeam: args.isTeam === true,
     actorId: session.memberId,
   });
 

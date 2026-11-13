@@ -41,6 +41,8 @@ export type BrandKit = {
     black?: AirtableAttachment;
     /** Light logo, for dark backgrounds → logo_white_url. */
     white?: AirtableAttachment;
+    /** Agent headshot, only when it differs from the profile photo → headshot_url. */
+    headshot?: AirtableAttachment;
   };
   palette: string[];
   logoSelection: LogoVariant[];
@@ -78,8 +80,8 @@ export function emptyBrandKit(): BrandKit {
   };
 }
 
-/** Logo slot keys in `BrandKit.logos`. */
-export const LOGO_SLOTS = ['primary', 'black', 'white'] as const;
+/** Image slot keys in `BrandKit.logos` (the headshot rides along: same upload + save path). */
+export const LOGO_SLOTS = ['primary', 'black', 'white', 'headshot'] as const;
 export type LogoSlot = (typeof LOGO_SLOTS)[number];
 
 /** Everything the designer's form saves — logos are saved separately, per slot. */
@@ -178,7 +180,12 @@ export function parseBrandKit(raw: unknown): BrandKit | null {
   const logos = (o.logos && typeof o.logos === 'object' ? o.logos : {}) as Record<string, unknown>;
   return {
     ...sanitizeBrandKitFields(o),
-    logos: { primary: logo(logos.primary), black: logo(logos.black), white: logo(logos.white) },
+    logos: {
+      primary: logo(logos.primary),
+      black: logo(logos.black),
+      white: logo(logos.white),
+      headshot: logo(logos.headshot),
+    },
     updatedAt: text(o.updatedAt) || undefined,
     updatedBy: text(o.updatedBy) || undefined,
   };

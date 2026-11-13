@@ -56,6 +56,7 @@ function makeCustomer(opts: {
     workflowKey: 'D2C-Standard',
     firstName: null,
     lastName: null,
+    isTeam: null,
     contactEmail: 'test@example.com',
     platformEmail: 'test@example.com',
     phone: '',

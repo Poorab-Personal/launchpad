@@ -53,6 +53,7 @@ export async function syncCustomerToRejig(args: {
   customerId: string;
   env: RejigEnv;
   name: AgentName;
+  isTeam: boolean;
   actorId: string;
 }): Promise<SyncResult> {
   if (!isRejigEnvConfigured(args.env)) {
@@ -70,6 +71,7 @@ export async function syncCustomerToRejig(args: {
       ? { name: brokerage.name, shortName: brokerage.shortName, rejigBrokerId: brokerage.rejigBrokerId }
       : null,
     name,
+    isTeam: args.isTeam,
     brandKit: customer.brandKit,
   };
   const missing = syncPreflight(input);
@@ -77,9 +79,17 @@ export async function syncCustomerToRejig(args: {
     return { ok: false, outcome: 'preflight', message: `Missing: ${missing.join(', ')}.` };
   }
 
-  // Remember the confirmed names so a re-sync doesn't need them retyped.
-  if (name.firstName !== customer.firstName || name.lastName !== customer.lastName) {
-    await updateCustomerFields(customer.id, { firstName: name.firstName, lastName: name.lastName });
+  // Remember the confirmed names and voice so a re-sync doesn't need them redone.
+  if (
+    name.firstName !== customer.firstName ||
+    name.lastName !== customer.lastName ||
+    args.isTeam !== customer.isTeam
+  ) {
+    await updateCustomerFields(customer.id, {
+      firstName: name.firstName,
+      lastName: name.lastName,
+      isTeam: args.isTeam,
+    });
   }
 
   const payload = buildRejigPayload(input);

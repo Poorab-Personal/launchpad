@@ -92,6 +92,7 @@ function mapDbCustomer(row: CustomerRow, channelCode: string): Customer {
     name: row.name,
     firstName: row.firstName ?? null,
     lastName: row.lastName ?? null,
+    isTeam: row.isTeam ?? null,
     type: row.type,
     channel: channelCode,
     workflowKey: row.workflowKey,

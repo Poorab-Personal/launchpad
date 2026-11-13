@@ -101,6 +101,8 @@ export interface Customer {
   /** Agent first / last name as last sent to Rejig. null = never synced. */
   firstName: string | null;
   lastName: string | null;
+  /** Rejig account voice: true = team (we / us), false = individual (I / me). null = never confirmed. */
+  isTeam: boolean | null;
   type: CustomerType;
   channel: string;
   workflowKey: string;

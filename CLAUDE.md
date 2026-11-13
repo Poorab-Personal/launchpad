@@ -56,7 +56,7 @@ Layer 3: Next.js                    — /r portal (customers), /b landing (B2B
 Operational:
 | Table | Purpose |
 |---|---|
-| `customers` | One row per customer/agent being onboarded (90 columns, incl. `brand_kit`) |
+| `customers` | One row per customer/agent being onboarded (91 columns, incl. `brand_kit`) |
 | `tasks` | All tasks (client + team) per customer |
 | `task_dependencies` | Junction table for task graph |
 | `calls` | CSM/onboarding calls per customer (Calendly-keyed for idempotency) |

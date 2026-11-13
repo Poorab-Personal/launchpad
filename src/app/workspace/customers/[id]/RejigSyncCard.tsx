@@ -48,6 +48,7 @@ const inputClass =
 export default function RejigSyncCard({
   customerId,
   initialName,
+  initialIsTeam,
   recordMissing,
   lastSyncs,
   devConfigured,
@@ -55,6 +56,7 @@ export default function RejigSyncCard({
 }: {
   customerId: string;
   initialName: { firstName: string; lastName: string; source: NameSource };
+  initialIsTeam: { isTeam: boolean; source: 'saved' | 'guessed' };
   /** Website / brand-kit gaps, computed on the server. Names are checked here as they're typed. */
   recordMissing: string[];
   lastSyncs: Partial<Record<Env, RejigSyncSummary>>;
@@ -65,6 +67,8 @@ export default function RejigSyncCard({
   const [firstName, setFirstName] = useState(initialName.firstName);
   const [lastName, setLastName] = useState(initialName.lastName);
   const [edited, setEdited] = useState(false);
+  const [isTeam, setIsTeam] = useState(initialIsTeam.isTeam);
+  const [voiceTouched, setVoiceTouched] = useState(false);
   const [confirmingProd, setConfirmingProd] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -77,11 +81,12 @@ export default function RejigSyncCard({
   ];
   const ready = missing.length === 0;
   const guessed = initialName.source === 'guessed' && !edited;
+  const voiceGuessed = initialIsTeam.source === 'guessed' && !voiceTouched;
 
   function sync(env: Env) {
     setResult(null);
     startTransition(async () => {
-      const res = await syncToRejigAction({ customerId, env, firstName, lastName });
+      const res = await syncToRejigAction({ customerId, env, firstName, lastName, isTeam });
       setResult({ ok: res.ok, message: res.message });
       setConfirmingProd(false);
       setConfirmText('');
@@ -126,6 +131,48 @@ export default function RejigSyncCard({
       <p className={`-mt-2 text-[11px] ${guessed ? 'text-[#EC531A] font-medium' : 'text-[#1B2E35]/50'}`}>
         {edited ? 'Edited. Saved when you sync.' : SOURCE_NOTES[initialName.source]}
       </p>
+
+      <div>
+        <p className="block text-xs uppercase tracking-wide text-[#1B2E35]/60 font-semibold mb-1">Writes as</p>
+        <div
+          role="radiogroup"
+          aria-label="Writes as"
+          className={`grid grid-cols-2 gap-1 rounded-lg border p-1 ${
+            voiceGuessed ? 'border-[#EC531A] bg-[#EC531A]/5' : 'border-[#E0DEE4]'
+          }`}
+        >
+          {(
+            [
+              [false, 'Individual', 'I / me'],
+              [true, 'Team', 'we / us'],
+            ] as const
+          ).map(([value, label, hint]) => (
+            <button
+              key={label}
+              type="button"
+              role="radio"
+              aria-checked={isTeam === value}
+              disabled={pending}
+              onClick={() => {
+                setIsTeam(value);
+                setVoiceTouched(true);
+              }}
+              className={`rounded-md px-2 py-1.5 text-sm disabled:opacity-50 ${
+                isTeam === value ? 'bg-[#6C4AB6] font-medium text-white' : 'text-[#1B2E35] hover:bg-[#6C4AB6]/10'
+              }`}
+            >
+              {label} <span className={isTeam === value ? 'text-white/70' : 'text-[#1B2E35]/50'}>({hint})</span>
+            </button>
+          ))}
+        </div>
+        <p className={`mt-1 text-[11px] ${voiceGuessed ? 'text-[#EC531A] font-medium' : 'text-[#1B2E35]/50'}`}>
+          {voiceTouched
+            ? 'Changed. Saved when you sync.'
+            : initialIsTeam.source === 'saved'
+              ? 'As last sent to Rejig.'
+              : 'Guessed from the name. Check before syncing.'}
+        </p>
+      </div>
 
       {ready ? (
         <p className="text-xs font-medium text-[#04946A]">Ready to sync.</p>

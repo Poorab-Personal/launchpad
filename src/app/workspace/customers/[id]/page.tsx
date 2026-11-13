@@ -29,7 +29,7 @@ import { resolveTempPassword } from '@/lib/temp-password';
 import CopyableField from './CopyableField';
 import BrandKitCard from './BrandKitCard';
 import RejigSyncCard from './RejigSyncCard';
-import { recordMissing, resolveAgentName } from '@/lib/rejig-sync/payload';
+import { recordMissing, resolveAgentName, resolveIsTeam } from '@/lib/rejig-sync/payload';
 import { isRejigEnvConfigured } from '@/lib/integrations/rejig/onboarding';
 import { BRAND_KIT_EDITOR_ROLES } from '@/lib/brand-kit';
 import {
@@ -400,6 +400,7 @@ export default async function CustomerDetailPage({
         customer.brokerage?.[0] ? getBrokerageById(customer.brokerage[0]) : null,
       ])
     : [null, {}, null];
+  const rejigIsTeam = resolveIsTeam({ saved: customer.isTeam, names: [customer.name, customer.businessName] });
   const rejigName = resolveAgentName({
     saved: { firstName: customer.firstName ?? '', lastName: customer.lastName ?? '' },
     roster: rosterName,
@@ -800,6 +801,7 @@ export default async function CustomerDetailPage({
             <RejigSyncCard
               customerId={customerId}
               initialName={rejigName}
+              initialIsTeam={rejigIsTeam}
               recordMissing={recordMissing(
                 customer,
                 syncBrokerage

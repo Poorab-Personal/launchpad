@@ -42,7 +42,7 @@ async function main() {
   const schema = await import('../src/db/schema');
   const { and, desc, eq, isNull, sql } = await import('drizzle-orm');
   const { getCustomerById, getBrokerageById } = await import('../src/lib/db');
-  const { buildRejigPayload, resolveAgentName, syncPreflight } = await import(
+  const { buildRejigPayload, resolveAgentName, resolveIsTeam, syncPreflight } = await import(
     '../src/lib/rejig-sync/payload'
   );
   const { postCustomerToRejig, isRejigEnvConfigured } = await import(
@@ -111,6 +111,7 @@ async function main() {
         ? { name: brokerage.name, shortName: brokerage.shortName, rejigBrokerId: brokerage.rejigBrokerId }
         : null,
       name,
+      isTeam: resolveIsTeam({ saved: customer.isTeam, names: [customer.name, customer.businessName] }).isTeam,
       brandKit,
     };
 

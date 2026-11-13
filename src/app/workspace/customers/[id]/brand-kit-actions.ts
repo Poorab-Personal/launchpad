@@ -86,8 +86,8 @@ export async function saveBrandKitLogoAction(args: {
       'Brand Kit Updated',
       'Team Member',
       attachment
-        ? `Brand kit ${args.slot} logo uploaded (${attachment.filename}).`
-        : `Brand kit ${args.slot} logo removed.`,
+        ? `Brand kit ${args.slot === 'headshot' ? 'headshot' : `${args.slot} logo`} uploaded (${attachment.filename}).`
+        : `Brand kit ${args.slot === 'headshot' ? 'headshot' : `${args.slot} logo`} removed.`,
       undefined,
       auth.memberId,
     );

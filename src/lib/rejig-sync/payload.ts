@@ -20,6 +20,8 @@ export type RejigCustomerPayload = {
   source_customer_id: string;
   first_name: string;
   last_name: string;
+  /** Account voice: true = team ("we / us"), false = individual ("I / me"). */
+  is_team: boolean;
   business_name: string;
   website: string;
   phone: string | null;
@@ -53,6 +55,8 @@ export type RejigCustomerPayload = {
   other_affiliation: string | null;
   blog_page_url: null;
   profile_image_url: string | null;
+  /** Designer's headshot when it differs from the profile photo, else the profile photo. */
+  headshot_url: string | null;
   logo_url: string | null;
   logo_black_url: string | null;
   logo_white_url: string | null;
@@ -103,6 +107,8 @@ export type PayloadInput = {
   brokerage: PayloadBrokerage;
   /** Already resolved via resolveAgentName (possibly edited by the Account Creator). */
   name: AgentName;
+  /** Already resolved via resolveIsTeam (possibly changed by the Account Creator). */
+  isTeam: boolean;
   brandKit: BrandKit | null;
 };
 
@@ -189,6 +195,19 @@ export function resolveAgentName(args: {
 }
 
 /**
+ * Team ("we / us") or individual ("I / me") voice for the Rejig account. The
+ * Account Creator's saved choice wins; otherwise guess from the names
+ * ("The Zeuner Team", "Hora Group") so the panel can flag it for a check.
+ */
+export function resolveIsTeam(args: {
+  saved: boolean | null | undefined;
+  names: (string | null | undefined)[];
+}): { isTeam: boolean; source: 'saved' | 'guessed' } {
+  if (typeof args.saved === 'boolean') return { isTeam: args.saved, source: 'saved' };
+  return { isTeam: args.names.some((n) => /\b(team|group)\b/i.test(n ?? '')), source: 'guessed' };
+}
+
+/**
  * Reasons the sync must not run. Empty = ready. Rejig itself rejects a
  * missing / invalid website (400); names and the brand kit are our rule
  * (no empty data pushed — decision D4).
@@ -228,6 +247,7 @@ export function buildRejigPayload(input: PayloadInput): RejigCustomerPayload {
     source_customer_id: customer.id,
     first_name: name.firstName.trim(),
     last_name: name.lastName.trim(),
+    is_team: input.isTeam,
     business_name: str(customer.businessName) ?? customer.name.trim(),
     website: normalizeWebsite(customer.website) ?? '',
     phone: str(customer.phone),
@@ -262,6 +282,7 @@ export function buildRejigPayload(input: PayloadInput): RejigCustomerPayload {
     other_affiliation: str(kit?.otherAffiliation),
     blog_page_url: null,
     profile_image_url: str(customer.agentPhoto?.[0]?.url),
+    headshot_url: str(kit?.logos?.headshot?.url) ?? str(customer.agentPhoto?.[0]?.url),
     logo_url: str(kit?.logos?.primary?.url),
     logo_black_url: str(kit?.logos?.black?.url),
     logo_white_url: str(kit?.logos?.white?.url),

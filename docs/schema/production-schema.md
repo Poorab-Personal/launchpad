@@ -14,7 +14,7 @@ npm run db:studio         # Drizzle Studio in your browser
 
 | Table | File | Purpose | Key columns |
 |---|---|---|---|
-| `customers` | `customers.ts` | Customer/agent onboarding record (~71 cols) | `id`, `access_token`, `name`, `type` (D2C/B2B), `channel_id` (FK), `workflow_key`, `current_stage`, `stripe_customer_id`, `stripe_subscription_id`, `at_risk`, `at_risk_reason`, design fields, `brand_kit` (jsonb, designer's structured kit pushed to Rejig), `first_name`/`last_name` (as last sent to Rejig), payment fields, status flags |
+| `customers` | `customers.ts` | Customer/agent onboarding record (~71 cols) | `id`, `access_token`, `name`, `type` (D2C/B2B), `channel_id` (FK), `workflow_key`, `current_stage`, `stripe_customer_id`, `stripe_subscription_id`, `at_risk`, `at_risk_reason`, design fields, `brand_kit` (jsonb, designer's structured kit pushed to Rejig), `first_name`/`last_name` and `is_team` (as last sent to Rejig), payment fields, status flags |
 | `tasks` | `tasks.ts` | All tasks (client + team) per customer | `id`, `customer_id` (FK cascade), `task_name`, `stage`, `stage_order`, `task_order`, `status` (Draft/Active/In Review/Completed/Rejected), `task_type` (Client/Team), `assigned_to_team_member_id` (FK), `attachment_type`, `product` |
 | `task_dependencies` | `tasks.ts` | Junction table: which task depends on which | `task_id`, `depends_on_task_id` (both FK to tasks, cascade) |
 | `calls` | `calls.ts` | Onboarding / Check-In / Ad-hoc calls | `id`, `customer_id`, `type`, `scheduled_date`, `status`, `csm_team_member_id`, `calendly_event_uuid` (UNIQUE for idempotency) |
@@ -114,6 +114,8 @@ Per-workflow flow docs live in `docs/flows/{d2c-standard,b2b-keyes,b2b-bw}.md`. 
 | `src/db/migrations/0004_*` | Customer feedback fields (`feedback_rating`, `feedback_comments`) |
 | … | (0005–0027 not listed here; see `meta/_journal.json`) |
 | `src/db/migrations/0028_rejig_account_sync.sql` | `customers.brand_kit`, `first_name`, `last_name`; `rejig_sync_attempts`; roster `customer_id` index. See `docs/plans/rejig-account-sync.md`. Hand-authored. |
+| `src/db/migrations/0029_brokerage_rejig_broker_id.sql` | `brokerages.rejig_broker_id`, seeded for the five live brokerages. Hand-authored. |
+| `src/db/migrations/0030_customer_is_team.sql` | `customers.is_team` (Rejig account voice, set in the sync panel). Hand-authored. |
 
 Generate a new migration after schema changes:
 ```bash

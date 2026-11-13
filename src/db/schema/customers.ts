@@ -56,6 +56,9 @@ export const customers = pgTable(
     // NULL = never synced; no backfill.
     firstName: text('first_name'),
     lastName: text('last_name'),
+    // Rejig account voice: true = team ("we / us"), false = individual
+    // ("I / me"). Confirmed by the Account Creator on sync. NULL = never set.
+    isTeam: boolean('is_team'),
     type: customerTypeEnum('type').notNull(),
     channelId: uuid('channel_id').notNull().references(() => channels.id),         // FK — typo-class sealed
     workflowKey: text('workflow_key').notNull(),                                   // resolved at insert from channels.code: `${type}-${code}`

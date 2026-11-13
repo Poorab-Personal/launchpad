@@ -19,6 +19,7 @@ import {
   resolveAgentName,
   splitEmails,
   syncPreflight,
+  resolveIsTeam,
   type PayloadCustomer,
 } from '@/lib/rejig-sync/payload';
 
@@ -72,7 +73,7 @@ const name = { firstName: 'Kenny', lastName: 'Hora' };
 
 describe('buildRejigPayload', () => {
   it('maps intake fields and brokerage', () => {
-    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() });
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, isTeam: false, name, brandKit: completeKit() });
     expect(p.source_customer_id).toBe('11111111-1111-1111-1111-111111111111');
     expect(p.first_name).toBe('Kenny');
     expect(p.website).toBe('https://kennyhora.ruhlhomes.com');
@@ -90,7 +91,7 @@ describe('buildRejigPayload', () => {
   });
 
   it('sends empty strings as null', () => {
-    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() });
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, isTeam: false, name, brandKit: completeKit() });
     expect(p.hashtags).toBeNull();
     expect(p.zillow).toBeNull();
     expect(p.other_emails).toBeNull();
@@ -99,7 +100,7 @@ describe('buildRejigPayload', () => {
   });
 
   it('maps the brand kit', () => {
-    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() });
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, isTeam: false, name, brandKit: completeKit() });
     expect(p.logo_url).toBe('https://x.public.blob.vercel-storage.com/logo.png');
     expect(p.logo_black_url).toBe('https://x.public.blob.vercel-storage.com/logo-black.png');
     expect(p.domain_color_palette).toHaveLength(5);
@@ -121,7 +122,7 @@ describe('buildRejigPayload', () => {
         tertiary: { value: 'Open Sans', label: 'Open Sans', lineHeight: 1 },
       },
     });
-    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, name, brandKit: kit });
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, isTeam: false, name, brandKit: kit });
     expect(p.apply_custom_font).toBe(true);
     expect(p.font).toEqual([
       { type: 'primary', font: 'Montserrat', line_height: 1.2 },
@@ -130,10 +131,27 @@ describe('buildRejigPayload', () => {
     ]);
   });
 
+  it('sends the designer headshot, else the profile photo', () => {
+    const photo = { url: 'https://x.public.blob.vercel-storage.com/photo.jpg', filename: 'photo.jpg' };
+    const shot = { url: 'https://x.public.blob.vercel-storage.com/headshot.png', filename: 'headshot.png' };
+    const c = customer({ agentPhoto: [photo] });
+    const without = buildRejigPayload({ customer: c, brokerage: ruhl, isTeam: false, name, brandKit: completeKit() });
+    expect(without.headshot_url).toBe(photo.url);
+    const kit = completeKit();
+    const withShot = buildRejigPayload({
+      customer: c,
+      brokerage: ruhl, isTeam: false,
+      name,
+      brandKit: { ...kit, logos: { ...kit.logos, headshot: shot } },
+    });
+    expect(withShot.headshot_url).toBe(shot.url);
+    expect(withShot.profile_image_url).toBe(photo.url);
+  });
+
   it('labels brokerage-managed agents with the brokerage team', () => {
     const p = buildRejigPayload({
       customer: customer({ serviceOption: 'Brokerage-Managed' }),
-      brokerage: ruhl,
+      brokerage: ruhl, isTeam: false,
       name,
       brandKit: completeKit(),
     });
@@ -143,7 +161,7 @@ describe('buildRejigPayload', () => {
   it('has no brokerage for D2C and falls back to name for business name', () => {
     const p = buildRejigPayload({
       customer: customer({ type: 'D2C', serviceOption: null, businessName: '' }),
-      brokerage: null,
+      brokerage: null, isTeam: false,
       name,
       brandKit: completeKit(),
     });
@@ -155,12 +173,27 @@ describe('buildRejigPayload', () => {
   it('falls back to the full brokerage name when short name is empty', () => {
     const p = buildRejigPayload({
       customer: customer({ serviceOption: 'Brokerage-Managed' }),
-      brokerage: { name: 'Coach Realtors', shortName: '', rejigBrokerId: 'coach' },
+      brokerage: { name: 'Coach Realtors', shortName: '', rejigBrokerId: 'coach' }, isTeam: false,
       name,
       brandKit: completeKit(),
     });
     expect(p.managed_by).toBe('Coach Realtors Marketing Team');
     expect(p.associated_brokerage).toBe('coach');
+  });
+});
+
+describe('is_team', () => {
+  it('sends the resolved voice', () => {
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, isTeam: true, name, brandKit: completeKit() });
+    expect(p.is_team).toBe(true);
+  });
+
+  it('prefers the saved choice, else guesses from team / group in the names', () => {
+    expect(resolveIsTeam({ saved: false, names: ['The Zeuner Team'] })).toEqual({ isTeam: false, source: 'saved' });
+    expect(resolveIsTeam({ saved: null, names: ['The Zeuner Team'] })).toEqual({ isTeam: true, source: 'guessed' });
+    expect(resolveIsTeam({ saved: null, names: ['Kenny Hora', 'Hora Group LLC'] }).isTeam).toBe(true);
+    expect(resolveIsTeam({ saved: null, names: ['Kenny Hora', null] })).toEqual({ isTeam: false, source: 'guessed' });
+    expect(resolveIsTeam({ saved: null, names: ['Steamboat Realty'] }).isTeam).toBe(false);
   });
 });
 
@@ -266,7 +299,7 @@ describe('syncPreflight', () => {
     expect(
       syncPreflight({
         customer: customer({ website: '', productTier: null }),
-        brokerage: ruhl,
+        brokerage: ruhl, isTeam: false,
         name: { firstName: 'Kenny', lastName: '' },
         brandKit: completeKit(),
       }),
@@ -277,7 +310,7 @@ describe('syncPreflight', () => {
     expect(
       syncPreflight({
         customer: customer(),
-        brokerage: { ...ruhl, rejigBrokerId: null },
+        brokerage: { ...ruhl, rejigBrokerId: null }, isTeam: false,
         name,
         brandKit: completeKit(),
       }),
@@ -285,7 +318,7 @@ describe('syncPreflight', () => {
   });
 
   it('passes a complete customer', () => {
-    expect(syncPreflight({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() })).toEqual([]);
+    expect(syncPreflight({ customer: customer(), brokerage: ruhl, isTeam: false, name, brandKit: completeKit() })).toEqual([]);
   });
 });
 
