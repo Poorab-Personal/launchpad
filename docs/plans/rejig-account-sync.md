@@ -347,8 +347,8 @@ clean, and prod is locked by a missing env var rather than by a branch).
 | P1 | `src/lib/rejig-sync/payload.ts` (pure builder + validator) + vitest tests + `scripts/rejig-sync-preview.ts <customerId> [--send-dev]` | none — no UI. Lets us lock the contract against Rejig dev using real prod customers before building UI. |
 | P2 | Migration: `brand_kit`, `first_name`, `last_name`, `rejig_sync_attempts`. Brand Kit card for designers, **non-blocking**. | Designers see a new card. Nothing gated yet. |
 | P3 | Sync panel on `Create Customer Account`: names, pre-flight, Dev button, history. Prod button visible but disabled. | Account Creator gets the Dev button. |
-| P4 | Flip D4: `Create Designs` requires a complete brand kit. | Behaviour change for designers — announce first; in-flight tasks are affected. |
-| P5 | Real affiliation/font endpoints replace stubs (done with P3), `broker_id`; prod URL confirmed → Prod button live. | Prod pushes begin. |
+| P4 | **Deferred (2026-11-12).** Flip D4: `Create Designs` requires a complete brand kit. | Behaviour change for designers — announce first; in-flight tasks are affected. |
+| P5 | **Done 2026-11-12.** Real affiliation/font lists, `associated_brokerage` = broker id, prod URL + `REJIG_ONBOARDING_PROD_API_KEY` (Vercel Production only) → Prod button live. | Prod pushes begin. |
 
 P4 is separate from P2 so designers aren't blocked mid-task the day the card
 appears. In P3, expect most customers to show the Dev button disabled by
