@@ -60,11 +60,11 @@ function splitTags(raw: string): string[] {
   return raw.split(',').map((t) => t.trim()).filter(Boolean);
 }
 
-const MAX_MATCHES = 50;
-
 /**
- * Type-to-filter picker for Rejig's long lists. Only an option from the list can be picked; clearing the text
- * clears the pick. A saved value missing from the list still shows.
+ * Dropdown with type-to-filter for Rejig's long lists: click to scroll the
+ * whole list, or type to narrow it. Only an option from the list can be
+ * picked; clearing the text clears the pick. A saved value missing from the
+ * list still shows.
  */
 function SearchSelect({
   options,
@@ -82,7 +82,7 @@ function SearchSelect({
   const [query, setQuery] = useState<string | null>(null);
   const q = (query ?? '').trim().toLowerCase();
   const matches = useMemo(
-    () => (query === null ? [] : options.filter((o) => o.label.toLowerCase().includes(q)).slice(0, MAX_MATCHES)),
+    () => (query === null ? [] : q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options),
     [options, query, q],
   );
 
@@ -92,15 +92,22 @@ function SearchSelect({
         type="text"
         disabled={disabled}
         value={query ?? selected?.label ?? ''}
-        placeholder={placeholder}
+        // While open, the current pick stays visible as the placeholder.
+        placeholder={query !== null && selected ? selected.label : placeholder}
         onFocus={() => setQuery('')}
         onBlur={() => setQuery(null)}
         onChange={(e) => {
           setQuery(e.target.value);
           if (e.target.value === '' && selected) onChange(null);
         }}
-        className={inputClass}
+        className={`${inputClass} pr-9`}
       />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#1B2E35]/50"
+      >
+        ▾
+      </span>
       {query !== null && (
         <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[#E0DEE4] bg-white py-1 text-sm shadow-lg">
           {matches.length === 0 ? (
@@ -124,9 +131,6 @@ function SearchSelect({
                 </button>
               </li>
             ))
-          )}
-          {matches.length === MAX_MATCHES && (
-            <li className="px-3 py-1.5 text-xs text-[#1B2E35]/40">Keep typing to narrow the list</li>
           )}
         </ul>
       )}
