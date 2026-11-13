@@ -4,7 +4,8 @@ import type { RejigOption } from '@/lib/brand-kit';
 /**
  * Option lists for the brand-kit pickers, owned by Rejig. Read from Rejig
  * prod (the lists the Account Creator builds accounts from), falling back to
- * dev when the prod key isn't set. Cached for a day; a failed fetch isn't
+ * dev when prod has no key or fails (Rejig says the lists are identical; on
+ * 2026-11-12 the prod key got 401 on both). Cached for a day; a failed fetch isn't
  * cached and the picker shows whatever is already saved.
  * Plan: docs/plans/rejig-account-sync.md.
  *
@@ -25,16 +26,24 @@ const ONE_DAY = 86_400;
 const INDUSTRY = 'realtor';
 
 async function getRejig(path: string): Promise<unknown> {
-  const base = process.env[BASES.prod.keyVar] ? BASES.prod : BASES.dev;
-  const apiKey = process.env[base.keyVar];
-  if (!apiKey) throw new Error('No Rejig API key configured.');
-  const res = await fetch(`${base.url}${path}`, {
-    headers: { 'X-Service-API-Key': apiKey, Accept: 'application/json' },
-    cache: 'no-store',
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`Rejig ${path} returned HTTP ${res.status}`);
-  return res.json();
+  const errors: string[] = [];
+  for (const [env, base] of [['prod', BASES.prod], ['dev', BASES.dev]] as const) {
+    const apiKey = process.env[base.keyVar];
+    if (!apiKey) continue;
+    try {
+      const res = await fetch(`${base.url}${path}`, {
+        headers: { 'X-Service-API-Key': apiKey, Accept: 'application/json' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (res.ok) return await res.json();
+      errors.push(`${env} HTTP ${res.status}`);
+    } catch (err) {
+      errors.push(`${env} ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (env === 'prod') console.warn(`Rejig ${path}: prod failed (${errors.at(-1)}), trying dev`);
+  }
+  throw new Error(`Rejig ${path} unavailable: ${errors.join('; ') || 'no API key configured'}`);
 }
 
 function rows(v: unknown): Record<string, unknown>[] {
