@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   // Touched 2026-06-02 alongside the vercel.json redirects landing to
   // defensively bust the proxy bundle cache (a stale compiled matcher
   // was the cause of the 4-commit thrash we just reverted).
+  // Touched 2026-11-13: stale next/font/google cache ("queries have exactly
+  // one entry") failed a production build.
 };
 
 export default nextConfig;
