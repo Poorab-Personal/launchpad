@@ -1,0 +1,273 @@
+/**
+ * Rejig account-sync payload builder + brand-kit completeness.
+ *
+ * Locks the field mapping in docs/plans/rejig-account-sync.md: which LaunchPad
+ * field feeds which Rejig key, empty → null, the name-resolution order
+ * (saved → roster → guessed), and the "no empty data pushed" pre-flight.
+ */
+import { describe, it, expect } from 'vitest';
+import { brandKitMissing, emptyBrandKit, type BrandKit } from '@/lib/brand-kit';
+import {
+  buildRejigPayload,
+  normalizeWebsite,
+  resolveAgentName,
+  splitEmails,
+  syncPreflight,
+  type PayloadCustomer,
+} from '@/lib/rejig-sync/payload';
+
+function customer(overrides: Partial<PayloadCustomer> = {}): PayloadCustomer {
+  return {
+    id: '11111111-1111-1111-1111-111111111111',
+    name: 'Kenny Hora',
+    type: 'B2B',
+    phone: '(319) 651-9335',
+    businessName: 'Kenny Hora',
+    businessAddress: '226 East 2nd Street, Muscatine, IA',
+    website: 'kennyhora.ruhlhomes.com',
+    contactEmail: 'kennyhora@ruhlhomes.com',
+    platformEmail: 'kennyhora@ruhlhomes.com',
+    otherEmails: '',
+    licenseNumber: 'S72575000',
+    serviceOption: 'Self-Managed',
+    mlsIds: 'Muscatine MLS: hok',
+    bio: 'Bio text',
+    serviceAreas: 'MUSCATINE COUNTY, SCOTT COUNTY',
+    localContentAreas: 'MUSCATINE, WEST LIBERTY',
+    topics: 'FIRST TIME BUYERS, LANDLORDS',
+    hashtags: '',
+    reviewSources: ['google', 'testimonial_tree'],
+    gmbName: 'Kenny Hora, Realtor',
+    zillowProfile: '',
+    agentPhoto: [{ url: 'https://x.public.blob.vercel-storage.com/headshot.png' }],
+    productTier: 'Premium',
+    ...overrides,
+  };
+}
+
+function completeKit(overrides: Partial<BrandKit> = {}): BrandKit {
+  return {
+    ...emptyBrandKit(),
+    logos: {
+      primary: { url: 'https://x.public.blob.vercel-storage.com/logo.png' },
+      black: { url: 'https://x.public.blob.vercel-storage.com/logo-black.png' },
+    },
+    palette: ['#00395d', '#FFFFFF', '#F1C400', '#F2F2F2', '#666666'],
+    logoSelection: ['logo_white', 'logo', 'logo_black', 'logo', 'logo_white'],
+    teamLogoSelection: ['logo_white', 'logo', 'logo_black', 'logo', 'logo_black'],
+    footerLabel: 'Kenny-Hora-Ruhl-Footer',
+    affiliation: { value: 'ruhl', label: 'Ruhl & Ruhl' },
+    ...overrides,
+  };
+}
+
+const ruhl = { name: 'RuhlHomes', shortName: 'Ruhl' };
+const name = { firstName: 'Kenny', lastName: 'Hora' };
+
+describe('buildRejigPayload', () => {
+  it('maps intake fields and brokerage', () => {
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() });
+    expect(p.source_customer_id).toBe('11111111-1111-1111-1111-111111111111');
+    expect(p.first_name).toBe('Kenny');
+    expect(p.website).toBe('https://kennyhora.ruhlhomes.com');
+    expect(p.signin_email).toBe('kennyhora@ruhlhomes.com');
+    expect(p.monthly_market_reports).toBe('MUSCATINE COUNTY, SCOTT COUNTY');
+    expect(p.neighborhood_news).toBe('MUSCATINE, WEST LIBERTY');
+    expect(p.review_sources).toBe('Google, Testimonial Tree');
+    expect(p.managed_by).toBe('Agent (self-managed)');
+    expect(p.customer_type).toBe('B2B');
+    expect(p.associated_brokerage).toBe('Ruhl');
+    expect(p.broker).toBe('Ruhl');
+    expect(p.industry).toBe('Realtor');
+    expect(p.account_type).toBe('Premium');
+    expect(p.profile_image_url).toBe('https://x.public.blob.vercel-storage.com/headshot.png');
+  });
+
+  it('sends empty strings as null', () => {
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() });
+    expect(p.hashtags).toBeNull();
+    expect(p.zillow).toBeNull();
+    expect(p.other_emails).toBeNull();
+    expect(p.logo_white_url).toBeNull();
+    expect(p.image_custom_search_tags).toBeNull();
+  });
+
+  it('maps the brand kit', () => {
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() });
+    expect(p.logo_url).toBe('https://x.public.blob.vercel-storage.com/logo.png');
+    expect(p.logo_black_url).toBe('https://x.public.blob.vercel-storage.com/logo-black.png');
+    expect(p.domain_color_palette).toHaveLength(5);
+    expect(p.derived_logos).toEqual(['logo_white', 'logo', 'logo_black', 'logo', 'logo_white']);
+    expect(p.team_derived_logos).toEqual(['logo_white', 'logo', 'logo_black', 'logo', 'logo_black']);
+    expect(p.footer_label).toBe('Kenny-Hora-Ruhl-Footer');
+    expect(p.affiliation).toBe('ruhl');
+    expect(p.brand_logo_sizes).toEqual({ facebook_square: 100, instagram: 100 });
+    expect(p.apply_custom_font).toBe(false);
+    expect(p.font).toBeNull();
+  });
+
+  it('sends fonts only when custom font is on', () => {
+    const kit = completeKit({
+      applyCustomFont: true,
+      fonts: {
+        primary: { value: 'Montserrat', label: 'Montserrat', lineHeight: 1.2 },
+        secondary: { value: 'Lora', label: 'Lora', lineHeight: 1.5 },
+        tertiary: { value: 'Open Sans', label: 'Open Sans', lineHeight: 1 },
+      },
+    });
+    const p = buildRejigPayload({ customer: customer(), brokerage: ruhl, name, brandKit: kit });
+    expect(p.apply_custom_font).toBe(true);
+    expect(p.font).toEqual([
+      { type: 'primary', font: 'Montserrat', line_height: 1.2 },
+      { type: 'secondary', font: 'Lora', line_height: 1.5 },
+      { type: 'tertiary', font: 'Open Sans', line_height: 1 },
+    ]);
+  });
+
+  it('labels brokerage-managed agents with the brokerage team', () => {
+    const p = buildRejigPayload({
+      customer: customer({ serviceOption: 'Brokerage-Managed' }),
+      brokerage: ruhl,
+      name,
+      brandKit: completeKit(),
+    });
+    expect(p.managed_by).toBe('Ruhl Marketing Team');
+  });
+
+  it('has no brokerage for D2C and falls back to name for business name', () => {
+    const p = buildRejigPayload({
+      customer: customer({ type: 'D2C', serviceOption: null, businessName: '' }),
+      brokerage: null,
+      name,
+      brandKit: completeKit(),
+    });
+    expect(p.associated_brokerage).toBeNull();
+    expect(p.broker).toBeNull();
+    expect(p.managed_by).toBeNull();
+    expect(p.business_name).toBe('Kenny Hora');
+  });
+
+  it('falls back to the full brokerage name when short name is empty', () => {
+    const p = buildRejigPayload({
+      customer: customer(),
+      brokerage: { name: 'Coach Realtors', shortName: '' },
+      name,
+      brandKit: completeKit(),
+    });
+    expect(p.associated_brokerage).toBe('Coach Realtors');
+  });
+});
+
+describe('helpers', () => {
+  it('normalizes websites', () => {
+    expect(normalizeWebsite('a.keyes.com')).toBe('https://a.keyes.com');
+    expect(normalizeWebsite('http://a.com')).toBe('http://a.com');
+    expect(normalizeWebsite('  ')).toBeNull();
+  });
+
+  it('splits other emails', () => {
+    expect(splitEmails('a@x.com, b@x.com;c@x.com\nd@x.com')).toEqual([
+      'a@x.com',
+      'b@x.com',
+      'c@x.com',
+      'd@x.com',
+    ]);
+    expect(splitEmails('')).toBeNull();
+  });
+});
+
+describe('resolveAgentName', () => {
+  it('prefers saved names', () => {
+    expect(
+      resolveAgentName({
+        saved: { firstName: 'Shari', lastName: 'Zeuner' },
+        roster: { firstName: 'X', lastName: 'Y' },
+        name: 'The Zeuner Team',
+      }),
+    ).toEqual({ firstName: 'Shari', lastName: 'Zeuner', source: 'saved' });
+  });
+
+  it('uses the roster next', () => {
+    expect(
+      resolveAgentName({ roster: { firstName: 'Shari', lastName: 'Zeuner' }, name: 'The Zeuner Team' }),
+    ).toEqual({ firstName: 'Shari', lastName: 'Zeuner', source: 'roster' });
+  });
+
+  it('ignores a half-filled roster row and guesses from name', () => {
+    expect(resolveAgentName({ roster: { firstName: 'Shari', lastName: '' }, name: 'Shari Zeuner' })).toEqual({
+      firstName: 'Shari',
+      lastName: 'Zeuner',
+      source: 'guessed',
+    });
+  });
+
+  it('strips designations and keeps compound surnames', () => {
+    expect(resolveAgentName({ name: 'Stacia McCallum, PA' })).toMatchObject({
+      firstName: 'Stacia',
+      lastName: 'McCallum',
+    });
+    expect(resolveAgentName({ name: 'Maria de la Cruz' })).toMatchObject({
+      firstName: 'Maria',
+      lastName: 'de la Cruz',
+    });
+  });
+
+  it('leaves last name empty for a single word', () => {
+    expect(resolveAgentName({ name: 'Cher' })).toEqual({ firstName: 'Cher', lastName: '', source: 'guessed' });
+  });
+});
+
+describe('brandKitMissing', () => {
+  it('is empty for a complete kit (black/white logos optional)', () => {
+    expect(brandKitMissing(completeKit({ logos: { primary: { url: 'https://x/l.png' } } }), 'Luxury')).toEqual([]);
+  });
+
+  it('lists everything required for a missing kit', () => {
+    expect(brandKitMissing(null, null)).toEqual([
+      'Primary logo',
+      'Palette (5 colours)',
+      'Logo selection',
+      'Team logo selection',
+      'Account type',
+      'Footer label',
+      'Affiliation',
+    ]);
+  });
+
+  it('rejects short palettes, bad hex, and partial selections', () => {
+    const missing = brandKitMissing(
+      completeKit({
+        palette: ['#00395d', 'white', '#F1C400', '#F2F2F2', '#666666'],
+        logoSelection: ['logo', 'logo'],
+      }),
+      'Premium',
+    );
+    expect(missing).toEqual(['Palette (5 colours)', 'Logo selection']);
+  });
+
+  it('requires all three fonts only when custom font is on', () => {
+    const kit = completeKit({
+      applyCustomFont: true,
+      fonts: { primary: { value: 'Inter', label: 'Inter', lineHeight: 1 } },
+    });
+    expect(brandKitMissing(kit, 'Premium')).toEqual(['Fonts + line heights']);
+    expect(brandKitMissing({ ...kit, applyCustomFont: false }, 'Premium')).toEqual([]);
+  });
+});
+
+describe('syncPreflight', () => {
+  it('blocks on website, names and the brand kit', () => {
+    expect(
+      syncPreflight({
+        customer: customer({ website: '', productTier: null }),
+        brokerage: ruhl,
+        name: { firstName: 'Kenny', lastName: '' },
+        brandKit: completeKit(),
+      }),
+    ).toEqual(['Website', 'Last name', 'Account type']);
+  });
+
+  it('passes a complete customer', () => {
+    expect(syncPreflight({ customer: customer(), brokerage: ruhl, name, brandKit: completeKit() })).toEqual([]);
+  });
+});

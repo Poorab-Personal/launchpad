@@ -1,0 +1,24 @@
+{
+  "_comment": "Brand kit used by scripts/rejig-sync-preview.ts until designers can fill real kits (P2). Logos left out here are filled per customer from their uploaded logo or the brokerage master logo. Values mirror Rejig's sample payload.",
+  "accountType": "Premium",
+  "brandKit": {
+    "logos": {},
+    "palette": ["#00395d", "#FFFFFF", "#F1C400", "#F2F2F2", "#666666"],
+    "logoSelection": ["logo_white", "logo", "logo_black", "logo", "logo_white"],
+    "teamLogoSelection": ["logo_white", "logo", "logo_black", "logo", "logo_black"],
+    "applyFixedLogoHeight": false,
+    "applyCustomFont": true,
+    "fonts": {
+      "primary": { "value": "Montserrat", "label": "Montserrat", "lineHeight": 1.2 },
+      "secondary": { "value": "Lora", "label": "Lora", "lineHeight": 1.5 },
+      "tertiary": { "value": "Open Sans", "label": "Open Sans", "lineHeight": 1 }
+    },
+    "brandLogoSizes": { "facebookSquare": 100, "instagram": 100 },
+    "teamLogoSizes": { "facebookSquare": 100, "instagram": 100 },
+    "footerLabel": "LaunchPad-Contract-Test-Footer",
+    "affiliation": { "value": "Blank - Luxury", "label": "Blank - Luxury" },
+    "otherAffiliation": "",
+    "imageSearchTags": [],
+    "videoSearchTags": []
+  }
+}
